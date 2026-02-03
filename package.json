@@ -66,43 +66,27 @@
   },
   "exports": {
     ".": {
-      "import": {
+      "default": {
         "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
       }
     },
     "./client": {
-      "import": {
+      "default": {
         "types": "./dist/client.d.mts",
         "default": "./dist/client.mjs"
-      },
-      "require": {
-        "types": "./dist/client.d.cts",
-        "default": "./dist/client.cjs"
       }
     },
     "./error": {
-      "import": {
+      "default": {
         "types": "./dist/error.d.mts",
         "default": "./dist/error.mjs"
-      },
-      "require": {
-        "types": "./dist/error.d.cts",
-        "default": "./dist/error.cjs"
       }
     },
     "./node": {
-      "import": {
+      "default": {
         "types": "./dist/node.d.mts",
         "default": "./dist/node.mjs"
-      },
-      "require": {
-        "types": "./dist/node.d.cts",
-        "default": "./dist/node.cjs"
       }
     }
   },

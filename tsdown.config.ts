@@ -9,7 +9,7 @@ export default defineConfig({
 	},
 	dts: true,
 	sourcemap: true,
-	format: ["esm", "cjs"],
+	format: "esm",
 	unbundle: true,
 	target: "es2022",
 });

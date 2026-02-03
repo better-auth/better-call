@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import * as set_cookie_parser from "set-cookie-parser";
+import { splitCookiesString } from "set-cookie-parser";
 
 function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 	const h = req.headers;
@@ -22,7 +22,7 @@ function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 		if (!length) {
 			length = body_size_limit;
 		} else if (length > body_size_limit) {
-			throw Error(
+			throw new Error(
 				`Received content-length of ${length}, but only accept up to ${body_size_limit} bytes.`,
 			);
 		}
@@ -143,7 +143,7 @@ export async function setResponse(res: ServerResponse, response: Response) {
 			res.setHeader(
 				key,
 				key === "set-cookie"
-					? set_cookie_parser.splitCookiesString(response.headers.get(key) as string)
+					? splitCookiesString(response.headers.get(key) as string)
 					: value,
 			);
 		} catch (error) {
