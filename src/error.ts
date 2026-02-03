@@ -213,15 +213,7 @@ class InternalAPIError extends Error {
 		this.status = status;
 		this.headers = headers;
 		this.statusCode = statusCode;
-		this.body = body
-			? {
-					code: body?.message
-						?.toUpperCase()
-						.replace(/ /g, "_")
-						.replace(/[^A-Z0-9_]/g, ""),
-					...body,
-				}
-			: undefined;
+		this.body = body;
 	}
 }
 
