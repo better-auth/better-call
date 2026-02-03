@@ -20,7 +20,7 @@
     "lint:spell": "cspell .",
     "lint:dependencies": "knip --strict",
     "lint:package": "publint --strict .",
-    "lint:types": "attw --profile node16 --pack .",
+    "lint:types": "attw --profile esm-only --pack .",
     "lint:fix": "biome format --fix",
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
@@ -66,28 +66,20 @@
   },
   "exports": {
     ".": {
-      "default": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      }
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
     },
     "./client": {
-      "default": {
-        "types": "./dist/client.d.mts",
-        "default": "./dist/client.mjs"
-      }
+      "types": "./dist/client.d.mts",
+      "default": "./dist/client.mjs"
     },
     "./error": {
-      "default": {
-        "types": "./dist/error.d.mts",
-        "default": "./dist/error.mjs"
-      }
+      "types": "./dist/error.d.mts",
+      "default": "./dist/error.mjs"
     },
     "./node": {
-      "default": {
-        "types": "./dist/node.d.mts",
-        "default": "./dist/node.mjs"
-      }
+      "types": "./dist/node.d.mts",
+      "default": "./dist/node.mjs"
     }
   },
   "files": [

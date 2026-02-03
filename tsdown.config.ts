@@ -7,9 +7,9 @@ export default defineConfig({
 		error: "src/error.ts",
 		node: "src/adapters/node/index.ts",
 	},
-	dts: true,
+	format: ["esm"],
 	sourcemap: true,
-	format: "esm",
+	treeshake: true,
+	clean: true,
 	unbundle: true,
-	target: "es2022",
 });
