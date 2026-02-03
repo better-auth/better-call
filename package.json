@@ -1,7 +1,7 @@
 {
   "name": "better-call",
   "version": "1.2.1",
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.28.2",
   "type": "module",
   "repository": {
     "type": "git",
@@ -45,16 +45,16 @@
     "knip": "^5.71.0",
     "publint": "^0.3.15",
     "supertest": "^7.1.4",
-    "tsdown": "^0.18.0",
+    "tsdown": "^0.20.1",
     "typescript": "^5.9.3",
     "valibot": "1.0.0-beta.15",
     "vitest": "^3.1.1"
   },
   "dependencies": {
-    "@better-auth/utils": "^0.3.0",
-    "@better-fetch/fetch": "^1.1.4",
-    "rou3": "^0.7.10",
-    "set-cookie-parser": "^2.7.1"
+    "@better-auth/utils": "^0.3.1",
+    "@better-fetch/fetch": "^1.1.21",
+    "rou3": "^0.7.12",
+    "set-cookie-parser": "^3.0.1"
   },
   "peerDependencies": {
     "zod": "^4.0.0"
