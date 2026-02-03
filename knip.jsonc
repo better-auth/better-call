@@ -3,9 +3,7 @@
 	"workspaces": {
 		"example": {
 			"project": ["**/*.ts"],
-			"ignoreDependencies": [
-				"better-call"
-		]
+			"ignoreDependencies": ["better-call"]
 		},
 		".": {
 			"project": ["src/**/*.ts!"],
