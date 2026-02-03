@@ -170,7 +170,7 @@ export interface EndpointBaseOptions {
 		/**
 		 * Extra metadata
 		 */
-		[key: string]: any;
+		[key: string]: unknown;
 	};
 	/**
 	 * List of middlewares to use
@@ -235,7 +235,7 @@ export type EndpointBodyMethodOptions =
 			body?: StandardSchemaV1;
 	  };
 
-export type EndpointOptions = EndpointBaseOptions & EndpointBodyMethodOptions;
+export type EndpointOptions = EndpointBodyMethodOptions & EndpointBaseOptions;
 
 export type EndpointContext<Path extends string, Options extends EndpointOptions, Context = {}> = {
 	/**

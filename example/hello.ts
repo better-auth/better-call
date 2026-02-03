@@ -1,6 +1,17 @@
-import { createEndpoint } from "../src/endpoint";
-import { createRouter } from "../src/router";
+import { createEndpoint, createRouter, createMiddleware } from "better-call";
 import { z } from "zod";
+
+const middleware = createMiddleware(async (ctx) => {
+	return {
+		test: "hello",
+	};
+});
+
+const middleware2 = createMiddleware(async (ctx) => {
+	return {
+		test2: "world",
+	};
+});
 
 const hello = createEndpoint(
 	"/hello",
@@ -9,6 +20,7 @@ const hello = createEndpoint(
 		body: z.object({
 			name: z.string(),
 		}),
+		use: [middleware, middleware2],
 		metadata: {
 			openapi: {
 				responses: {
@@ -27,6 +39,7 @@ const hello = createEndpoint(
 		},
 	},
 	async (c) => {
+		c.context;
 		c.setCookie("hello", "world");
 		c.setCookie("test", "value");
 		return "hello from better-call!";

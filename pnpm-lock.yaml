@@ -82,6 +82,12 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(@types/node@22.10.7)
 
+  example:
+    dependencies:
+      better-call:
+        specifier: workspace:*
+        version: link:..
+
 packages:
 
   '@ampproject/remapping@2.3.0':

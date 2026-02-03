@@ -66,6 +66,7 @@
   },
   "exports": {
     ".": {
+      "dev-source": "./src/index.ts",
       "import": {
         "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
@@ -76,6 +77,7 @@
       }
     },
     "./client": {
+      "dev-source": "./src/client.ts",
       "import": {
         "types": "./dist/client.d.mts",
         "default": "./dist/client.mjs"
@@ -86,6 +88,7 @@
       }
     },
     "./error": {
+      "dev-source": "./src/error.ts",
       "import": {
         "types": "./dist/error.d.mts",
         "default": "./dist/error.mjs"
@@ -96,6 +99,7 @@
       }
     },
     "./node": {
+      "dev-source": "./src/node.ts",
       "import": {
         "types": "./dist/node.d.mts",
         "default": "./dist/node.mjs"
