@@ -217,11 +217,19 @@ export async function setResponse(res: ServerResponse, response: Response) {
 
 				if (done) break;
 
-				if (!res.write(value)) {
-					res.once("drain", next);
-					return;
+			    const writeResult = res.write(value);
+				if (!writeResult) {
+					// In AWS Lambda/serverless environments, drain events may not work properly
+					// Check if we're in a Lambda-like environment and handle differently
+					if (process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT) {
+						// In Lambda, continue without waiting for drain
+						continue;
+					} else {
+						// Standard Node.js behavior
+						res.once("drain", next);
+						return;
+					}
 				}
-			}
 			res.end();
 		} catch (error) {
 			cancel(error instanceof Error ? error : new Error(String(error)));
