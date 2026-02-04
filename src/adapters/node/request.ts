@@ -217,7 +217,7 @@ export async function setResponse(res: ServerResponse, response: Response) {
 
 				if (done) break;
 
-			    const writeResult = res.write(value);
+				const writeResult = res.write(value);
 				if (!writeResult) {
 					// In AWS Lambda/serverless environments, drain events may not work properly
 					// Check if we're in a Lambda-like environment and handle differently
@@ -230,7 +230,8 @@ export async function setResponse(res: ServerResponse, response: Response) {
 						return;
 					}
 				}
-			res.end();
+				res.end();
+			}
 		} catch (error) {
 			cancel(error instanceof Error ? error : new Error(String(error)));
 		}
