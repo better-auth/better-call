@@ -7,7 +7,7 @@
 		"lint": "biome format",
 		"lint:spell": "cspell .",
 		"lint:dependencies": "knip --strict",
-		"lint:package": "publint --strict .",
+		"lint:packages": "pnpm -w --filter=./packages/* run lint:package",
 		"lint:types": "attw --profile node16 --pack .",
 		"lint:fix": "biome format --fix",
 		"format": "biome format --write",

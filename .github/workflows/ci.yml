@@ -36,7 +36,7 @@ jobs:
               run: pnpm lint:dependencies
 
             - name: Lint package
-              run: pnpm lint:package
+              run: pnpm lint:packages
 
             - name: Lint types
               run: pnpm lint:types

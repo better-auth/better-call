@@ -13,6 +13,7 @@
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.mts",
 	"scripts": {
+        "lint:package": "publint --strict .",
 		"test": "vitest",
 		"coverage": "vitest run --coverage",
 		"coverage:open": "open coverage/index.html",
