@@ -3,6 +3,7 @@
   "packageManager": "pnpm@10.28.2",
   "private": true,
   "scripts": {
+    "build": "pnpm -w --filter=./packages/* run build",
     "lint": "biome format",
     "lint:spell": "cspell .",
     "lint:dependencies": "knip --strict",
