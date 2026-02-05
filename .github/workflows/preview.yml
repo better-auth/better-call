@@ -1,6 +1,10 @@
 name: Publish Any Commit
 on: [pull_request]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
