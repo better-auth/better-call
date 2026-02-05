@@ -912,6 +912,121 @@ describe("creator", () => {
 	});
 });
 
+describe("context parameter", () => {
+	it("should pass context from input parameter to endpoint", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+				body: z.object({
+					name: z.string(),
+				}),
+			},
+			async (ctx) => {
+				// Context should be accessible in the endpoint handler
+				return {
+					body: ctx.body,
+					context: ctx.context,
+				};
+			},
+		);
+
+		const response = await endpoint({
+			body: { name: "test" },
+			context: {
+				userId: "123",
+				requestId: "req-456",
+			},
+		});
+
+		expect(response.body.name).toBe("test");
+		expect(response.context).toMatchObject({
+			userId: "123",
+			requestId: "req-456",
+		});
+	});
+
+	it("should merge context with middleware context", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+				use: [
+					createMiddleware(async () => {
+						return {
+							fromMiddleware: "middleware-value",
+						};
+					}),
+				],
+			},
+			async (ctx) => {
+				return ctx.context;
+			},
+		);
+
+		const response = await endpoint({
+			context: {
+				fromInput: "input-value",
+			},
+		});
+
+		// Both middleware context and input context should be available
+		expect(response).toMatchObject({
+			fromMiddleware: "middleware-value",
+			fromInput: "input-value",
+		});
+	});
+
+	it("should handle empty context parameter", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+			},
+			async (ctx) => {
+				return ctx.context;
+			},
+		);
+
+		const response = await endpoint();
+
+		// Should have empty context object
+		expect(response).toEqual({});
+	});
+
+	it("should allow context with complex nested objects", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+			},
+			async (ctx) => {
+				return ctx.context;
+			},
+		);
+
+		const complexContext = {
+			user: {
+				id: "123",
+				profile: {
+					name: "Test User",
+					email: "test@example.com",
+				},
+			},
+			metadata: {
+				traceId: "trace-123",
+				tags: ["tag1", "tag2"],
+			},
+		};
+
+		const response = await endpoint({
+			context: complexContext,
+		});
+
+		expect(response).toEqual(complexContext);
+	});
+});
+
 describe("onAPIError", () => {
 	it("should call onAPIError", async () => {
 		let error: APIError | undefined;

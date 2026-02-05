@@ -169,6 +169,7 @@ export type InputContext<
 		returnStatus?: boolean;
 		use?: Middleware[];
 		path?: string;
+		context?: Record<string, any>;
 	};
 
 export const createInternalContext = async (
