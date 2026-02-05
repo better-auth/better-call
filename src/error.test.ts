@@ -32,7 +32,7 @@ describe("APIError", () => {
 			expect(loggedString).toMatchInlineSnapshot(`
 				"[InternalAPIError: Test error in function] {
 				  status: 'INTERNAL_SERVER_ERROR',
-				  body: { code: 'TEST_ERROR_IN_FUNCTION', message: 'Test error in function' },
+				  body: { message: 'Test error in function' },
 				  headers: {},
 				  statusCode: 500
 				}"
