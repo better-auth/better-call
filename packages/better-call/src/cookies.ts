@@ -228,7 +228,11 @@ const _serialize = (key: string, value: string, opt: CookieOptions = {}) => {
 	return cookie;
 };
 
-export const serializeCookie = (key: string, value: string, opt?: CookieOptions) => {
+export const serializeCookie = (
+	key: string,
+	value: string,
+	opt?: CookieOptions,
+) => {
 	value = encodeURIComponent(value);
 	return _serialize(key, value, opt);
 };

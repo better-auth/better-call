@@ -12,7 +12,9 @@ export declare namespace StandardSchemaV1 {
 		/** The vendor name of the schema library. */
 		readonly vendor: string;
 		/** Validates unknown input values. */
-		readonly validate: (value: unknown) => Result<Output> | Promise<Result<Output>>;
+		readonly validate: (
+			value: unknown,
+		) => Result<Output> | Promise<Result<Output>>;
 		/** Inferred types associated with the schema. */
 		readonly types?: Types<Input, Output> | undefined;
 	}

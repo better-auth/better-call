@@ -6,7 +6,8 @@ import type { Router } from "../../router.js";
 export function toNodeHandler(handler: Router["handler"]) {
 	return async (req: IncomingMessage, res: ServerResponse) => {
 		const protocol =
-			req.headers["x-forwarded-proto"] || ((req.socket as any).encrypted ? "https" : "http");
+			req.headers["x-forwarded-proto"] ||
+			((req.socket as any).encrypted ? "https" : "http");
 		const base = `${protocol}://${req.headers[":authority"] || req.headers.host}`;
 		const response = await handler(getRequest({ base, request: req }));
 		return setResponse(res, response);

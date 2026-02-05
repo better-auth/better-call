@@ -1,13 +1,14 @@
 export type RequiredKeysOf<BaseType extends object> = Exclude<
 	{
-		[Key in keyof BaseType]: BaseType extends Record<Key, BaseType[Key]> ? Key : never;
+		[Key in keyof BaseType]: BaseType extends Record<Key, BaseType[Key]>
+			? Key
+			: never;
 	}[keyof BaseType],
 	undefined
 >;
 
-export type HasRequiredKeys<BaseType extends object> = RequiredKeysOf<BaseType> extends never
-	? false
-	: true;
+export type HasRequiredKeys<BaseType extends object> =
+	RequiredKeysOf<BaseType> extends never ? false : true;
 
 export type Prettify<T> = {
 	[K in keyof T]: T[K];
@@ -28,13 +29,14 @@ export type MergeObject<
 	S extends Record<string, any> | never,
 > = T extends never ? S : S extends never ? T : T & S;
 
-export type InferParamPath<Path> = Path extends `${infer _Start}:${infer Param}/${infer Rest}`
-	? { [K in Param | keyof InferParamPath<Rest>]: string }
-	: Path extends `${infer _Start}:${infer Param}`
-		? { [K in Param]: string }
-		: Path extends `${infer _Start}/${infer Rest}`
-			? InferParamPath<Rest>
-			: {};
+export type InferParamPath<Path> =
+	Path extends `${infer _Start}:${infer Param}/${infer Rest}`
+		? { [K in Param | keyof InferParamPath<Rest>]: string }
+		: Path extends `${infer _Start}:${infer Param}`
+			? { [K in Param]: string }
+			: Path extends `${infer _Start}/${infer Rest}`
+				? InferParamPath<Rest>
+				: {};
 
 export type InferParamWildCard<Path> = Path extends
 	| `${infer _Start}/*:${infer Param}/${infer Rest}`

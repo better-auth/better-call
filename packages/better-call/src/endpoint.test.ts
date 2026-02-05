@@ -27,7 +27,9 @@ describe("validation", (it) => {
 				//@ts-expect-error
 				body: { name: 1 },
 			}),
-		).rejects.toThrowError("[body.name] Invalid type: Expected string but received 1");
+		).rejects.toThrowError(
+			"[body.name] Invalid type: Expected string but received 1",
+		);
 	});
 
 	it("should validate query and throw validation error", async () => {
@@ -49,7 +51,9 @@ describe("validation", (it) => {
 				//@ts-expect-error
 				query: { name: 1 },
 			}),
-		).rejects.toThrowError(`[query.name] Invalid type: Expected string but received 1`);
+		).rejects.toThrowError(
+			`[query.name] Invalid type: Expected string but received 1`,
+		);
 	});
 
 	it("should validate the body and return the body", async () => {
@@ -814,7 +818,9 @@ describe("response", () => {
 				},
 			);
 			try {
-				const response = await endpoint({ body: "I'm less than 1000 characters" });
+				const response = await endpoint({
+					body: "I'm less than 1000 characters",
+				});
 				// This ensures that there is an error thrown.
 				expect(response).not.toBeCalled();
 			} catch (error) {

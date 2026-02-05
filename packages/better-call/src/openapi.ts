@@ -1,7 +1,13 @@
 import { ZodObject, ZodOptional, ZodType } from "zod";
 import type { Endpoint, EndpointOptions } from "./endpoint";
 
-export type OpenAPISchemaType = "string" | "number" | "integer" | "boolean" | "array" | "object";
+export type OpenAPISchemaType =
+	| "string"
+	| "number"
+	| "integer"
+	| "boolean"
+	| "array"
+	| "object";
 
 export interface OpenAPIParameter {
 	in: "query" | "path" | "header" | "cookie";
@@ -132,7 +138,10 @@ function getRequestBody(options: EndpointOptions): any {
 		return options.metadata.openapi.requestBody;
 	}
 	if (!options.body) return undefined;
-	if (options.body instanceof ZodObject || options.body instanceof ZodOptional) {
+	if (
+		options.body instanceof ZodObject ||
+		options.body instanceof ZodOptional
+	) {
 		// @ts-ignore
 		const shape = options.body.shape;
 		if (!shape) return undefined;
@@ -150,7 +159,12 @@ function getRequestBody(options: EndpointOptions): any {
 			}
 		});
 		return {
-			required: options.body instanceof ZodOptional ? false : options.body ? true : false,
+			required:
+				options.body instanceof ZodOptional
+					? false
+					: options.body
+						? true
+						: false,
 			content: {
 				"application/json": {
 					schema: {
@@ -181,7 +195,8 @@ function getResponse(responses?: Record<string, any>) {
 					},
 				},
 			},
-			description: "Bad Request. Usually due to missing parameters, or invalid parameters.",
+			description:
+				"Bad Request. Usually due to missing parameters, or invalid parameters.",
 		},
 		"401": {
 			content: {
@@ -243,7 +258,8 @@ function getResponse(responses?: Record<string, any>) {
 					},
 				},
 			},
-			description: "Too Many Requests. You have exceeded the rate limit. Try again later.",
+			description:
+				"Too Many Requests. You have exceeded the rate limit. Try again later.",
 		},
 		"500": {
 			content: {

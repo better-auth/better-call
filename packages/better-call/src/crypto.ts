@@ -2,11 +2,15 @@ import { getWebcryptoSubtle } from "@better-auth/utils";
 const algorithm = { name: "HMAC", hash: "SHA-256" };
 
 export const getCryptoKey = async (secret: string | BufferSource) => {
-	const secretBuf = typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
-	return await getWebcryptoSubtle().importKey("raw", secretBuf, algorithm, false, [
-		"sign",
-		"verify",
-	]);
+	const secretBuf =
+		typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
+	return await getWebcryptoSubtle().importKey(
+		"raw",
+		secretBuf,
+		algorithm,
+		false,
+		["sign", "verify"],
+	);
 };
 
 export const verifySignature = async (
@@ -31,7 +35,10 @@ export const verifySignature = async (
 	}
 };
 
-const makeSignature = async (value: string, secret: string | BufferSource): Promise<string> => {
+const makeSignature = async (
+	value: string,
+	secret: string | BufferSource,
+): Promise<string> => {
 	const key = await getCryptoKey(secret);
 	const signature = await getWebcryptoSubtle().sign(
 		algorithm.name,
@@ -42,7 +49,10 @@ const makeSignature = async (value: string, secret: string | BufferSource): Prom
 	return btoa(String.fromCharCode(...new Uint8Array(signature)));
 };
 
-export const signCookieValue = async (value: string, secret: string | BufferSource) => {
+export const signCookieValue = async (
+	value: string,
+	secret: string | BufferSource,
+) => {
 	const signature = await makeSignature(value, secret);
 	value = `${value}.${signature}`;
 	value = encodeURIComponent(value);

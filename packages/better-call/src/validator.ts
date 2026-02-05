@@ -72,7 +72,10 @@ export async function runValidation(
 	};
 }
 
-function fromError(error: readonly StandardSchemaV1.Issue[], validating: string) {
+function fromError(
+	error: readonly StandardSchemaV1.Issue[],
+	validating: string,
+) {
 	const message = error
 		.map((e) => {
 			return `[${e.path?.length ? `${validating}.` + e.path.map((x) => (typeof x === "object" ? x.key : x)).join(".") : validating}] ${e.message}`;

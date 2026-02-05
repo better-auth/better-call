@@ -10,7 +10,9 @@ function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 
 	// check if no request body
 	if (
-		(req.httpVersionMajor === 1 && isNaN(content_length) && h["transfer-encoding"] == null) ||
+		(req.httpVersionMajor === 1 &&
+			isNaN(content_length) &&
+			h["transfer-encoding"] == null) ||
 		content_length === 0
 	) {
 		return null;
@@ -86,7 +88,9 @@ function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 	});
 }
 
-function constructRelativeUrl(req: IncomingMessage & { baseUrl?: string; originalUrl?: string }) {
+function constructRelativeUrl(
+	req: IncomingMessage & { baseUrl?: string; originalUrl?: string },
+) {
 	const baseUrl = req.baseUrl;
 	const originalUrl = req.originalUrl;
 
@@ -163,7 +167,9 @@ export async function setResponse(res: ServerResponse, response: Response) {
 			res.setHeader(
 				key,
 				key === "set-cookie"
-					? set_cookie_parser.splitCookiesString(response.headers.get(key) as string)
+					? set_cookie_parser.splitCookiesString(
+							response.headers.get(key) as string,
+						)
 					: value,
 			);
 		} catch (error) {
@@ -221,7 +227,10 @@ export async function setResponse(res: ServerResponse, response: Response) {
 				if (!writeResult) {
 					// In AWS Lambda/serverless environments, drain events may not work properly
 					// Check if we're in a Lambda-like environment and handle differently
-					if (process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT) {
+					if (
+						process.env.AWS_LAMBDA_FUNCTION_NAME ||
+						process.env.LAMBDA_TASK_ROOT
+					) {
 						// In Lambda, continue without waiting for drain
 						continue;
 					} else {

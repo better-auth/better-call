@@ -72,14 +72,19 @@ describe("client", () => {
 			},
 		});
 
-		expectTypeOf<Parameters<typeof client>[0]>().toExtend<"@post/test" | "/test2" | "/test3">();
+		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
+			"@post/test" | "/test2" | "/test3"
+		>();
 
 		const response = await client("@post/test", {
 			body: {
 				hello: "world",
 			},
 		});
-		expect(response.data).toMatchObject({ status: 200, body: { hello: "world" } });
+		expect(response.data).toMatchObject({
+			status: 200,
+			body: { hello: "world" },
+		});
 	});
 
 	it("should infer types", async () => {
@@ -102,7 +107,9 @@ describe("client", () => {
 			},
 		});
 
-		expectTypeOf<Parameters<typeof client>[0]>().toExtend<"@post/test" | "/test2" | "/test3">();
+		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
+			"@post/test" | "/test2" | "/test3"
+		>();
 
 		client("@post/test", {
 			body: {
@@ -315,7 +322,9 @@ describe("client", () => {
 				return new Response(null);
 			},
 		});
-		expectTypeOf<Parameters<typeof client>[0]>().toExtend<"@post/test" | "/test2">();
+		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
+			"@post/test" | "/test2"
+		>();
 		client("@post/test");
 		client("/test2");
 	});

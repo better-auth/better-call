@@ -13,7 +13,9 @@ describe("toResponse", () => {
 		it("should handle binary data", async () => {
 			const buffer = new Uint8Array([1, 2, 3]).buffer;
 			const response = toResponse(buffer);
-			expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/octet-stream",
+			);
 			await expect(response.arrayBuffer()).resolves.toEqual(buffer);
 		});
 
@@ -25,13 +27,17 @@ describe("toResponse", () => {
 		it("should handle URLSearchParams", async () => {
 			const params = new URLSearchParams("test=value");
 			const response = toResponse(params);
-			expect(response.headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/x-www-form-urlencoded",
+			);
 			await expect(response.text()).resolves.toBe("test=value");
 		});
 		it("should handle ReadableStream", async () => {
 			const stream = new ReadableStream();
 			const response = toResponse(stream);
-			expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/octet-stream",
+			);
 			expect(response.body).toBe(stream);
 		});
 	});
@@ -52,7 +58,9 @@ describe("toResponse", () => {
 			};
 			const response = toResponse(data);
 			expect(response.headers.get("Content-Type")).toBe("application/json");
-			await expect(response.text()).resolves.toBe(JSON.stringify({ serialized: 123 }));
+			await expect(response.text()).resolves.toBe(
+				JSON.stringify({ serialized: 123 }),
+			);
 		});
 
 		it("should handle bigint values", async () => {
@@ -71,7 +79,9 @@ describe("toResponse", () => {
 
 			const response = toResponse(circular);
 			expect(response.headers.get("Content-Type")).toBe("application/json");
-			await expect(response.text()).resolves.toBe('{"self":"[Circular ref-0]"}');
+			await expect(response.text()).resolves.toBe(
+				'{"self":"[Circular ref-0]"}',
+			);
 		});
 
 		it("should handle nested bigints inside circular references", async () => {
@@ -103,7 +113,9 @@ describe("toResponse", () => {
 
 	describe("Error handling", () => {
 		it("should handle APIError", async () => {
-			const error = new APIError("NOT_FOUND", { message: "Resource not found" });
+			const error = new APIError("NOT_FOUND", {
+				message: "Resource not found",
+			});
 			const response = toResponse(error);
 			expect(response.status).toBe(404);
 			expect(response.statusText).toBe("NOT_FOUND");
@@ -111,7 +123,9 @@ describe("toResponse", () => {
 		});
 
 		it("should handle APIError with custom headers", () => {
-			const error = new APIError("BAD_REQUEST", undefined, { "X-Error": "test" });
+			const error = new APIError("BAD_REQUEST", undefined, {
+				"X-Error": "test",
+			});
 			const response = toResponse(error);
 			expect(response.headers.get("X-Error")).toBe("test");
 		});
@@ -142,7 +156,9 @@ describe("toResponse", () => {
 			expect(response instanceof Response).toBe(true);
 			expect(response.status).toBe(201);
 			expect(response.headers.get("X-Test")).toBe("value");
-			await expect(response.text()).resolves.toBe(JSON.stringify({ test: "value" }));
+			await expect(response.text()).resolves.toBe(
+				JSON.stringify({ test: "value" }),
+			);
 		});
 	});
 

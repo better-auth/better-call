@@ -109,7 +109,9 @@ describe("router", () => {
 			endpointServerOnly,
 		});
 
-		const endpointVirtualResponse = await router.handler(new Request("http://localhost:3000"));
+		const endpointVirtualResponse = await router.handler(
+			new Request("http://localhost:3000"),
+		);
 		expect(endpointVirtualResponse.status).toBe(404);
 
 		const endpointServerOnlyResponse = await router.handler(
@@ -200,7 +202,10 @@ describe("router", () => {
 		const endpoint2 = createEndpoint("/test2/", { method: "GET" }, async () => {
 			return "hello world";
 		});
-		const router = createRouter({ endpoint, endpoint2 }, { skipTrailingSlashes: true });
+		const router = createRouter(
+			{ endpoint, endpoint2 },
+			{ skipTrailingSlashes: true },
+		);
 		const request = new Request("http://localhost/test/", {
 			method: "GET",
 		});
@@ -422,7 +427,9 @@ describe("router", () => {
 			destroyed: false,
 		};
 		const req = getRequest({ base, request: fakeReq });
-		expect(new URL(req.url).href).toBe("http://localhost:3000/api/auth/callback");
+		expect(new URL(req.url).href).toBe(
+			"http://localhost:3000/api/auth/callback",
+		);
 	});
 
 	it("node adapter getRequest should fall back to url when baseUrl is missing", async () => {
@@ -471,7 +478,9 @@ describe("error handling", () => {
 		);
 
 		let errorCaught = false;
-		const customResponse = new Response("Custom error response", { status: 418 });
+		const customResponse = new Response("Custom error response", {
+			status: 418,
+		});
 
 		const router = createRouter(
 			{ endpoint },
@@ -501,7 +510,9 @@ describe("error handling", () => {
 		);
 
 		let errorCaught = false;
-		const apiError = new APIError("BAD_REQUEST", { message: "Custom API error" });
+		const apiError = new APIError("BAD_REQUEST", {
+			message: "Custom API error",
+		});
 
 		const router = createRouter(
 			{ endpoint },
@@ -585,7 +596,9 @@ describe("error handling", () => {
 	});
 
 	it("should handle APIError directly when no onError is provided", async () => {
-		const apiError = new APIError("NOT_FOUND", { message: "Resource not found" });
+		const apiError = new APIError("NOT_FOUND", {
+			message: "Resource not found",
+		});
 		const endpoint = createEndpoint(
 			"/",
 			{
@@ -744,7 +757,10 @@ describe("error handling", () => {
 			const router = createRouter(
 				{ endpoint },
 				{
-					allowedMediaTypes: ["application/json", "application/x-www-form-urlencoded"],
+					allowedMediaTypes: [
+						"application/json",
+						"application/x-www-form-urlencoded",
+					],
 				},
 			);
 
@@ -926,7 +942,9 @@ describe("base path", () => {
 			},
 		);
 		const router = createRouter({ endpoint }, { basePath: "/api" });
-		const response = await router.handler(new Request("http://localhost/api/test"));
+		const response = await router.handler(
+			new Request("http://localhost/api/test"),
+		);
 		expect(response.status).toBe(200);
 		const text = await response.text();
 		expect(text).toBe("hello world");

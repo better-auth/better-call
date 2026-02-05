@@ -1,4 +1,9 @@
-import { addRoute, createRouter as createRou3Router, findAllRoutes, findRoute } from "rou3";
+import {
+	addRoute,
+	createRouter as createRou3Router,
+	findAllRoutes,
+	findRoute,
+} from "rou3";
 import { type Endpoint, createEndpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
 import { generator, getHTML } from "./openapi";
@@ -91,7 +96,10 @@ export interface RouterConfig {
 	};
 }
 
-export const createRouter = <E extends Record<string, Endpoint>, Config extends RouterConfig>(
+export const createRouter = <
+	E extends Record<string, Endpoint>,
+	Config extends RouterConfig,
+>(
 	endpoints: E,
 	config?: Config,
 ) => {
@@ -176,10 +184,14 @@ export const createRouter = <E extends Record<string, Endpoint>, Config extends 
 		const routeHasTrailingSlash = route?.data?.path?.endsWith("/");
 
 		// If the path has a trailing slash and the route doesn't have a trailing slash and skipTrailingSlashes is not set, return 404
-		if (hasTrailingSlash !== routeHasTrailingSlash && !config?.skipTrailingSlashes) {
+		if (
+			hasTrailingSlash !== routeHasTrailingSlash &&
+			!config?.skipTrailingSlashes
+		) {
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
-		if (!route?.data) return new Response(null, { status: 404, statusText: "Not Found" });
+		if (!route?.data)
+			return new Response(null, { status: 404, statusText: "Not Found" });
 
 		const query: Record<string, string | string[]> = {};
 		url.searchParams.forEach((value, key) => {
@@ -199,12 +211,15 @@ export const createRouter = <E extends Record<string, Endpoint>, Config extends 
 		try {
 			// Determine which allowedMediaTypes to use: endpoint-level overrides router-level
 			const allowedMediaTypes =
-				handler.options.metadata?.allowedMediaTypes || config?.allowedMediaTypes;
+				handler.options.metadata?.allowedMediaTypes ||
+				config?.allowedMediaTypes;
 			const context = {
 				path,
 				method: request.method as "GET",
 				headers: request.headers,
-				params: route.params ? (JSON.parse(JSON.stringify(route.params)) as any) : {},
+				params: route.params
+					? (JSON.parse(JSON.stringify(route.params)) as any)
+					: {},
 				request: request,
 				body: handler.options.disableBody
 					? undefined

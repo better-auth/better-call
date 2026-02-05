@@ -1,5 +1,10 @@
 import type { EndpointOptions } from "./endpoint";
-import { type statusCodes, APIError, ValidationError, type Status } from "./error";
+import {
+	type statusCodes,
+	APIError,
+	ValidationError,
+	type Status,
+} from "./error";
 import type {
 	InferParamPath,
 	InferParamWildCard,
@@ -7,7 +12,11 @@ import type {
 	Prettify,
 	UnionToIntersection,
 } from "./helper";
-import type { Middleware, MiddlewareContext, MiddlewareOptions } from "./middleware";
+import type {
+	Middleware,
+	MiddlewareContext,
+	MiddlewareOptions,
+} from "./middleware";
 import { runValidation } from "./validator";
 import {
 	getCookieKey,
@@ -84,11 +93,12 @@ export type InferQuery<Options extends EndpointOptions | MiddlewareOptions> =
 			? StandardSchemaV1.InferOutput<Options["query"]>
 			: Record<string, any> | undefined;
 
-export type InferMethod<Options extends EndpointOptions> = Options["method"] extends Array<Method>
-	? Options["method"][number]
-	: Options["method"] extends "*"
-		? HTTPMethod
-		: Options["method"];
+export type InferMethod<Options extends EndpointOptions> =
+	Options["method"] extends Array<Method>
+		? Options["method"][number]
+		: Options["method"] extends "*"
+			? HTTPMethod
+			: Options["method"];
 
 export type InferInputMethod<
 	Options extends EndpointOptions,
@@ -124,36 +134,41 @@ export type InferParamInput<Path extends string> = [Path] extends [never]
 export type InferRequest<Option extends EndpointOptions | MiddlewareOptions> =
 	Option["requireRequest"] extends true ? Request : Request | undefined;
 
-export type InferRequestInput<Option extends EndpointOptions | MiddlewareOptions> =
-	Option["requireRequest"] extends true
-		? {
-				request: Request;
-			}
-		: {
-				request?: Request;
-			};
+export type InferRequestInput<
+	Option extends EndpointOptions | MiddlewareOptions,
+> = Option["requireRequest"] extends true
+	? {
+			request: Request;
+		}
+	: {
+			request?: Request;
+		};
 
 export type InferHeaders<Option extends EndpointOptions | MiddlewareOptions> =
 	Option["requireHeaders"] extends true ? Headers : Headers | undefined;
 
-export type InferHeadersInput<Option extends EndpointOptions | MiddlewareOptions> =
-	Option["requireHeaders"] extends true
-		? {
-				headers: HeadersInit;
-			}
-		: {
-				headers?: HeadersInit;
-			};
+export type InferHeadersInput<
+	Option extends EndpointOptions | MiddlewareOptions,
+> = Option["requireHeaders"] extends true
+	? {
+			headers: HeadersInit;
+		}
+	: {
+			headers?: HeadersInit;
+		};
 
-export type InferUse<Opts extends EndpointOptions["use"]> = Opts extends Middleware[]
-	? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
-	: {};
+export type InferUse<Opts extends EndpointOptions["use"]> =
+	Opts extends Middleware[]
+		? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
+		: {};
 
 export type InferMiddlewareBody<Options extends MiddlewareOptions> =
 	Options["body"] extends StandardSchemaV1<infer T> ? T : any;
 
 export type InferMiddlewareQuery<Options extends MiddlewareOptions> =
-	Options["query"] extends StandardSchemaV1<infer T> ? T : Record<string, any> | undefined;
+	Options["query"] extends StandardSchemaV1<infer T>
+		? T
+		: Record<string, any> | undefined;
 
 export type InputContext<
 	Path extends string,
@@ -198,7 +213,9 @@ export const createInternalContext = async (
 				? context.request.headers
 				: null;
 	const requestCookies = requestHeaders?.get("cookie");
-	const parsedCookies = requestCookies ? parseCookies(requestCookies) : undefined;
+	const parsedCookies = requestCookies
+		? parseCookies(requestCookies)
+		: undefined;
 
 	const internalContext = {
 		...context,
@@ -231,7 +248,11 @@ export const createInternalContext = async (
 			}
 			return parsedCookies?.get(finalKey) || null;
 		},
-		getSignedCookie: async (key: string, secret: string, prefix?: CookiePrefixOptions) => {
+		getSignedCookie: async (
+			key: string,
+			secret: string,
+			prefix?: CookiePrefixOptions,
+		) => {
 			const finalKey = getCookieKey(key, prefix);
 			if (!finalKey) {
 				return null;
@@ -250,7 +271,11 @@ export const createInternalContext = async (
 				return null;
 			}
 			const secretKey = await getCryptoKey(secret);
-			const isVerified = await verifySignature(signature, signedValue, secretKey);
+			const isVerified = await verifySignature(
+				signature,
+				signedValue,
+				secretKey,
+			);
 			return isVerified ? signedValue : false;
 		},
 		setCookie: (key: string, value: string, options?: CookieOptions) => {

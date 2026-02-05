@@ -155,7 +155,9 @@ describe("set-cookies", () => {
 		const response = await endpoint({
 			returnHeaders: true,
 		});
-		expect(response.headers.get("set-cookie")).toBe("test=test, test2=test2, test3=test3");
+		expect(response.headers.get("set-cookie")).toBe(
+			"test=test, test2=test2, test3=test3",
+		);
 	});
 
 	it("should apply options", async () => {
@@ -176,7 +178,9 @@ describe("set-cookies", () => {
 			returnHeaders: true,
 		});
 
-		expect(response.headers.get("Set-Cookie")).toBe("test=test; Path=/; HttpOnly; Secure");
+		expect(response.headers.get("Set-Cookie")).toBe(
+			"test=test; Path=/; HttpOnly; Secure",
+		);
 	});
 
 	it("should apply multiple cookies with options", async () => {

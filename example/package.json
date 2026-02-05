@@ -1,8 +1,8 @@
 {
-  "name": "@better-auth/example",
-  "private": true,
-  "dependencies": {
-    "better-call": "workspace:*",
-    "zod": "^4.3.6"
-  }
+	"name": "@better-auth/example",
+	"private": true,
+	"dependencies": {
+		"better-call": "workspace:*",
+		"zod": "^4.3.6"
+	}
 }

@@ -27,11 +27,17 @@ export function hideInternalStackFrames(stack: string): string {
 /**
  * Creates a custom error class that hides stack frames.
  */
-export function makeErrorForHideStackFrame<B extends new (...args: any[]) => Error>(
+export function makeErrorForHideStackFrame<
+	B extends new (
+		...args: any[]
+	) => Error,
+>(
 	Base: B,
 	clazz: any,
 ): {
-	new (...args: ConstructorParameters<B>): InstanceType<B> & { errorStack: string | undefined };
+	new (
+		...args: ConstructorParameters<B>
+	): InstanceType<B> & { errorStack: string | undefined };
 } {
 	class HideStackFramesError extends Base {
 		#hiddenStack: string | undefined;
@@ -47,7 +53,9 @@ export function makeErrorForHideStackFrame<B extends new (...args: any[]) => Err
 			}
 			const stack = new Error().stack;
 			if (stack) {
-				this.#hiddenStack = hideInternalStackFrames(stack.replace(/^Error/, this.name));
+				this.#hiddenStack = hideInternalStackFrames(
+					stack.replace(/^Error/, this.name),
+				);
 			}
 		}
 
@@ -199,7 +207,9 @@ class InternalAPIError extends Error {
 			  } & Record<string, any>)
 			| undefined = undefined,
 		public headers: HeadersInit = {},
-		public statusCode = typeof status === "number" ? status : statusCodes[status],
+		public statusCode = typeof status === "number"
+			? status
+			: statusCodes[status],
 	) {
 		super(
 			body?.message,
@@ -238,7 +248,9 @@ export class BetterCallError extends Error {
 	}
 }
 
-export const kAPIErrorHeaderSymbol = Symbol.for("better-call:api-error-headers");
+export const kAPIErrorHeaderSymbol = Symbol.for(
+	"better-call:api-error-headers",
+);
 
 export type APIError = InstanceType<typeof InternalAPIError>;
 export const APIError = makeErrorForHideStackFrame(InternalAPIError, Error);

@@ -14,7 +14,13 @@ import {
 	type Method,
 } from "./context";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
-import { APIError, ValidationError, type statusCodes, type Status, BetterCallError } from "./error";
+import {
+	APIError,
+	ValidationError,
+	type statusCodes,
+	type Status,
+	BetterCallError,
+} from "./error";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { isAPIError, tryCatch } from "./utils";
@@ -190,7 +196,10 @@ export interface EndpointBaseOptions {
 	onValidationError?: ({
 		issues,
 		message,
-	}: { message: string; issues: readonly StandardSchemaV1.Issue[] }) => void | Promise<void>;
+	}: {
+		message: string;
+		issues: readonly StandardSchemaV1.Issue[];
+	}) => void | Promise<void>;
 }
 
 export type EndpointBodyMethodOptions =
@@ -198,7 +207,12 @@ export type EndpointBodyMethodOptions =
 			/**
 			 * Request Method
 			 */
-			method: "POST" | "PUT" | "DELETE" | "PATCH" | ("POST" | "PUT" | "DELETE" | "PATCH")[];
+			method:
+				| "POST"
+				| "PUT"
+				| "DELETE"
+				| "PATCH"
+				| ("POST" | "PUT" | "DELETE" | "PATCH")[];
 			/**
 			 * Body Schema
 			 */
@@ -237,7 +251,11 @@ export type EndpointBodyMethodOptions =
 
 export type EndpointOptions = EndpointBaseOptions & EndpointBodyMethodOptions;
 
-export type EndpointContext<Path extends string, Options extends EndpointOptions, Context = {}> = {
+export type EndpointContext<
+	Path extends string,
+	Options extends EndpointOptions,
+	Context = {},
+> = {
 	/**
 	 * Method
 	 *
@@ -398,11 +416,17 @@ export type EndpointContext<Path extends string, Options extends EndpointOptions
 	) => APIError;
 };
 
-type EndpointHandler<Path extends string, Options extends EndpointOptions, R> = (
-	context: EndpointContext<Path, Options>,
-) => Promise<R>;
+type EndpointHandler<
+	Path extends string,
+	Options extends EndpointOptions,
+	R,
+> = (context: EndpointContext<Path, Options>) => Promise<R>;
 
-export function createEndpoint<Path extends string, Options extends EndpointOptions, R>(
+export function createEndpoint<
+	Path extends string,
+	Options extends EndpointOptions,
+	R,
+>(
 	path: Path,
 	options: Options,
 	handler: EndpointHandler<Path, Options, R>,
@@ -413,14 +437,21 @@ export function createEndpoint<Options extends EndpointOptions, R>(
 	handler: EndpointHandler<never, Options, R>,
 ): StrictEndpoint<never, Options, R>;
 
-export function createEndpoint<Path extends string, Options extends EndpointOptions, R>(
+export function createEndpoint<
+	Path extends string,
+	Options extends EndpointOptions,
+	R,
+>(
 	pathOrOptions: Path | Options,
 	handlerOrOptions: EndpointHandler<Path, Options, R> | Options,
 	handlerOrNever?: any,
 ): StrictEndpoint<Path, Options, R> {
-	const path: string | undefined = typeof pathOrOptions === "string" ? pathOrOptions : undefined;
+	const path: string | undefined =
+		typeof pathOrOptions === "string" ? pathOrOptions : undefined;
 	const options: Options =
-		typeof handlerOrOptions === "object" ? handlerOrOptions : (pathOrOptions as Options);
+		typeof handlerOrOptions === "object"
+			? handlerOrOptions
+			: (pathOrOptions as Options);
 	const handler: EndpointHandler<Path, Options, R> =
 		typeof handlerOrOptions === "function" ? handlerOrOptions : handlerOrNever;
 
@@ -547,7 +578,11 @@ export function createEndpoint<Path extends string, Options extends EndpointOpti
 }
 
 createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
-	return <Path extends string, Opts extends EndpointOptions, R extends Promise<any>>(
+	return <
+		Path extends string,
+		Opts extends EndpointOptions,
+		R extends Promise<any>,
+	>(
 		path: Path,
 		options: Opts,
 		handler: (ctx: EndpointContext<Path, Opts, InferUse<E["use"]>>) => R,
@@ -563,22 +598,40 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 	};
 };
 
-export type StrictEndpoint<Path extends string, Options extends EndpointOptions, R = any> = {
+export type StrictEndpoint<
+	Path extends string,
+	Options extends EndpointOptions,
+	R = any,
+> = {
 	// asResponse cases
-	(context: InputContext<Path, Options> & { asResponse: true }): Promise<Response>;
+	(
+		context: InputContext<Path, Options> & { asResponse: true },
+	): Promise<Response>;
 
 	// returnHeaders & returnStatus cases
 	(
-		context: InputContext<Path, Options> & { returnHeaders: true; returnStatus: true },
+		context: InputContext<Path, Options> & {
+			returnHeaders: true;
+			returnStatus: true;
+		},
 	): Promise<{ headers: Headers; status: number; response: Awaited<R> }>;
 	(
-		context: InputContext<Path, Options> & { returnHeaders: true; returnStatus: false },
+		context: InputContext<Path, Options> & {
+			returnHeaders: true;
+			returnStatus: false;
+		},
 	): Promise<{ headers: Headers; response: Awaited<R> }>;
 	(
-		context: InputContext<Path, Options> & { returnHeaders: false; returnStatus: true },
+		context: InputContext<Path, Options> & {
+			returnHeaders: false;
+			returnStatus: true;
+		},
 	): Promise<{ status: number; response: Awaited<R> }>;
 	(
-		context: InputContext<Path, Options> & { returnHeaders: false; returnStatus: false },
+		context: InputContext<Path, Options> & {
+			returnHeaders: false;
+			returnStatus: false;
+		},
 	): Promise<R>;
 
 	// individual flag cases
@@ -599,7 +652,9 @@ export type StrictEndpoint<Path extends string, Options extends EndpointOptions,
 export type Endpoint<
 	Path extends string = string,
 	Options extends EndpointOptions = EndpointOptions,
-	Handler extends (inputCtx: any) => Promise<any> = (inputCtx: any) => Promise<any>,
+	Handler extends (inputCtx: any) => Promise<any> = (
+		inputCtx: any,
+	) => Promise<any>,
 > = Handler & {
 	options: Options;
 	path: Path;

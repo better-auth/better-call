@@ -1,8 +1,8 @@
 {
-  "extends": "../tsconfig.base.json",
-  "references": [
-    {
-      "path": "../packages/better-call"
-    }
-  ]
+	"extends": "../tsconfig.base.json",
+	"references": [
+		{
+			"path": "../packages/better-call"
+		}
+	]
 }

@@ -1,15 +1,32 @@
 {
-	"$schema": "https://biomejs.dev/schemas/1.8.3/schema.json",
+	"root": true,
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
 	"formatter": {
 		"enabled": true,
-		"indentStyle": "tab",
-		"lineWidth": 100,
-		"indentWidth": 4
+		"indentStyle": "tab"
 	},
 	"linter": {
 		"enabled": false
 	},
 	"files": {
-		"ignore": ["dist", ".next", ".svelte-kit", "package.json", "coverage"]
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/coverage",
+			"!**/build",
+			"!**/demo/electron/out",
+			"!**/.next",
+			"!**/.svelte-kit",
+			"!**/.contentlayer",
+			"!**/.turbo",
+			"!**/.nuxt",
+			"!**/.source",
+			"!**/.expo",
+			"!**/.cache",
+			"!**/dev/cloudflare/drizzle",
+			"!**/playwright-report",
+			"!**/.output",
+			"!**/.tmp"
+		]
 	}
 }

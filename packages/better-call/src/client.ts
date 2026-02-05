@@ -1,4 +1,8 @@
-import { type BetterFetchOption, type BetterFetchResponse, createFetch } from "@better-fetch/fetch";
+import {
+	type BetterFetchOption,
+	type BetterFetchResponse,
+	createFetch,
+} from "@better-fetch/fetch";
 import type { Router } from "./router";
 import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
 import type { Endpoint } from "./endpoint";
@@ -79,7 +83,9 @@ export type RequiredOptionKeys<
 				params: true;
 			});
 
-export const createClient = <R extends Router | Router["endpoints"]>(options?: ClientOptions) => {
+export const createClient = <R extends Router | Router["endpoints"]>(
+	options?: ClientOptions,
+) => {
 	const fetch = createFetch(options ?? {});
 	type API = InferClientRoutes<
 		R extends { endpoints: Record<string, Endpoint> } ? R["endpoints"] : R
@@ -97,7 +103,11 @@ export const createClient = <R extends Router | Router["endpoints"]>(options?: C
 		: {};
 
 	type O = Prettify<UnionToIntersection<Options>>;
-	return async <OPT extends O, K extends keyof OPT, C extends InferContext<OPT[K]>>(
+	return async <
+		OPT extends O,
+		K extends keyof OPT,
+		C extends InferContext<OPT[K]>,
+	>(
 		path: K,
 		...options: HasRequired<C> extends true
 			? [
@@ -108,7 +118,9 @@ export const createClient = <R extends Router | Router["endpoints"]>(options?: C
 				]
 			: [BetterFetchOption<C["body"], C["query"], C["params"]>?]
 	): Promise<
-		BetterFetchResponse<Awaited<ReturnType<OPT[K] extends Endpoint ? OPT[K] : never>>>
+		BetterFetchResponse<
+			Awaited<ReturnType<OPT[K] extends Endpoint ? OPT[K] : never>>
+		>
 	> => {
 		return (await fetch(path as string, {
 			...options[0],
