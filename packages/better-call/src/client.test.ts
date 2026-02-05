@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createClient } from "../src/client";
+import { createClient } from "./client";
 import { z } from "zod";
 import { createEndpoint } from "./endpoint";
 import { createRouter, type Router } from "./router";

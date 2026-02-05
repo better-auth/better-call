@@ -1,0 +1,95 @@
+{
+  "name": "better-call",
+  "version": "1.2.3",
+  "packageManager": "pnpm@10.28.2",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/better-auth/better-call.git",
+    "directory": "packages/better-call"
+  },
+  "copyright": "Copyright (C) 2025 Bereket Engida",
+  "license": "MIT",
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "test": "vitest",
+    "coverage": "vitest run --coverage",
+    "coverage:open": "open coverage/index.html",
+    "build": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "devDependencies": {
+    "@types/body-parser": "^1.19.6",
+    "@types/express": "^5.0.3",
+    "@types/set-cookie-parser": "^2.4.10",
+    "@types/supertest": "^6.0.3",
+    "body-parser": "^2.2.0",
+    "express": "^5.1.0",
+    "supertest": "^7.1.4"
+  },
+  "dependencies": {
+    "@better-auth/utils": "^0.3.1",
+    "@better-fetch/fetch": "^1.1.21",
+    "rou3": "^0.7.12",
+    "set-cookie-parser": "^3.0.1"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "exports": {
+    ".": {
+      "dev-source": "./src/index.ts",
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./client": {
+      "dev-source": "./src/client.ts",
+      "import": {
+        "types": "./dist/client.d.mts",
+        "default": "./dist/client.mjs"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./error": {
+      "dev-source": "./src/error.ts",
+      "import": {
+        "types": "./dist/error.d.mts",
+        "default": "./dist/error.mjs"
+      },
+      "require": {
+        "types": "./dist/error.d.cts",
+        "default": "./dist/error.cjs"
+      }
+    },
+    "./node": {
+      "dev-source": "./src/node.ts",
+      "import": {
+        "types": "./dist/node.d.mts",
+        "default": "./dist/node.mjs"
+      },
+      "require": {
+        "types": "./dist/node.d.cts",
+        "default": "./dist/node.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

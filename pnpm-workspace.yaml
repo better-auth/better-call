@@ -1,0 +1,12 @@
+packages:
+  - packages/**
+  - docs
+  - demo/*
+  - e2e/**
+  - test
+
+blockExoticSubdeps: true
+
+trustPolicy: no-downgrade
+
+trustPolicyIgnoreAfter: 43200

@@ -1,5 +1,5 @@
-import { createEndpoint } from "../src/endpoint";
-import { createRouter } from "../src/router";
+import { createEndpoint } from 'better-call';
+import { createRouter } from 'better-call';
 import { z } from "zod";
 
 const hello = createEndpoint(

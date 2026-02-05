@@ -1,7 +1,11 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
 	"workspaces": {
-		".": {
+		"./example": {
+			"project": ["example/**/*.ts!"],
+			"ignoreDependencies": ["better-call", "zod"]
+		},
+		"./packages/*": {
 			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [
 				// implicit dependencies
