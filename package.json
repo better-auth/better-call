@@ -1,5 +1,6 @@
 {
   "name": "@better-auth/root",
+  "packageManager": "pnpm@10.28.2",
   "private": true,
   "scripts": {
     "lint": "biome format",
