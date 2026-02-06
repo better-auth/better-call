@@ -16,5 +16,13 @@
 		"Bereket",
 		"Engida"
 	],
-	"ignorePaths": ["dist", "pnpm-lock.yaml"]
+	"ignorePaths": [
+		"patches",
+		"pnpm-workspace.yaml",
+		"pnpm-lock.yaml",
+		"e2e/smoke/test/fixtures/cloudflare/worker-configuration.d.ts",
+		"*.config.js",
+		"*.config.ts",
+		"*.json"
+	]
 }
