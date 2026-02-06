@@ -7,33 +7,35 @@ import type { Router } from "./router";
 import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
 import type { Endpoint } from "./endpoint";
 
-type HasRequired<
-	T extends {
-		body?: any;
-		query?: any;
-		params?: any;
-	},
-> = T["body"] extends object
-	? HasRequiredKeys<T["body"]> extends true
-		? true
-		: T["query"] extends object
-			? HasRequiredKeys<T["query"]> extends true
+export type HasRequired<T extends object> = T extends {}
+	? false
+	: T extends {
+				body?: any;
+				query?: any;
+				params?: any;
+			}
+		? T["body"] extends object
+			? HasRequiredKeys<T["body"]> extends true
 				? true
+				: T["query"] extends object
+					? HasRequiredKeys<T["query"]> extends true
+						? true
+						: T["params"] extends object
+							? HasRequiredKeys<T["params"]>
+							: false
+					: T["params"] extends object
+						? HasRequiredKeys<T["params"]>
+						: false
+			: T["query"] extends object
+				? HasRequiredKeys<T["query"]> extends true
+					? true
+					: T["params"] extends object
+						? HasRequiredKeys<T["params"]>
+						: false
 				: T["params"] extends object
 					? HasRequiredKeys<T["params"]>
 					: false
-			: T["params"] extends object
-				? HasRequiredKeys<T["params"]>
-				: false
-	: T["query"] extends object
-		? HasRequiredKeys<T["query"]> extends true
-			? true
-			: T["params"] extends object
-				? HasRequiredKeys<T["params"]>
-				: false
-		: T["params"] extends object
-			? HasRequiredKeys<T["params"]>
-			: false;
+		: false;
 
 type InferContext<T> = T extends (ctx: infer Ctx) => any
 	? Ctx extends object

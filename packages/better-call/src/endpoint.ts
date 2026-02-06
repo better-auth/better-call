@@ -416,23 +416,15 @@ export type EndpointContext<
 	) => APIError;
 };
 
-type ExtractBody<E extends EndpointBodyMethodOptions> = E extends {
-	method: ("POST" | "PUT" | "DELETE" | "PATCH" | "GET" | "HEAD")[];
-	body?: StandardSchemaV1<infer B>;
+export type ExtractBody<E extends EndpointBodyMethodOptions> = E extends {
+	method: infer M;
+	body?: never;
 }
-	? E extends {
-			method: infer M;
-			body?: StandardSchemaV1<B>;
+	? {
+			method: M;
 		}
-		? { method: M; body: StandardSchemaV1<B> }
-		: never
 	: E extends {
-				method:
-					| "POST"
-					| "PUT"
-					| "DELETE"
-					| "PATCH"
-					| ("POST" | "PUT" | "DELETE" | "PATCH")[];
+				method: ("POST" | "PUT" | "DELETE" | "PATCH" | "GET" | "HEAD")[];
 				body?: StandardSchemaV1<infer B>;
 			}
 		? E extends {
@@ -442,23 +434,44 @@ type ExtractBody<E extends EndpointBodyMethodOptions> = E extends {
 			? { method: M; body: StandardSchemaV1<B> }
 			: never
 		: E extends {
-					method: "*";
+					method:
+						| "POST"
+						| "PUT"
+						| "DELETE"
+						| "PATCH"
+						| ("POST" | "PUT" | "DELETE" | "PATCH")[];
 					body?: StandardSchemaV1<infer B>;
 				}
-			? {
-					method: "*";
+			? E extends {
+					method: infer M;
 					body?: StandardSchemaV1<B>;
 				}
-			: // fallback
-				EndpointBodyMethodOptions;
-type ExtractError<E extends EndpointOptions> = E extends {
+				? { method: M; body: StandardSchemaV1<B> }
+				: never
+			: E extends {
+						method: "*";
+						body?: StandardSchemaV1<infer B>;
+					}
+				? {
+						method: "*";
+						body?: StandardSchemaV1<B>;
+					}
+				: E extends {
+							method: "GET" | "HEAD" | ("GET" | "HEAD")[];
+							body?: never;
+						}
+					? E extends { method: infer M }
+						? { method: M }
+						: never
+					: never;
+export type ExtractError<E extends EndpointOptions> = E extends {
 	error?: StandardSchemaV1<infer Err>;
 }
 	? {
 			error: StandardSchemaV1<Err>;
 		}
 	: {};
-type ExtractQuery<E extends EndpointOptions> = E extends {
+export type ExtractQuery<E extends EndpointOptions> = E extends {
 	query?: StandardSchemaV1<infer Q>;
 }
 	? {
@@ -466,17 +479,19 @@ type ExtractQuery<E extends EndpointOptions> = E extends {
 		}
 	: {};
 
-type ExtractOthers<E extends EndpointOptions> = Pick<
+export type ExtractOthers<E extends EndpointOptions> = Pick<
 	E,
 	Exclude<keyof E, "method" | "body" | "query" | "error">
 >;
 
-type ExtractStandSchema<E extends EndpointOptions> = ExtractOthers<E> &
+export type ExtractStandSchema<E extends EndpointOptions> = Prettify<
+	ExtractOthers<E>
+> &
 	ExtractBody<E> &
 	ExtractQuery<E> &
 	ExtractError<E>;
 
-type EndpointHandler<
+export type EndpointHandler<
 	Path extends string,
 	Options extends EndpointOptions,
 	R,
