@@ -1,6 +1,9 @@
 {
 	"extends": "../tsconfig.base.json",
-	"include": ["./hello.ts"],
+	"include": ["./hello.ts", "bundle.ts"],
+	"compilerOptions": {
+		"declaration": true
+	},
 	"references": [
 		{
 			"path": "../packages/better-call"

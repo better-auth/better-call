@@ -1,6 +1,9 @@
 {
 	"name": "@better-auth/example",
 	"private": true,
+	"scripts": {
+		"build": "tsdown"
+	},
 	"dependencies": {
 		"better-call": "workspace:*",
 		"zod": "^4.3.6"
