@@ -11,7 +11,7 @@
 		"lint:types": "pnpm -w --filter=./packages/* run lint:type",
 		"lint:fix": "biome format --fix",
 		"format": "biome format --write",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --build",
 		"bump": "bumpp",
 		"test": "pnpm -w --filter=./packages/* run test",
 		"coverage": "pnpm -w --filter=./packages/* run coverage",

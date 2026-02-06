@@ -7,7 +7,7 @@
 	],
 	"references": [
 		{
-			"path": "./packages/cli/tsconfig.json"
+			"path": "./packages/better-call/tsconfig.json"
 		},
 		{
 			"path": "./example/tsconfig.json"
