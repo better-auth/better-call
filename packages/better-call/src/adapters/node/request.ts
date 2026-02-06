@@ -112,7 +112,7 @@ function constructRelativeUrl(
 	// which has a trailing forward slash the original url did not have.
 	// Checking the `req.originalUrl` path ending can prevent this issue.
 
-	const originalPathEnding = originalUrl.split("?")[0].at(-1);
+	const originalPathEnding = originalUrl.split("?")[0]!.at(-1);
 	return originalPathEnding === "/" ? baseUrl + req.url : baseUrl;
 }
 
