@@ -14,6 +14,7 @@
 	"types": "./dist/index.d.mts",
 	"scripts": {
 		"lint:package": "publint --strict .",
+		"lint:type": "attw --profile node16 --pack .",
 		"test": "vitest",
 		"coverage": "vitest run --coverage",
 		"coverage:open": "open coverage/index.html",
