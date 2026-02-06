@@ -48,6 +48,15 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.2.1)(jiti@2.6.1)(yaml@2.8.2)
 
+  example:
+    dependencies:
+      better-call:
+        specifier: workspace:*
+        version: link:../packages/better-call
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+
   packages/better-call:
     dependencies:
       '@better-auth/utils':
