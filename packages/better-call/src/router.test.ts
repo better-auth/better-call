@@ -478,6 +478,7 @@ describe("error handling", () => {
 		);
 
 		let errorCaught = false;
+		let receivedRequest: Request | undefined;
 		const customResponse = new Response("Custom error response", {
 			status: 418,
 		});
@@ -485,15 +486,18 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (e) => {
+				onError: (error, request) => {
 					errorCaught = true;
+					receivedRequest = request;
 					return customResponse;
 				},
 			},
 		);
 
-		const response = await router.handler(new Request("http://localhost"));
+		const request = new Request("http://localhost");
+		const response = await router.handler(request);
 		expect(errorCaught).toBe(true);
+		expect(receivedRequest).toBe(request);
 		expect(response).toBe(customResponse);
 		expect(response.status).toBe(418);
 	});
@@ -517,7 +521,7 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (e) => {
+				onError: (error, request) => {
 					errorCaught = true;
 					// Convert APIError to Response
 					return toResponse(apiError);
@@ -548,7 +552,7 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (e) => {
+				onError: (error, request) => {
 					// Throw the error in the callback
 					throw newError;
 				},
@@ -927,6 +931,93 @@ describe("error handling", () => {
 			const response = await router.handler(request);
 			expect(response.status).toBe(200);
 		});
+	});
+});
+
+describe("onRequest and onResponse callbacks", () => {
+	it("should pass request to onRequest callback", async () => {
+		const endpoint = createEndpoint(
+			"/",
+			{
+				method: "GET",
+			},
+			async () => {
+				return "hello world";
+			},
+		);
+
+		let receivedRequest: Request | undefined;
+		const router = createRouter(
+			{ endpoint },
+			{
+				onRequest: (request) => {
+					receivedRequest = request;
+				},
+			},
+		);
+
+		const request = new Request("http://localhost");
+		await router.handler(request);
+		expect(receivedRequest).toBe(request);
+	});
+
+	it("should pass response and request to onResponse callback", async () => {
+		const endpoint = createEndpoint(
+			"/",
+			{
+				method: "GET",
+			},
+			async () => {
+				return "hello world";
+			},
+		);
+
+		let receivedResponse: Response | undefined;
+		let receivedRequest: Request | undefined;
+		const router = createRouter(
+			{ endpoint },
+			{
+				onResponse: (response, request) => {
+					receivedResponse = response;
+					receivedRequest = request;
+				},
+			},
+		);
+
+		const request = new Request("http://localhost");
+		await router.handler(request);
+		expect(receivedRequest).toBe(request);
+		expect(receivedResponse).toBeInstanceOf(Response);
+	});
+
+	it("should pass request to onError callback", async () => {
+		const endpoint = createEndpoint(
+			"/",
+			{
+				method: "GET",
+			},
+			async () => {
+				throw new Error("Test error");
+			},
+		);
+
+		let receivedError: unknown;
+		let receivedRequest: Request | undefined;
+		const router = createRouter(
+			{ endpoint },
+			{
+				onError: (error, request) => {
+					receivedError = error;
+					receivedRequest = request;
+				},
+			},
+		);
+
+		const request = new Request("http://localhost");
+		await router.handler(request);
+		expect(receivedRequest).toBe(request);
+		expect(receivedError).toBeInstanceOf(Error);
+		expect((receivedError as Error).message).toBe("Test error");
 	});
 });
 
