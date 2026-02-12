@@ -12,7 +12,6 @@ import { getBody, isAPIError, isRequest } from "./utils";
 
 export interface RouterConfig {
 	throwError?: boolean;
-	onError?: (e: unknown) => void | Promise<void> | Response | Promise<Response>;
 	basePath?: string;
 	routerMiddleware?: Array<{
 		path: string;
@@ -27,11 +26,21 @@ export interface RouterConfig {
 	/**
 	 * A callback to run before any response
 	 */
-	onResponse?: (res: Response) => any | Promise<any>;
+	onResponse?: (response: Response, request: Request) => any | Promise<any>;
 	/**
 	 * A callback to run before any request
 	 */
-	onRequest?: (req: Request) => any | Promise<any>;
+	onRequest?: (request: Request) => any | Promise<any>;
+	/**
+	 * A callback to run when an error is thrown in the router or middleware.
+	 *
+	 * @param error - the error that was thrown in the router or middleware.
+	 * @returns a Response object that will be returned to the client.
+	 */
+	onError?: (
+		error: unknown,
+		request: Request,
+	) => void | Promise<void> | Response | Promise<Response>;
 	/**
 	 * List of allowed media types (MIME types) for the router
 	 *
@@ -250,7 +259,7 @@ export const createRouter = <
 		} catch (error) {
 			if (config?.onError) {
 				try {
-					const errorResponse = await config.onError(error);
+					const errorResponse = await config.onError(error, request);
 
 					if (errorResponse instanceof Response) {
 						return toResponse(errorResponse);
@@ -288,7 +297,7 @@ export const createRouter = <
 			}
 			const req = isRequest(onReq) ? onReq : request;
 			const res = await processRequest(req);
-			const onRes = await config?.onResponse?.(res);
+			const onRes = await config?.onResponse?.(res, req);
 			if (onRes instanceof Response) {
 				return onRes;
 			}
