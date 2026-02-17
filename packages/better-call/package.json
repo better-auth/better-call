@@ -79,7 +79,7 @@
 			}
 		},
 		"./node": {
-			"dev-source": "./src/node.ts",
+			"dev-source": "./src/adapters/node/index.ts",
 			"import": {
 				"types": "./dist/node.d.mts",
 				"default": "./dist/node.mjs"
@@ -87,6 +87,72 @@
 			"require": {
 				"types": "./dist/node.d.cts",
 				"default": "./dist/node.cjs"
+			}
+		},
+		"./v2/endpoint": {
+			"dev-source": "./src/v2/endpoint.ts",
+			"import": {
+				"types": "./dist/v2/endpoint.d.mts",
+				"default": "./dist/v2/endpoint.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/endpoint.d.cts",
+				"default": "./dist/v2/endpoint.cjs"
+			}
+		},
+		"./v2/middleware": {
+			"dev-source": "./src/v2/middleware.ts",
+			"import": {
+				"types": "./dist/v2/middleware.d.mts",
+				"default": "./dist/v2/middleware.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/middleware.d.cts",
+				"default": "./dist/v2/middleware.cjs"
+			}
+		},
+		"./v2/router": {
+			"dev-source": "./src/v2/router.ts",
+			"import": {
+				"types": "./dist/v2/router.d.mts",
+				"default": "./dist/v2/router.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/router.d.cts",
+				"default": "./dist/v2/router.cjs"
+			}
+		},
+		"./v2/client": {
+			"dev-source": "./src/v2/client.ts",
+			"import": {
+				"types": "./dist/v2/client.d.mts",
+				"default": "./dist/v2/client.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/client.d.cts",
+				"default": "./dist/v2/client.cjs"
+			}
+		},
+		"./v2/context": {
+			"dev-source": "./src/v2/context.ts",
+			"import": {
+				"types": "./dist/v2/context.d.mts",
+				"default": "./dist/v2/context.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/context.d.cts",
+				"default": "./dist/v2/context.cjs"
+			}
+		},
+		"./v2/types": {
+			"dev-source": "./src/v2/types.ts",
+			"import": {
+				"types": "./dist/v2/types.d.mts",
+				"default": "./dist/v2/types.mjs"
+			},
+			"require": {
+				"types": "./dist/v2/types.d.cts",
+				"default": "./dist/v2/types.cjs"
 			}
 		}
 	},
