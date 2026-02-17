@@ -1,7 +1,9 @@
 {
 	"extends": "../tsconfig.base.json",
-	"include": ["./hello.ts", "bundle.ts"],
+	"include": ["./src"],
 	"compilerOptions": {
+		"outDir": "./dist",
+		"rootDir": "./src",
 		"declaration": true
 	},
 	"references": [
