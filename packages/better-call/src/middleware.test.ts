@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createMiddleware } from "./middleware";
-import { createEndpoint } from "./endpoint";
+import { createMiddleware } from "./v2/middleware";
+import { createEndpoint } from "./v2/endpoint";
 import { APIError, kAPIErrorHeaderSymbol } from "./error";
 
 describe("type", () => {

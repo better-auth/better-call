@@ -1,8 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createEndpoint } from "./endpoint";
+import { createEndpoint } from "./v2/endpoint";
 import { z } from "zod";
 import { APIError, BetterCallError } from "./error";
-import { createMiddleware } from "./middleware";
+import { createMiddleware } from "./v2/middleware";
 import * as v from "valibot";
 
 describe("validation", (it) => {
@@ -103,14 +103,14 @@ describe("validation", (it) => {
 		expect(() =>
 			createEndpoint(
 				"/test",
-				//@ts-expect-error - body should not be allowed with GET or HEAD
 				{
 					method: "GET",
+					//@ts-expect-error - body should not be allowed with GET or HEAD
 					body: z.object({
 						name: z.string(),
 					}),
 				},
-				async (ctx) => {
+				async (ctx: any) => {
 					return ctx.body;
 				},
 			),
@@ -370,7 +370,7 @@ describe("types", async () => {
 			},
 			async (ctx) => {
 				expectTypeOf(ctx.method).toEqualTypeOf<
-					"POST" | "GET" | "DELETE" | "PUT" | "PATCH"
+					"POST" | "GET" | "DELETE" | "PUT" | "PATCH" | "HEAD"
 				>();
 			},
 		);
@@ -397,28 +397,28 @@ describe("types", async () => {
 		try {
 			createEndpoint(
 				"/path",
-				//@ts-expect-error - body should not be allowed with GET or HEAD
 				{
 					method: "GET",
+					//@ts-expect-error - body should not be allowed with GET or HEAD
 					body: z.object({
 						name: z.string(),
 					}),
 				},
-				async (ctx) => {
+				async (ctx: any) => {
 					return ctx.body;
 				},
 			);
 
 			createEndpoint(
 				"/path",
-				//@ts-expect-error - body should not be allowed with HEAD
 				{
 					method: "HEAD",
+					//@ts-expect-error - body should not be allowed with HEAD
 					body: z.object({
 						name: z.string(),
 					}),
 				},
-				async (ctx) => {
+				async (ctx: any) => {
 					throw ctx.error("BAD_REQUEST", {
 						message: "Body is not allowed with HEAD",
 					});

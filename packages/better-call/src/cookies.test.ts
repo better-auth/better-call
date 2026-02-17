@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEndpoint } from "./endpoint";
+import { createEndpoint } from "./v2/endpoint";
 import { z } from "zod";
 import { signCookieValue } from "./crypto";
 import { parseCookies } from "./cookies";

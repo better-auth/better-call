@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createEndpoint, type Endpoint } from "./endpoint";
-import { createRouter } from "./router";
+import { createEndpoint, type Endpoint } from "./v2/endpoint";
+import { createRouter } from "./v2/router";
 import { z } from "zod";
 import { APIError } from "./error";
 import { getRequest } from "./adapters/node/request";
