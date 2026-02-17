@@ -485,7 +485,7 @@ type ExtractStandSchema<E extends EndpointOptions> = ExtractOthers<E> &
 	ExtractQuery<E> &
 	ExtractError<E>;
 
-export type EndpointHandler<
+type EndpointHandler<
 	Path extends string,
 	Options extends EndpointOptions,
 	R,
@@ -671,7 +671,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 	};
 };
 
-export type StrictEndpoint<
+type StrictEndpoint<
 	Path extends string,
 	Options extends EndpointOptions,
 	R = any,
