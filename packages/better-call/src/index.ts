@@ -45,7 +45,3 @@ export type { JSONResponse } from "./to-response";
 
 // Schema
 export type { StandardSchemaV1 } from "./standard-schema";
-
-// Type utilities (public subset)
-export type { Prettify } from "./helper";
-export type { InferParam } from "./v2/context";
