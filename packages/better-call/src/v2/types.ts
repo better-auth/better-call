@@ -14,10 +14,6 @@ export type Method = HTTPMethod | "*";
 
 /**
  * Resolves a method type parameter to its effective runtime type.
- *
- * - `["GET", "POST"]` -> `"GET" | "POST"`
- * - `"*"` -> HTTPMethod
- * - `"GET"` -> `"GET"`
  */
 export type ResolveMethod<M> =
 	M extends Array<infer U> ? U : M extends "*" ? HTTPMethod : M;
@@ -45,7 +41,7 @@ export type ResolveQuery<S, Meta = undefined> = Meta extends {
 		: Record<string, any> | undefined;
 
 /**
- * Resolves body schema to its input type (for InputContext).
+ * Resolves body schema to its input type (for InputContext at call-site).
  */
 export type ResolveBodyInput<S, Meta = undefined> = Meta extends {
 	$Infer: { body: infer B };
@@ -56,7 +52,7 @@ export type ResolveBodyInput<S, Meta = undefined> = Meta extends {
 		: undefined;
 
 /**
- * Resolves query schema to its input type (for InputContext).
+ * Resolves query schema to its input type (for InputContext at call-site).
  */
 export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 	$Infer: { query: infer Q };
@@ -69,10 +65,10 @@ export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 /**
  * Constraint: body is `never` for GET/HEAD methods.
  */
-export type BodyOption<
-	M,
-	B extends StandardSchemaV1 | undefined = undefined,
-> = M extends "GET" | "HEAD" | ("GET" | "HEAD")[]
+export type BodyOption<M, B extends object | undefined = undefined> = M extends
+	| "GET"
+	| "HEAD"
+	| ("GET" | "HEAD")[]
 	? { body?: never }
 	: { body?: B };
 
@@ -123,20 +119,20 @@ type InferParamInput<Path extends string> = [Path] extends [never]
 		: { params: Prettify<InferParamPath<Path> & InferParamWildCard<Path>> };
 
 /**
- * Infer body input: required if body schema input is not undefined.
+ * Infer body input from an already-resolved body type.
+ * Body is the plain resolved type (not a schema).
  */
-type InferBodyInput<BodySchema extends StandardSchemaV1 | undefined, Meta> =
-	undefined extends ResolveBodyInput<BodySchema, Meta>
-		? { body?: ResolveBodyInput<BodySchema, Meta> }
-		: { body: ResolveBodyInput<BodySchema, Meta> };
+type InferBodyInput<Body> = undefined extends Body
+	? { body?: Body }
+	: { body: Body };
 
 /**
- * Infer query input: required if query schema input is not undefined.
+ * Infer query input from an already-resolved query type.
+ * Query is the plain resolved type (not a schema).
  */
-type InferQueryInput<QuerySchema extends StandardSchemaV1 | undefined, Meta> =
-	undefined extends ResolveQueryInput<QuerySchema, Meta>
-		? { query?: ResolveQueryInput<QuerySchema, Meta> }
-		: { query: ResolveQueryInput<QuerySchema, Meta> };
+type InferQueryInput<Query> = undefined extends Query
+	? { query?: Query }
+	: { query: Query };
 
 /**
  * Infer method input: required for wildcard, optional for arrays and single methods.
@@ -170,19 +166,19 @@ export type InferUse<Opts extends Middleware[] | undefined> =
 		: {};
 
 /**
- * The full InputContext type, computed from all endpoint generics.
+ * The full InputContext type for the Endpoint call signature.
+ * Body and Query are already-resolved plain types.
  */
 export type InputContext<
 	Path extends string,
 	M,
-	BodySchema extends StandardSchemaV1 | undefined,
-	QuerySchema extends StandardSchemaV1 | undefined,
+	Body,
+	Query,
 	ReqHeaders extends boolean,
 	ReqRequest extends boolean,
-	Meta,
-> = InferBodyInput<BodySchema, Meta> &
+> = InferBodyInput<Body> &
 	InferMethodInput<M> &
-	InferQueryInput<QuerySchema, Meta> &
+	InferQueryInput<Query> &
 	InferParamInput<Path> &
 	InferRequestInput<ReqRequest> &
 	InferHeadersInput<ReqHeaders> & {
@@ -195,16 +191,14 @@ export type InputContext<
 	};
 
 /**
- * Check if the InputContext has required keys (to decide if the call argument is required or optional).
+ * Check if the InputContext has required keys.
+ * Body and Query are already-resolved plain types.
  */
 export type HasRequiredInputKeys<
 	Path extends string,
 	M,
-	BodySchema extends StandardSchemaV1 | undefined,
-	QuerySchema extends StandardSchemaV1 | undefined,
+	Body,
+	Query,
 	ReqHeaders extends boolean,
 	ReqRequest extends boolean,
-	Meta,
-> = HasRequiredKeys<
-	InputContext<Path, M, BodySchema, QuerySchema, ReqHeaders, ReqRequest, Meta>
->;
+> = HasRequiredKeys<InputContext<Path, M, Body, Query, ReqHeaders, ReqRequest>>;

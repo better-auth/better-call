@@ -30,8 +30,8 @@ export type { InferParam } from "./types";
 export type EndpointContext<
 	Path extends string,
 	M,
-	BodySchema extends StandardSchemaV1 | undefined,
-	QuerySchema extends StandardSchemaV1 | undefined,
+	BodySchema extends object | undefined,
+	QuerySchema extends object | undefined,
 	Use extends Middleware[],
 	ReqHeaders extends boolean,
 	ReqRequest extends boolean,

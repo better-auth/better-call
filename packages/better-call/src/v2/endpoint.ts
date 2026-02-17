@@ -20,6 +20,10 @@ import type {
 	InputContext,
 	HasRequiredInputKeys,
 	InferUse,
+	ResolveBody,
+	ResolveQuery,
+	ResolveBodyInput,
+	ResolveQueryInput,
 } from "./types";
 
 export type { EndpointContext } from "./context";
@@ -107,8 +111,8 @@ export interface EndpointRuntimeOptions {
 export type Endpoint<
 	Path extends string = string,
 	Method = any,
-	BodySchema extends StandardSchemaV1 | undefined = any,
-	QuerySchema extends StandardSchemaV1 | undefined = any,
+	Body = any,
+	Query = any,
 	Use extends Middleware[] = any,
 	R = any,
 > = {
@@ -120,37 +124,20 @@ export type Endpoint<
 		...args: HasRequiredInputKeys<
 			Path,
 			Method,
-			BodySchema,
-			QuerySchema,
+			Body,
+			Query,
 			false,
-			false,
-			undefined
+			false
 		> extends true
 			? [
-					InputContext<
-						Path,
-						Method,
-						BodySchema,
-						QuerySchema,
-						false,
-						false,
-						undefined
-					> & {
+					InputContext<Path, Method, Body, Query, false, false> & {
 						asResponse?: AsResponse;
 						returnHeaders?: ReturnHeaders;
 						returnStatus?: ReturnStatus;
 					},
 				]
 			: [
-					(InputContext<
-						Path,
-						Method,
-						BodySchema,
-						QuerySchema,
-						false,
-						false,
-						undefined
-					> & {
+					(InputContext<Path, Method, Body, Query, false, false> & {
 						asResponse?: AsResponse;
 						returnHeaders?: ReturnHeaders;
 						returnStatus?: ReturnStatus;
@@ -165,8 +152,8 @@ export type Endpoint<
 export function createEndpoint<
 	Path extends string,
 	Method extends HTTPMethod | HTTPMethod[] | "*",
-	BodySchema extends StandardSchemaV1 | undefined = undefined,
-	QuerySchema extends StandardSchemaV1 | undefined = undefined,
+	BodySchema extends object | undefined = undefined,
+	QuerySchema extends object | undefined = undefined,
 	Use extends Middleware[] = [],
 	ReqHeaders extends boolean = false,
 	ReqRequest extends boolean = false,
@@ -203,13 +190,20 @@ export function createEndpoint<
 			Meta
 		>,
 	) => Promise<R>,
-): Endpoint<Path, Method, BodySchema, QuerySchema, Use, R>;
+): Endpoint<
+	Path,
+	Method,
+	ResolveBodyInput<BodySchema, Meta>,
+	ResolveQueryInput<QuerySchema, Meta>,
+	Use,
+	R
+>;
 
 // Options-only (virtual/path-less) overload
 export function createEndpoint<
 	Method extends HTTPMethod | HTTPMethod[] | "*",
-	BodySchema extends StandardSchemaV1 | undefined = undefined,
-	QuerySchema extends StandardSchemaV1 | undefined = undefined,
+	BodySchema extends object | undefined = undefined,
+	QuerySchema extends object | undefined = undefined,
 	Use extends Middleware[] = [],
 	ReqHeaders extends boolean = false,
 	ReqRequest extends boolean = false,
@@ -217,6 +211,7 @@ export function createEndpoint<
 	Meta extends EndpointMetadata | undefined = undefined,
 >(
 	options: { method: Method } & BodyOption<Method, BodySchema> & {
+			path?: never;
 			query?: QuerySchema;
 			use?: [...Use];
 			requireHeaders?: ReqHeaders;
@@ -245,7 +240,14 @@ export function createEndpoint<
 			Meta
 		>,
 	) => Promise<R>,
-): Endpoint<never, Method, BodySchema, QuerySchema, Use, R>;
+): Endpoint<
+	never,
+	Method,
+	ResolveBodyInput<BodySchema, Meta>,
+	ResolveQueryInput<QuerySchema, Meta>,
+	Use,
+	R
+>;
 
 // Implementation
 export function createEndpoint(
@@ -356,8 +358,8 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 	return <
 		Path extends string,
 		Method extends HTTPMethod | HTTPMethod[] | "*",
-		BodySchema extends StandardSchemaV1 | undefined = undefined,
-		QuerySchema extends StandardSchemaV1 | undefined = undefined,
+		BodySchema extends object | undefined = undefined,
+		QuerySchema extends object | undefined = undefined,
 		Use extends Middleware[] = [],
 		ReqHeaders extends boolean = false,
 		ReqRequest extends boolean = false,
@@ -394,7 +396,14 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 				Meta
 			>,
 		) => Promise<R>,
-	): Endpoint<Path, Method, BodySchema, QuerySchema, Use, Awaited<R>> => {
+	): Endpoint<
+		Path,
+		Method,
+		ResolveBodyInput<BodySchema, Meta>,
+		ResolveQueryInput<QuerySchema, Meta>,
+		Use,
+		Awaited<R>
+	> => {
 		return createEndpoint(
 			path,
 			{
