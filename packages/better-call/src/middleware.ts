@@ -25,7 +25,7 @@ import { kAPIErrorHeaderSymbol } from "./error";
 
 export interface MiddlewareOptions extends Omit<EndpointOptions, "method"> {}
 
-export type MiddlewareResponse = null | void | undefined | Record<string, any>;
+type MiddlewareResponse = null | void | undefined | Record<string, any>;
 
 export type MiddlewareContext<
 	Options extends MiddlewareOptions,
@@ -134,18 +134,18 @@ export type MiddlewareContext<
 	context: Prettify<Context>;
 };
 
-export function createMiddleware<Options extends MiddlewareOptions, R>(
+function createMiddleware<Options extends MiddlewareOptions, R>(
 	options: Options,
 	handler: (context: MiddlewareContext<Options>) => Promise<R>,
 ): <InputCtx extends MiddlewareInputContext<Options>>(
 	inputContext: InputCtx,
 ) => Promise<R>;
-export function createMiddleware<Options extends MiddlewareOptions, R>(
+function createMiddleware<Options extends MiddlewareOptions, R>(
 	handler: (context: MiddlewareContext<Options>) => Promise<R>,
 ): <InputCtx extends MiddlewareInputContext<Options>>(
 	inputContext: InputCtx,
 ) => Promise<R>;
-export function createMiddleware(optionsOrHandler: any, handler?: any) {
+function createMiddleware(optionsOrHandler: any, handler?: any) {
 	const internalHandler = async (inputCtx: InputContext<any, any>) => {
 		const context = inputCtx as InputContext<any, any>;
 		const _handler =
@@ -188,7 +188,7 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 	return internalHandler;
 }
 
-export type MiddlewareInputContext<Options extends MiddlewareOptions> =
+type MiddlewareInputContext<Options extends MiddlewareOptions> =
 	InferBodyInput<Options> &
 		InferQueryInput<Options> &
 		InferRequestInput<Options> &

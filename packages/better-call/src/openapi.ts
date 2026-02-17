@@ -28,7 +28,7 @@ export interface OpenAPIParameter {
 	};
 }
 
-export interface Path {
+interface Path {
 	get?: {
 		tags?: string[];
 		operationId?: string;

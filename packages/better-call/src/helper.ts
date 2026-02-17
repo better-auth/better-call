@@ -24,7 +24,7 @@ export type UnionToIntersection<Union> = (
 	? Intersection & Union
 	: never;
 
-export type MergeObject<
+type MergeObject<
 	T extends Record<string, any> | never,
 	S extends Record<string, any> | never,
 > = T extends never ? S : S extends never ? T : T & S;

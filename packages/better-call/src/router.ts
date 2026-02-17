@@ -10,7 +10,7 @@ import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
 
-export interface RouterConfig {
+interface RouterConfig {
 	throwError?: boolean;
 	basePath?: string;
 	routerMiddleware?: Array<{
