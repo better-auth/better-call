@@ -6,7 +6,10 @@
 		"indentStyle": "tab"
 	},
 	"linter": {
-		"enabled": false
+		"enabled": true
+	},
+	"assist": {
+		"enabled": true
 	},
 	"files": {
 		"includes": [
