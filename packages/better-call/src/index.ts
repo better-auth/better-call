@@ -37,5 +37,3 @@ export type { StandardSchemaV1 } from "./standard-schema";
 export type { JSONResponse } from "./to-response";
 // Response
 export { toResponse } from "./to-response";
-// Types
-export type { InferParam } from "./types";

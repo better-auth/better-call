@@ -25,8 +25,6 @@ import type {
 import { isRequest } from "./utils";
 import { runValidation } from "./validator";
 
-export type { InferParam } from "./types";
-
 export type EndpointContext<
 	Path extends string,
 	M,
