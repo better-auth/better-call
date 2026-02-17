@@ -9,11 +9,7 @@ export type {
 
 // Middleware
 export { createMiddleware } from "./v2/middleware";
-export type {
-	Middleware,
-	MiddlewareContext,
-	MiddlewareOptions,
-} from "./v2/middleware";
+export type { Middleware, MiddlewareContext } from "./v2/middleware";
 
 // Router
 export { createRouter } from "./v2/router";
