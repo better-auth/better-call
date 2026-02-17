@@ -1,10 +1,10 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import express from "express";
-import bodyParser from "body-parser";
-import request from "supertest";
-import { createRouter, createEndpoint } from "../../index";
-import { toNodeHandler } from "./index";
 import type { Server } from "node:http";
+import bodyParser from "body-parser";
+import express from "express";
+import request from "supertest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createEndpoint, createRouter } from "../../index";
+import { toNodeHandler } from "./index";
 
 describe("Express Integration with body-parser", () => {
 	let app: express.Application;
@@ -242,6 +242,85 @@ describe("Express Integration with body-parser", () => {
 
 		expect(response.body.bodyReceived).toBe(true);
 		expect(response.body.bodyContent).toEqual({ test: "data" });
+	});
+
+	it("should preserve form-urlencoded payload when middleware pre-initializes req.body", async () => {
+		const tokenEndpoint = createEndpoint(
+			"/oauth2/token",
+			{
+				method: "POST",
+			},
+			async ({ body }) => {
+				const payload = body as Record<string, string> | undefined;
+				return {
+					grantType: payload?.grant_type ?? null,
+				};
+			},
+		);
+
+		const router = createRouter({
+			tokenEndpoint,
+		});
+
+		const testApp = express();
+		testApp.use(bodyParser.json());
+		testApp.use((req, _res, next) => {
+			if (
+				req.headers["content-type"]?.includes(
+					"application/x-www-form-urlencoded",
+				) &&
+				req.body === undefined
+			) {
+				req.body = {};
+			}
+			next();
+		});
+		testApp.use(toNodeHandler(router.handler));
+
+		const response = await request(testApp)
+			.post("/oauth2/token")
+			.set("Content-Type", "application/x-www-form-urlencoded")
+			.send("grant_type=client_credentials")
+			.expect(200);
+
+		expect(response.body).toEqual({
+			grantType: "client_credentials",
+		});
+	});
+
+	it("should serialize pre-parsed urlencoded objects back to form data", async () => {
+		const tokenEndpoint = createEndpoint(
+			"/oauth2/token",
+			{
+				method: "POST",
+			},
+			async ({ body }) => {
+				const payload = body as Record<string, string> | undefined;
+				return {
+					grantType: payload?.grant_type ?? null,
+					scope: payload?.scope ?? null,
+				};
+			},
+		);
+
+		const router = createRouter({
+			tokenEndpoint,
+		});
+
+		const testApp = express();
+		testApp.use(bodyParser.urlencoded({ extended: false }));
+		testApp.use(toNodeHandler(router.handler));
+
+		const response = await request(testApp)
+			.post("/oauth2/token")
+			.set("Content-Type", "application/x-www-form-urlencoded")
+			.send("grant_type=client_credentials&scope=openid")
+			.expect(200);
+
+		expect(response.body).toEqual({
+			grantType: "client_credentials",
+			scope: "openid",
+		});
 	});
 });
 
