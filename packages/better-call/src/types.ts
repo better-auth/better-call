@@ -1,13 +1,13 @@
 import type {
 	HasRequiredKeys,
-	IsEmptyObject,
 	InferParamPath,
 	InferParamWildCard,
+	IsEmptyObject,
 	Prettify,
 	UnionToIntersection,
-} from "../helper";
-import type { StandardSchemaV1 } from "../standard-schema";
+} from "./helper";
 import type { Middleware } from "./middleware";
+import type { StandardSchemaV1 } from "./standard-schema";
 
 export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD";
 export type Method = HTTPMethod | "*";

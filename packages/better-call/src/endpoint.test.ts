@@ -1,9 +1,9 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
-import { createEndpoint } from "./v2/endpoint";
-import { z } from "zod";
-import { APIError, BetterCallError } from "./error";
-import { createMiddleware } from "./v2/middleware";
 import * as v from "valibot";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { z } from "zod";
+import { createEndpoint } from "./endpoint";
+import { APIError, BetterCallError } from "./error";
+import { createMiddleware } from "./middleware";
 
 describe("validation", (it) => {
 	it("should validate body and throw validation error", async () => {

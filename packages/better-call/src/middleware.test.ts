@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createMiddleware } from "./v2/middleware";
-import { createEndpoint } from "./v2/endpoint";
+import { createEndpoint } from "./endpoint";
 import { APIError, kAPIErrorHeaderSymbol } from "./error";
+import { createMiddleware } from "./middleware";
 
 describe("type", () => {
 	it("should infer middleware returned type", async () => {

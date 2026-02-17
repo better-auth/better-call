@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createEndpoint } from "./v2/endpoint";
 import { z } from "zod";
-import { signCookieValue } from "./crypto";
 import { parseCookies } from "./cookies";
+import { signCookieValue } from "./crypto";
+import { createEndpoint } from "./endpoint";
 
 describe("parseCookies", () => {
 	it("should parse cookies", () => {

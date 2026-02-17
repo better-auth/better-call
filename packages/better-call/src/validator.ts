@@ -1,5 +1,3 @@
-import type { EndpointOptions } from "./endpoint";
-import type { InputContext } from "./context";
 import type { StandardSchemaV1 } from "./standard-schema";
 
 type ValidationResponse =
@@ -23,10 +21,15 @@ type ValidationResponse =
  * @returns error and data object
  */
 export async function runValidation(
-	options: EndpointOptions,
-	context: InputContext<any, any> = {},
+	options: {
+		body?: StandardSchemaV1;
+		query?: StandardSchemaV1;
+		requireHeaders?: boolean;
+		requireRequest?: boolean;
+	},
+	context: Record<string, any> = {},
 ): Promise<ValidationResponse> {
-	let request = {
+	const request = {
 		body: context.body,
 		query: context.query,
 	} as {

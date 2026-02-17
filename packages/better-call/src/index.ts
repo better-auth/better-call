@@ -1,43 +1,41 @@
 // Core
-export { createEndpoint } from "./v2/endpoint";
+
+// Cookies
+export type { CookieOptions, CookiePrefixOptions } from "./cookies";
 export type {
 	Endpoint,
 	EndpointContext,
 	EndpointMetadata,
 	EndpointRuntimeOptions,
-} from "./v2/endpoint";
-
-// Middleware
-export { createMiddleware } from "./v2/middleware";
-export type { Middleware, MiddlewareContext } from "./v2/middleware";
-
-// Router
-export { createRouter } from "./v2/router";
-export type { Router, RouterConfig } from "./v2/router";
-
+} from "./endpoint";
+export { createEndpoint } from "./endpoint";
+export type { Status } from "./error";
 // Errors
 export {
 	APIError,
-	ValidationError,
 	BetterCallError,
-	statusCodes,
 	kAPIErrorHeaderSymbol,
+	statusCodes,
+	ValidationError,
 } from "./error";
-export type { Status } from "./error";
-
-// Cookies
-export type { CookieOptions, CookiePrefixOptions } from "./cookies";
+export type { Prettify } from "./helper";
+export type { Middleware, MiddlewareContext } from "./middleware";
+// Middleware
+export { createMiddleware } from "./middleware";
+export type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 
 // OpenAPI
 export {
 	generator as generateOpenAPI,
 	getHTML as getOpenAPIHTML,
 } from "./openapi";
-export type { OpenAPISchemaType, OpenAPIParameter } from "./openapi";
-
-// Response
-export { toResponse } from "./to-response";
-export type { JSONResponse } from "./to-response";
-
+export type { Router, RouterConfig } from "./router";
+// Router
+export { createRouter } from "./router";
 // Schema
 export type { StandardSchemaV1 } from "./standard-schema";
+export type { JSONResponse } from "./to-response";
+// Response
+export { toResponse } from "./to-response";
+// Types
+export type { InferParam } from "./types";

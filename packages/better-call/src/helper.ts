@@ -24,11 +24,6 @@ export type UnionToIntersection<Union> = (
 	? Intersection & Union
 	: never;
 
-type MergeObject<
-	T extends Record<string, any> | never,
-	S extends Record<string, any> | never,
-> = T extends never ? S : S extends never ? T : T & S;
-
 export type InferParamPath<Path> =
 	Path extends `${infer _Start}:${infer Param}/${infer Rest}`
 		? { [K in Param | keyof InferParamPath<Rest>]: string }

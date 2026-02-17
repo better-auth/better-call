@@ -1,8 +1,6 @@
-import { createMiddleware } from "better-call/v2/middleware";
-import { createEndpoint } from "better-call/v2/endpoint";
-import { createRouter } from "better-call/v2/router";
-import { createClient } from "better-call/v2/client";
 import { type } from "arktype";
+import { createEndpoint, createMiddleware, createRouter } from "better-call";
+import { createClient } from "better-call/client";
 
 type Context = {
 	readonly test: "demo";

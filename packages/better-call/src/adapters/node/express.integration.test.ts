@@ -1,10 +1,10 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import express from "express";
-import bodyParser from "body-parser";
-import request from "supertest";
-import { createRouter, createEndpoint } from "../../index";
-import { toNodeHandler } from "./index";
 import type { Server } from "node:http";
+import bodyParser from "body-parser";
+import express from "express";
+import request from "supertest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createEndpoint, createRouter } from "../../index";
+import { toNodeHandler } from "./index";
 
 describe("Express Integration with body-parser", () => {
 	let app: express.Application;

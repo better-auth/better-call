@@ -127,7 +127,7 @@ export function getRequest({
 }) {
 	// Check if body has already been parsed by Express middleware
 	const maybeConsumedReq = request as any;
-	let body = undefined;
+	let body;
 
 	const method = request.method;
 	// Request with GET/HEAD method cannot have body.
