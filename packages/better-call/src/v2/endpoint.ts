@@ -115,6 +115,7 @@ export type Endpoint<
 	Query = any,
 	Use extends Middleware[] = any,
 	R = any,
+	Meta extends EndpointMetadata | undefined = EndpointMetadata | undefined,
 > = {
 	<
 		AsResponse extends boolean = false,
@@ -144,7 +145,7 @@ export type Endpoint<
 					})?,
 				]
 	): Promise<ResultType<R, AsResponse, ReturnHeaders, ReturnStatus>>;
-	options: EndpointRuntimeOptions;
+	options: EndpointRuntimeOptions & { method: Method; metadata?: Meta };
 	path: Path;
 };
 
@@ -196,7 +197,8 @@ export function createEndpoint<
 	ResolveBodyInput<BodySchema, Meta>,
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
-	R
+	R,
+	Meta
 >;
 
 // Options-only (virtual/path-less) overload
@@ -246,7 +248,8 @@ export function createEndpoint<
 	ResolveBodyInput<BodySchema, Meta>,
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
-	R
+	R,
+	Meta
 >;
 
 // Implementation
@@ -402,7 +405,8 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		ResolveBodyInput<BodySchema, Meta>,
 		ResolveQueryInput<QuerySchema, Meta>,
 		Use,
-		Awaited<R>
+		Awaited<R>,
+		Meta
 	> => {
 		return createEndpoint(
 			path,
