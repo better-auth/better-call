@@ -37,9 +37,10 @@ export type MiddlewareContext<Context = {}> = {
 					status?: number;
 					headers?: Record<string, string>;
 					response?: Response;
+					body?: Record<string, any>;
 			  }
 			| Response,
-	) => Promise<R>;
+	) => R;
 	context: Prettify<Context>;
 	redirect: (url: string) => APIError;
 	error: (
@@ -50,12 +51,21 @@ export type MiddlewareContext<Context = {}> = {
 		} & Record<string, any>,
 		headers?: HeadersInit,
 	) => APIError;
+	asResponse?: boolean;
+	returnHeaders?: boolean;
+	returnStatus?: boolean;
+	responseHeaders: Headers;
 };
 
-export type Middleware<Handler extends (inputCtx: any) => Promise<any> = any> =
-	Handler & {
-		options: Record<string, any>;
-	};
+type DefaultHandler = (inputCtx: MiddlewareContext<any>) => Promise<any>;
+
+export type Middleware<
+	Handler extends (
+		inputCtx: MiddlewareContext<any>,
+	) => Promise<any> = DefaultHandler,
+> = Handler & {
+	options: Record<string, any>;
+};
 
 export function createMiddleware<Context = {}, R = unknown>(
 	handler: (context: MiddlewareContext<Context>) => Promise<R>,

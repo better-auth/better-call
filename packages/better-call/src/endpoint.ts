@@ -187,7 +187,7 @@ export function createEndpoint<
 			Use,
 			ReqHeaders,
 			ReqRequest,
-			{},
+			InferUse<Use>,
 			Meta
 		>,
 	) => Promise<R>,
@@ -238,7 +238,7 @@ export function createEndpoint<
 			Use,
 			ReqHeaders,
 			ReqRequest,
-			{},
+			InferUse<Use>,
 			Meta
 		>,
 	) => Promise<R>,

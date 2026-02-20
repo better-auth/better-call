@@ -13,7 +13,7 @@ import {
 	ValidationError,
 } from "./error";
 import type { Prettify } from "./helper";
-import type { Middleware } from "./middleware";
+import type { Middleware, MiddlewareContext } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
 import type {
 	InferParam,
@@ -133,7 +133,6 @@ export const createInternalContext = async (
 		query: data.query,
 		path: context.path || path || "virtual:",
 		context: "context" in context && context.context ? context.context : {},
-		returned: undefined as any,
 		headers: context?.headers,
 		request: context?.request,
 		params: "params" in context ? context.params : undefined,
@@ -222,8 +221,8 @@ export const createInternalContext = async (
 		setStatus: (status: Status) => {
 			responseStatus = status;
 		},
-		json: (
-			json: Record<string, any>,
+		json: <R extends Record<string, any> | null>(
+			json: R,
 			routerResponse?:
 				| {
 						status?: number;
@@ -232,7 +231,7 @@ export const createInternalContext = async (
 						body?: Record<string, any>;
 				  }
 				| Response,
-		) => {
+		): R => {
 			if (!context.asResponse) {
 				return json;
 			}
@@ -240,13 +239,13 @@ export const createInternalContext = async (
 				body: routerResponse?.body || json,
 				routerResponse,
 				_flag: "json",
-			};
+			} as any;
 		},
-		responseHeaders: headers,
 		get responseStatus() {
 			return responseStatus;
 		},
-	};
+		responseHeaders: headers,
+	} satisfies MiddlewareContext<any>;
 
 	// Execute middleware chain
 	for (const middleware of options.use || []) {
