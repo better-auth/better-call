@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { InferParam } from "./context";
 import type { InferParamPath, InferParamWildCard } from "./helper";
+import type { InferParam } from "./types";
 
 describe("infer param", () => {
 	it("empty path", () => {

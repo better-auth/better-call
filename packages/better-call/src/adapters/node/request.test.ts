@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { getRequest, setResponse } from "./request";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
+import { describe, expect, it, vi } from "vitest";
+import { getRequest, setResponse } from "./request";
 
 describe("getRequest", () => {
 	it("should handle Express pre-parsed body", async () => {

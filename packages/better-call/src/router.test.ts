@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createEndpoint, type Endpoint } from "./endpoint";
-import { createRouter } from "./router";
 import { z } from "zod";
-import { APIError } from "./error";
 import { getRequest } from "./adapters/node/request";
+import { createEndpoint, type Endpoint } from "./endpoint";
+import { APIError } from "./error";
+import { createRouter } from "./router";
 import { toResponse } from "./to-response";
 
 describe("router", () => {

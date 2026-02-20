@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createClient } from "./client";
 import { z } from "zod";
+import { createClient } from "./client";
 import { createEndpoint } from "./endpoint";
-import { createRouter, type Router } from "./router";
 import { createMiddleware } from "./middleware";
+import { createRouter, type Router } from "./router";
 
 describe("client", () => {
 	const getEndpoint = createEndpoint(

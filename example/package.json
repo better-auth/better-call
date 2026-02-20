@@ -1,11 +1,17 @@
 {
-	"name": "@better-auth/example",
-	"private": true,
+	"name": "better-call-example",
+	"type": "module",
 	"scripts": {
-		"build": "tsdown"
+		"build": "tsc -b"
 	},
 	"dependencies": {
+		"arktype": "^2.1.29",
 		"better-call": "workspace:*",
+		"effect": "^3.19.18",
+		"valibot": "^1.2.0",
 		"zod": "^4.3.6"
+	},
+	"devDependencies": {
+		"typescript": "^5.9.3"
 	}
 }

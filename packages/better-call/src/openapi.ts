@@ -1,5 +1,5 @@
-import { ZodObject, ZodOptional, ZodType } from "zod";
-import type { Endpoint, EndpointOptions } from "./endpoint";
+import { ZodObject, ZodOptional, type ZodType } from "zod";
+import type { Endpoint, EndpointRuntimeOptions } from "./endpoint";
 
 export type OpenAPISchemaType =
 	| "string"
@@ -28,7 +28,7 @@ export interface OpenAPIParameter {
 	};
 }
 
-export interface Path {
+interface Path {
 	get?: {
 		tags?: string[];
 		operationId?: string;
@@ -105,7 +105,7 @@ function getTypeFromZodType(zodType: ZodType<any>) {
 	}
 }
 
-function getParameters(options: EndpointOptions) {
+function getParameters(options: EndpointRuntimeOptions) {
 	const parameters: OpenAPIParameter[] = [];
 	if (options.metadata?.openapi?.parameters) {
 		parameters.push(...options.metadata.openapi.parameters);
@@ -133,7 +133,7 @@ function getParameters(options: EndpointOptions) {
 	return parameters;
 }
 
-function getRequestBody(options: EndpointOptions): any {
+function getRequestBody(options: EndpointRuntimeOptions): any {
 	if (options.metadata?.openapi?.requestBody) {
 		return options.metadata.openapi.requestBody;
 	}
@@ -142,7 +142,7 @@ function getRequestBody(options: EndpointOptions): any {
 		options.body instanceof ZodObject ||
 		options.body instanceof ZodOptional
 	) {
-		// @ts-ignore
+		// @ts-expect-error
 		const shape = options.body.shape;
 		if (!shape) return undefined;
 		const properties: Record<string, any> = {};
@@ -292,7 +292,7 @@ export async function generator(
 	};
 
 	Object.entries(endpoints).forEach(([_, value]) => {
-		const options = value.options as EndpointOptions;
+		const options = value.options as EndpointRuntimeOptions;
 		if (!value.path || options.metadata?.SERVER_ONLY) return;
 		if (options.method === "GET") {
 			paths[value.path] = {

@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-
-import { getRequest, setResponse } from "./request";
 import type { Router } from "../../router.js";
+import { getRequest, setResponse } from "./request";
 
 export function toNodeHandler(handler: Router["handler"]) {
 	return async (req: IncomingMessage, res: ServerResponse) => {
