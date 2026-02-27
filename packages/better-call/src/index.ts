@@ -2,6 +2,7 @@
 
 // Cookies
 export type { CookieOptions, CookiePrefixOptions } from "./cookies";
+export { serializeSignedCookie } from "./cookies";
 export type {
 	Endpoint,
 	EndpointContext,
