@@ -325,7 +325,7 @@ describe("client", () => {
 		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
 			"@post/test" | "/test2"
 		>();
-		client("@post/test");
-		client("/test2");
+		client("@post/test", {});
+		client("/test2", {});
 	});
 });

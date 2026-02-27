@@ -79,25 +79,37 @@ export type ResultType<
 	AsResponse extends boolean,
 	ReturnHeaders extends boolean,
 	ReturnStatus extends boolean,
-> = AsResponse extends true
-	? Response
-	: ReturnHeaders extends true
-		? ReturnStatus extends true
-			? {
-					headers: Headers;
-					status: number;
-					response: Awaited<R>;
-				}
-			: {
-					headers: Headers;
-					response: Awaited<R>;
-				}
-		: ReturnStatus extends true
-			? {
-					status: number;
-					response: Awaited<R>;
-				}
-			: Awaited<R>;
+> =
+	boolean extends AsResponse
+		? Awaited<R>
+		: AsResponse extends true
+			? Response
+			: boolean extends ReturnHeaders
+				? Awaited<R>
+				: ReturnHeaders extends true
+					? boolean extends ReturnStatus
+						? {
+								headers: Headers;
+								response: Awaited<R>;
+							}
+						: ReturnStatus extends true
+							? {
+									headers: Headers;
+									status: number;
+									response: Awaited<R>;
+								}
+							: {
+									headers: Headers;
+									response: Awaited<R>;
+								}
+					: boolean extends ReturnStatus
+						? Awaited<R>
+						: ReturnStatus extends true
+							? {
+									status: number;
+									response: Awaited<R>;
+								}
+							: Awaited<R>;
 
 /**
  * Infer param types from a path string.
@@ -136,33 +148,47 @@ type InferQueryInput<Query> = undefined extends Query
 /**
  * Infer method input: required for wildcard, optional for arrays and single methods.
  */
-type InferMethodInput<M> = M extends "*"
-	? { method: HTTPMethod }
-	: M extends Array<any>
-		? { method?: M[number] | undefined }
-		: { method?: M | undefined };
+type InferMethodInput<M> =
+	0 extends 1 & M
+		? { method?: HTTPMethod | undefined }
+		: M extends "*"
+			? { method: HTTPMethod }
+			: M extends Array<any>
+				? { method?: M[number] | undefined }
+				: { method?: M | undefined };
 
 /**
  * Infer request input.
  */
-type InferRequestInput<ReqRequest extends boolean> = ReqRequest extends true
-	? { request: Request }
-	: { request?: Request };
+type InferRequestInput<ReqRequest extends boolean> =
+	0 extends 1 & ReqRequest
+		? { request?: Request }
+		: ReqRequest extends true
+			? { request: Request }
+			: { request?: Request };
 
 /**
  * Infer headers input.
  */
-type InferHeadersInput<ReqHeaders extends boolean> = ReqHeaders extends true
-	? { headers: HeadersInit }
-	: { headers?: HeadersInit };
+type InferHeadersInput<ReqHeaders extends boolean> =
+	0 extends 1 & ReqHeaders
+		? { headers?: HeadersInit }
+		: ReqHeaders extends true
+			? { headers: HeadersInit }
+			: { headers?: HeadersInit };
 
 /**
  * Infer the use (middleware) context union.
+ * Guards against `any` and `[]` to avoid poisoning the Context type.
  */
 export type InferUse<Opts extends Middleware[] | undefined> =
-	Opts extends Middleware[]
-		? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
-		: {};
+	0 extends 1 & Opts
+		? {}
+		: Opts extends Middleware[]
+			? Opts extends []
+				? {}
+				: UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
+			: {};
 
 /**
  * The full InputContext type for the Endpoint call signature.
