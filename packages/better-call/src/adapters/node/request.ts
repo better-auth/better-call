@@ -1,5 +1,99 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type {
+	IncomingHttpHeaders,
+	IncomingMessage,
+	ServerResponse,
+} from "node:http";
 import * as set_cookie_parser from "set-cookie-parser";
+
+type NodeRequestWithBody = IncomingMessage & {
+	body?: unknown;
+};
+
+const getFirstHeaderValue = (
+	header: IncomingHttpHeaders[string],
+): string | undefined => {
+	if (Array.isArray(header)) {
+		return header[0];
+	}
+	return header;
+};
+
+const hasFormUrlEncodedContentType = (
+	headers: IncomingHttpHeaders,
+): boolean => {
+	const contentType = getFirstHeaderValue(headers["content-type"]);
+	if (!contentType) {
+		return false;
+	}
+	return contentType
+		.toLowerCase()
+		.startsWith("application/x-www-form-urlencoded");
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+};
+
+const appendFormValue = (
+	params: URLSearchParams,
+	key: string,
+	value: unknown,
+) => {
+	if (value === undefined) {
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			appendFormValue(params, key, item);
+		}
+		return;
+	}
+	if (value === null) {
+		params.append(key, "");
+		return;
+	}
+	if (isPlainObject(value)) {
+		params.append(key, JSON.stringify(value));
+		return;
+	}
+	params.append(key, `${value}`);
+};
+
+const toFormUrlEncodedBody = (
+	body: Readonly<Record<string, unknown>>,
+): string => {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(body)) {
+		appendFormValue(params, key, value);
+	}
+	return params.toString();
+};
+
+const canReadRawBody = (request: IncomingMessage): boolean => {
+	return (
+		!request.destroyed && request.readableEnded !== true && request.readable
+	);
+};
+
+const serializeParsedBody = (
+	parsedBody: unknown,
+	isFormUrlEncoded: boolean,
+): string => {
+	if (typeof parsedBody === "string") {
+		return parsedBody;
+	}
+	if (parsedBody instanceof URLSearchParams) {
+		return parsedBody.toString();
+	}
+	if (isFormUrlEncoded && isPlainObject(parsedBody)) {
+		return toFormUrlEncodedBody(parsedBody);
+	}
+	return JSON.stringify(parsedBody);
+};
 
 function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 	const h = req.headers;
@@ -126,29 +220,26 @@ export function getRequest({
 	request: IncomingMessage;
 }) {
 	// Check if body has already been parsed by Express middleware
-	const maybeConsumedReq = request as any;
+	const maybeConsumedReq = request as NodeRequestWithBody;
+	const isFormUrlEncoded = hasFormUrlEncodedContentType(request.headers);
 	let body = undefined;
 
 	const method = request.method;
 	// Request with GET/HEAD method cannot have body.
 	if (method !== "GET" && method !== "HEAD") {
-		// If body was already parsed by Express body-parser middleware
-		if (maybeConsumedReq.body !== undefined) {
-			// Convert parsed body back to a ReadableStream
-			const bodyContent =
-				typeof maybeConsumedReq.body === "string"
-					? maybeConsumedReq.body
-					: JSON.stringify(maybeConsumedReq.body);
+		// Raw-first strategy: prefer consuming the original request stream whenever it is still readable.
+		if (canReadRawBody(request)) {
+			body = get_raw_body(request, bodySizeLimit);
+		} else if (maybeConsumedReq.body !== undefined) {
+			const parsedBody = maybeConsumedReq.body;
 
+			const bodyContent = serializeParsedBody(parsedBody, isFormUrlEncoded);
 			body = new ReadableStream({
 				start(controller) {
 					controller.enqueue(new TextEncoder().encode(bodyContent));
 					controller.close();
 				},
 			});
-		} else {
-			// Otherwise, get the raw body stream
-			body = get_raw_body(request, bodySizeLimit);
 		}
 	}
 
