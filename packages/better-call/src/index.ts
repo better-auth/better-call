@@ -34,7 +34,12 @@ export type { Router, RouterConfig } from "./router";
 // Router
 export { createRouter } from "./router";
 // Types
-export type { HTTPMethod, InputContext } from "./types";
+export type {
+	HTTPMethod,
+	InputContext,
+	ResolveBodyInput,
+	ResolveQueryInput,
+} from "./types";
 // Schema
 export type { StandardSchemaV1 } from "./standard-schema";
 export type { JSONResponse } from "./to-response";
