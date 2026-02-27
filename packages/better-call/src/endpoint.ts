@@ -117,34 +117,40 @@ export type Endpoint<
 	R = any,
 	Meta extends EndpointMetadata | undefined = EndpointMetadata | undefined,
 > = {
-	<
-		AsResponse extends boolean = false,
-		ReturnHeaders extends boolean = false,
-		ReturnStatus extends boolean = false,
-	>(
-		...args: HasRequiredInputKeys<
-			Path,
-			Method,
-			Body,
-			Query,
-			false,
-			false
-		> extends true
-			? [
-					InputContext<Path, Method, Body, Query, false, false> & {
-						asResponse?: AsResponse;
-						returnHeaders?: ReturnHeaders;
-						returnStatus?: ReturnStatus;
-					},
-				]
-			: [
-					(InputContext<Path, Method, Body, Query, false, false> & {
-						asResponse?: AsResponse;
-						returnHeaders?: ReturnHeaders;
-						returnStatus?: ReturnStatus;
-					})?,
-				]
-	): Promise<ResultType<R, AsResponse, ReturnHeaders, ReturnStatus>>;
+	(
+		context: InputContext<Path, Method, Body, Query, false, false> & {
+			asResponse: true;
+		},
+	): Promise<Response>;
+	(
+		context: InputContext<Path, Method, Body, Query, false, false> & {
+			returnHeaders: true;
+			returnStatus: true;
+		},
+	): Promise<{
+		headers: Headers;
+		status: number;
+		response: Awaited<R>;
+	}>;
+	(
+		context: InputContext<Path, Method, Body, Query, false, false> & {
+			returnHeaders: true;
+		},
+	): Promise<{
+		headers: Headers;
+		response: Awaited<R>;
+	}>;
+	(
+		context: InputContext<Path, Method, Body, Query, false, false> & {
+			returnStatus: true;
+		},
+	): Promise<{
+		status: number;
+		response: Awaited<R>;
+	}>;
+	(
+		context?: InputContext<Path, Method, Body, Query, false, false>,
+	): Promise<Awaited<R>>;
 	options: EndpointRuntimeOptions & { method: Method; metadata?: Meta };
 	path: Path;
 };
