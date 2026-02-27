@@ -10,7 +10,6 @@ import type { Middleware } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
 
 export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD";
-export type Method = HTTPMethod | "*";
 
 /**
  * Resolves a method type parameter to its effective runtime type.
