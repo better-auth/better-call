@@ -10,9 +10,11 @@ export type RequiredKeysOf<BaseType extends object> = Exclude<
 export type HasRequiredKeys<BaseType extends object> =
 	RequiredKeysOf<BaseType> extends never ? false : true;
 
-export type Prettify<T> = {
-	[K in keyof T]: T[K];
-} & {};
+export type Prettify<T> = 0 extends 1 & T
+	? any
+	: {
+			[K in keyof T]: T[K];
+		} & {};
 
 export type IsEmptyObject<T> = keyof T extends never ? true : false;
 
