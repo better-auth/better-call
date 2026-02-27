@@ -66,10 +66,10 @@ export type EndpointContext<
 					status?: number;
 					headers?: Record<string, string>;
 					response?: Response;
-					body?: Record<string, string>;
+					body?: Record<string, any>;
 			  }
 			| Response,
-	) => Promise<R>;
+	) => R;
 	context: Prettify<Context & InferUse<Use>>;
 	redirect: (url: string) => APIError;
 	error: (
