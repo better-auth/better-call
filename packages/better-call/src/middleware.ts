@@ -11,7 +11,7 @@ export type MiddlewareContext<Context = {}> = {
 	path: string;
 	body: any;
 	query: Record<string, any> | undefined;
-	params: string;
+	params: Record<string, any> | undefined;
 	request: Request | undefined;
 	headers: Headers | undefined;
 	setHeader: (key: string, value: string) => void;
