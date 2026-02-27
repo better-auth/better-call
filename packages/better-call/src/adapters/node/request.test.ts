@@ -16,6 +16,10 @@ describe("getRequest", () => {
 			host: "localhost:3000",
 			"content-type": "application/json",
 		};
+		Object.defineProperty(req, "readableEnded", {
+			value: true,
+			configurable: true,
+		});
 
 		// Simulate Express body-parser already parsed the body
 		req.body = { message: "Hello World", id: 123 };
@@ -46,6 +50,10 @@ describe("getRequest", () => {
 			host: "localhost:3000",
 			"content-type": "text/plain",
 		};
+		Object.defineProperty(req, "readableEnded", {
+			value: true,
+			configurable: true,
+		});
 
 		// Simulate Express body-parser parsed a string body
 		req.body = "Plain text body";
@@ -58,6 +66,133 @@ describe("getRequest", () => {
 		expect(request).toBeInstanceOf(Request);
 		const bodyText = await request.text();
 		expect(bodyText).toBe("Plain text body");
+	});
+
+	it("should fallback to raw stream for empty pre-parsed form-urlencoded body", async () => {
+		const socket = new Socket();
+		const req = new IncomingMessage(socket) as any;
+
+		req.url = "/oauth2/token";
+		req.method = "POST";
+		req.headers = {
+			host: "localhost:3000",
+			"content-type": "application/x-www-form-urlencoded",
+			"content-length": "29",
+		};
+		req.httpVersionMajor = 1;
+
+		// express.json() can set empty object for non-JSON content type
+		req.body = {};
+
+		// Mock the stream events for raw body path
+		req.on = vi.fn();
+		req.pause = vi.fn();
+		req.resume = vi.fn();
+		req.destroy = vi.fn();
+		req.destroyed = false;
+
+		const request = getRequest({
+			request: req,
+			base: "http://localhost:3000",
+		});
+
+		expect(request).toBeInstanceOf(Request);
+		expect(request.body).not.toBeNull();
+		expect(req.on).toHaveBeenCalledWith("error", expect.any(Function));
+		expect(req.on).toHaveBeenCalledWith("end", expect.any(Function));
+		expect(req.on).toHaveBeenCalledWith("data", expect.any(Function));
+	});
+
+	it("should prefer raw stream over pre-parsed body when stream is still readable", async () => {
+		const socket = new Socket();
+		const req = new IncomingMessage(socket) as any;
+
+		req.url = "/api/test";
+		req.method = "POST";
+		req.headers = {
+			host: "localhost:3000",
+			"content-type": "application/json",
+			"content-length": "20",
+		};
+		req.httpVersionMajor = 1;
+		req.body = { source: "middleware" };
+
+		req.on = vi.fn();
+		req.pause = vi.fn();
+		req.resume = vi.fn();
+		req.destroy = vi.fn();
+		req.destroyed = false;
+
+		const request = getRequest({
+			request: req,
+			base: "http://localhost:3000",
+		});
+
+		expect(request).toBeInstanceOf(Request);
+		expect(request.body).not.toBeNull();
+		expect(req.on).toHaveBeenCalledWith("error", expect.any(Function));
+		expect(req.on).toHaveBeenCalledWith("end", expect.any(Function));
+		expect(req.on).toHaveBeenCalledWith("data", expect.any(Function));
+	});
+
+	it("should serialize pre-parsed form-urlencoded object as urlencoded string", async () => {
+		const socket = new Socket();
+		const req = new IncomingMessage(socket) as any;
+
+		req.url = "/oauth2/token";
+		req.method = "POST";
+		req.headers = {
+			host: "localhost:3000",
+			"content-type": "application/x-www-form-urlencoded",
+		};
+		Object.defineProperty(req, "readableEnded", {
+			value: true,
+			configurable: true,
+		});
+
+		req.body = {
+			grant_type: "client_credentials",
+			scope: ["openid", "profile"],
+		};
+
+		const request = getRequest({
+			request: req,
+			base: "http://localhost:3000",
+		});
+
+		expect(request).toBeInstanceOf(Request);
+		const bodyText = await request.text();
+		expect(bodyText).toBe(
+			"grant_type=client_credentials&scope=openid&scope=profile",
+		);
+	});
+
+	it("should keep empty parsed JSON object when stream is already consumed", async () => {
+		const socket = new Socket();
+		const req = new IncomingMessage(socket) as any;
+
+		req.url = "/api/test";
+		req.method = "POST";
+		req.headers = {
+			host: "localhost:3000",
+			"content-type": "application/json",
+		};
+
+		// Simulate middleware that already consumed stream and parsed empty JSON object
+		Object.defineProperty(req, "readableEnded", {
+			value: true,
+			configurable: true,
+		});
+		req.body = {};
+
+		const request = getRequest({
+			request: req,
+			base: "http://localhost:3000",
+		});
+
+		expect(request).toBeInstanceOf(Request);
+		const bodyText = await request.text();
+		expect(bodyText).toBe("{}");
 	});
 
 	it("should handle Express sub-router with baseUrl", async () => {
@@ -130,6 +265,10 @@ describe("getRequest", () => {
 			host: "example.com",
 			"content-type": "application/json",
 		};
+		Object.defineProperty(req, "readableEnded", {
+			value: true,
+			configurable: true,
+		});
 		req.body = { event: "user.created", data: { id: 1, name: "Test" } };
 
 		const request = getRequest({
