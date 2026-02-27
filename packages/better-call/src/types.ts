@@ -178,7 +178,7 @@ type InferHeadersInput<ReqHeaders extends boolean> = 0 extends 1 & ReqHeaders
  * Guards against `any` and `[]` to avoid poisoning the Context type.
  */
 export type InferUse<Opts extends Middleware[] | undefined> = 0 extends 1 & Opts
-	? {}
+	? any
 	: Opts extends Middleware[]
 		? Opts extends []
 			? {}
