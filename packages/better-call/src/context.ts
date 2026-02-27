@@ -1,209 +1,120 @@
-import type { EndpointOptions } from "./endpoint";
-import {
-	type statusCodes,
-	APIError,
-	ValidationError,
-	type Status,
-} from "./error";
-import type {
-	InferParamPath,
-	InferParamWildCard,
-	IsEmptyObject,
-	Prettify,
-	UnionToIntersection,
-} from "./helper";
-import type {
-	Middleware,
-	MiddlewareContext,
-	MiddlewareOptions,
-} from "./middleware";
-import { runValidation } from "./validator";
+import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import {
 	getCookieKey,
 	parseCookies,
 	serializeCookie,
 	serializeSignedCookie,
-	type CookieOptions,
-	type CookiePrefixOptions,
 } from "./cookies";
 import { getCryptoKey, verifySignature } from "./crypto";
+import {
+	APIError,
+	type Status,
+	type statusCodes,
+	ValidationError,
+} from "./error";
+import type { Prettify } from "./helper";
+import type { Middleware, MiddlewareContext } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
+import type {
+	InferParam,
+	InferUse,
+	ResolveBody,
+	ResolveMethod,
+	ResolveQuery,
+} from "./types";
 import { isRequest } from "./utils";
+import { runValidation } from "./validator";
 
-export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
-export type Method = HTTPMethod | "*";
-
-export type InferBodyInput<
-	Options extends EndpointOptions | MiddlewareOptions,
-	Body = Options["metadata"] extends {
-		$Infer: {
-			body: infer B;
-		};
-	}
-		? B
-		: Options["body"] extends StandardSchemaV1
-			? StandardSchemaV1.InferInput<Options["body"]>
-			: undefined,
-> = undefined extends Body
-	? {
-			body?: Body;
-		}
-	: {
-			body: Body;
-		};
-
-export type InferBody<Options extends EndpointOptions | MiddlewareOptions> =
-	Options["metadata"] extends {
-		$Infer: {
-			body: infer Body;
-		};
-	}
-		? Body
-		: Options["body"] extends StandardSchemaV1
-			? StandardSchemaV1.InferOutput<Options["body"]>
-			: any;
-
-export type InferQueryInput<
-	Options extends EndpointOptions | MiddlewareOptions,
-	Query = Options["metadata"] extends {
-		$Infer: {
-			query: infer Query;
-		};
-	}
-		? Query
-		: Options["query"] extends StandardSchemaV1
-			? StandardSchemaV1.InferInput<Options["query"]>
-			: Record<string, any> | undefined,
-> = undefined extends Query
-	? {
-			query?: Query;
-		}
-	: {
-			query: Query;
-		};
-
-export type InferQuery<Options extends EndpointOptions | MiddlewareOptions> =
-	Options["metadata"] extends {
-		$Infer: {
-			query: infer Query;
-		};
-	}
-		? Query
-		: Options["query"] extends StandardSchemaV1
-			? StandardSchemaV1.InferOutput<Options["query"]>
-			: Record<string, any> | undefined;
-
-export type InferMethod<Options extends EndpointOptions> =
-	Options["method"] extends Array<Method>
-		? Options["method"][number]
-		: Options["method"] extends "*"
-			? HTTPMethod
-			: Options["method"];
-
-export type InferInputMethod<
-	Options extends EndpointOptions,
-	Method = Options["method"] extends Array<any>
-		? Options["method"][number] | undefined
-		: Options["method"] extends "*"
-			? HTTPMethod
-			: Options["method"] | undefined,
-> = undefined extends Method
-	? {
-			method?: Method;
-		}
-	: {
-			method: Method;
-		};
-
-export type InferParam<Path extends string> = [Path] extends [never]
-	? Record<string, any> | undefined
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
-		? Record<string, any> | undefined
-		: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
-
-export type InferParamInput<Path extends string> = [Path] extends [never]
-	? { params?: Record<string, any> }
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
-		? {
-				params?: Record<string, any>;
-			}
-		: {
-				params: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
-			};
-
-export type InferRequest<Option extends EndpointOptions | MiddlewareOptions> =
-	Option["requireRequest"] extends true ? Request : Request | undefined;
-
-export type InferRequestInput<
-	Option extends EndpointOptions | MiddlewareOptions,
-> = Option["requireRequest"] extends true
-	? {
-			request: Request;
-		}
-	: {
-			request?: Request;
-		};
-
-export type InferHeaders<Option extends EndpointOptions | MiddlewareOptions> =
-	Option["requireHeaders"] extends true ? Headers : Headers | undefined;
-
-export type InferHeadersInput<
-	Option extends EndpointOptions | MiddlewareOptions,
-> = Option["requireHeaders"] extends true
-	? {
-			headers: HeadersInit;
-		}
-	: {
-			headers?: HeadersInit;
-		};
-
-export type InferUse<Opts extends EndpointOptions["use"]> =
-	Opts extends Middleware[]
-		? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
-		: {};
-
-export type InferMiddlewareBody<Options extends MiddlewareOptions> =
-	Options["body"] extends StandardSchemaV1<infer T> ? T : any;
-
-export type InferMiddlewareQuery<Options extends MiddlewareOptions> =
-	Options["query"] extends StandardSchemaV1<infer T>
-		? T
-		: Record<string, any> | undefined;
-
-export type InputContext<
+export type EndpointContext<
 	Path extends string,
-	Options extends EndpointOptions,
-> = InferBodyInput<Options> &
-	InferInputMethod<Options> &
-	InferQueryInput<Options> &
-	InferParamInput<Path> &
-	InferRequestInput<Options> &
-	InferHeadersInput<Options> & {
-		asResponse?: boolean;
-		returnHeaders?: boolean;
-		returnStatus?: boolean;
-		use?: Middleware[];
-		path?: string;
-		context?: Record<string, any>;
-	};
+	M,
+	BodySchema extends object | undefined,
+	QuerySchema extends object | undefined,
+	Use extends Middleware[],
+	ReqHeaders extends boolean,
+	ReqRequest extends boolean,
+	Context = {},
+	Meta = undefined,
+> = {
+	method: ResolveMethod<M>;
+	path: Path;
+	body: ResolveBody<BodySchema, Meta>;
+	query: ResolveQuery<QuerySchema, Meta>;
+	params: InferParam<Path>;
+	request: ReqRequest extends true ? Request : Request | undefined;
+	headers: ReqHeaders extends true ? Headers : Headers | undefined;
+	setHeader: (key: string, value: string) => void;
+	setStatus: (status: Status) => void;
+	getHeader: (key: string) => string | null;
+	getCookie: (key: string, prefix?: CookiePrefixOptions) => string | null;
+	getSignedCookie: (
+		key: string,
+		secret: string,
+		prefix?: CookiePrefixOptions,
+	) => Promise<string | null | false>;
+	setCookie: (key: string, value: string, options?: CookieOptions) => string;
+	setSignedCookie: (
+		key: string,
+		value: string,
+		secret: string,
+		options?: CookieOptions,
+	) => Promise<string>;
+	json: <R extends Record<string, any> | null>(
+		json: R,
+		routerResponse?:
+			| {
+					status?: number;
+					headers?: Record<string, string>;
+					response?: Response;
+					body?: Record<string, any>;
+			  }
+			| Response,
+	) => R;
+	context: 0 extends 1 & Use
+		? Prettify<Context>
+		: Prettify<Context & InferUse<Use>>;
+	redirect: (url: string) => APIError;
+	error: (
+		status: keyof typeof statusCodes | Status,
+		body?: {
+			message?: string;
+			code?: string;
+		} & Record<string, any>,
+		headers?: HeadersInit,
+	) => APIError;
+};
 
+/**
+ * Creates the internal context for an endpoint or middleware invocation.
+ * This is the runtime function that does validation, cookie handling,
+ * middleware execution, etc.
+ */
 export const createInternalContext = async (
-	context: InputContext<any, any>,
+	context: Record<string, any>,
 	{
 		options,
 		path,
 	}: {
-		options: EndpointOptions;
+		options: {
+			method?: string | string[];
+			body?: StandardSchemaV1;
+			query?: StandardSchemaV1;
+			requireHeaders?: boolean;
+			requireRequest?: boolean;
+			use?: Middleware[];
+			[key: string]: any;
+		};
 		path?: string;
 	},
 ) => {
 	const headers = new Headers();
-	let responseStatus: Status | undefined = undefined;
+	let responseStatus: Status | undefined;
 
-	const { data, error } = await runValidation(options, context);
+	const { data, error } = await runValidation(options as any, context as any);
 	if (error) {
 		throw new ValidationError(error.message, error.issues);
 	}
+
 	const requestHeaders: Headers | null =
 		"headers" in context
 			? context.headers instanceof Headers
@@ -212,6 +123,7 @@ export const createInternalContext = async (
 			: "request" in context && isRequest(context.request)
 				? context.request.headers
 				: null;
+
 	const requestCookies = requestHeaders?.get("cookie");
 	const parsedCookies = requestCookies
 		? parseCookies(requestCookies)
@@ -223,7 +135,6 @@ export const createInternalContext = async (
 		query: data.query,
 		path: context.path || path || "virtual:",
 		context: "context" in context && context.context ? context.context : {},
-		returned: undefined as any,
 		headers: context?.headers,
 		request: context?.request,
 		params: "params" in context ? context.params : undefined,
@@ -312,8 +223,8 @@ export const createInternalContext = async (
 		setStatus: (status: Status) => {
 			responseStatus = status;
 		},
-		json: (
-			json: Record<string, any>,
+		json: <R extends Record<string, any> | null>(
+			json: R,
 			routerResponse?:
 				| {
 						status?: number;
@@ -322,7 +233,7 @@ export const createInternalContext = async (
 						body?: Record<string, any>;
 				  }
 				| Response,
-		) => {
+		): R => {
 			if (!context.asResponse) {
 				return json;
 			}
@@ -330,14 +241,15 @@ export const createInternalContext = async (
 				body: routerResponse?.body || json,
 				routerResponse,
 				_flag: "json",
-			};
+			} as any;
 		},
-		responseHeaders: headers,
 		get responseStatus() {
 			return responseStatus;
 		},
-	};
-	//if context was shimmed through the input we want to apply it
+		responseHeaders: headers,
+	} satisfies MiddlewareContext<any>;
+
+	// Execute middleware chain
 	for (const middleware of options.use || []) {
 		const response = (await middleware({
 			...internalContext,
@@ -350,14 +262,12 @@ export const createInternalContext = async (
 		if (response.response) {
 			Object.assign(internalContext.context, response.response);
 		}
-		/**
-		 * Apply headers from the middleware to the endpoint headers
-		 */
 		if (response.headers) {
 			response.headers.forEach((value, key) => {
 				internalContext.responseHeaders.set(key, value);
 			});
 		}
 	}
+
 	return internalContext;
 };

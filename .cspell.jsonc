@@ -11,6 +11,7 @@
 
 		// auth words
 		"scim",
+		"OpenAPIHTML",
 
 		// proper names
 		"Bereket",

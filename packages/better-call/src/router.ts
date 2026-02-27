@@ -4,7 +4,7 @@ import {
 	findAllRoutes,
 	findRoute,
 } from "rou3";
-import { type Endpoint, createEndpoint } from "./endpoint";
+import { createEndpoint, type Endpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
@@ -17,89 +17,22 @@ export interface RouterConfig {
 		path: string;
 		middleware: Middleware;
 	}>;
-	/**
-	 * additional Context that needs to passed to endpoints
-	 *
-	 * this will be available on `ctx.context` on endpoints
-	 */
 	routerContext?: Record<string, any>;
-	/**
-	 * A callback to run before any response
-	 */
 	onResponse?: (response: Response, request: Request) => any | Promise<any>;
-	/**
-	 * A callback to run before any request
-	 */
 	onRequest?: (request: Request) => any | Promise<any>;
-	/**
-	 * A callback to run when an error is thrown in the router or middleware.
-	 *
-	 * @param error - the error that was thrown in the router or middleware.
-	 * @returns a Response object that will be returned to the client.
-	 */
 	onError?: (
 		error: unknown,
 		request: Request,
 	) => void | Promise<void> | Response | Promise<Response>;
-	/**
-	 * List of allowed media types (MIME types) for the router
-	 *
-	 * if provided, only the media types in the list will be allowed to be passed in the body.
-	 *
-	 * If an endpoint has allowed media types, it will override the router's allowed media types.
-	 *
-	 * @example
-	 * ```ts
-	 * const router = createRouter({
-	 * 		allowedMediaTypes: ["application/json", "application/x-www-form-urlencoded"],
-	 * 	})
-	 */
 	allowedMediaTypes?: string[];
-	/**
-	 * Skip trailing slashes
-	 *
-	 * @default false
-	 */
 	skipTrailingSlashes?: boolean;
-	/**
-	 * Open API route configuration
-	 */
 	openapi?: {
-		/**
-		 * Disable openapi route
-		 *
-		 * @default false
-		 */
 		disabled?: boolean;
-		/**
-		 * A path to display open api using scalar
-		 *
-		 * @default "/api/reference"
-		 */
 		path?: string;
-		/**
-		 * Scalar Configuration
-		 */
 		scalar?: {
-			/**
-			 * Title
-			 * @default "Open API Reference"
-			 */
 			title?: string;
-			/**
-			 * Description
-			 *
-			 * @default "Better Call Open API Reference"
-			 */
 			description?: string;
-			/**
-			 * Logo URL
-			 */
 			logo?: string;
-			/**
-			 * Scalar theme
-			 * @default "saturn"
-			 */
 			theme?: string;
 		};
 	};
@@ -124,7 +57,7 @@ export const createRouter = <
 				method: "GET",
 			},
 			async (c) => {
-				const schema = await generator(endpoints);
+				const schema = await generator(endpoints as any);
 				return new Response(getHTML(schema, openapi.scalar), {
 					headers: {
 						"Content-Type": "text/html",
@@ -147,7 +80,7 @@ export const createRouter = <
 			: [endpoint.options?.method];
 
 		for (const method of methods) {
-			addRoute(router, method, endpoint.path, endpoint);
+			addRoute(router, method as string, endpoint.path, endpoint);
 		}
 	}
 
@@ -180,7 +113,6 @@ export const createRouter = <
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 
-		// Reject paths with consecutive slashes
 		if (/\/{2,}/.test(path)) {
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
@@ -192,7 +124,6 @@ export const createRouter = <
 		const hasTrailingSlash = path.endsWith("/");
 		const routeHasTrailingSlash = route?.data?.path?.endsWith("/");
 
-		// If the path has a trailing slash and the route doesn't have a trailing slash and skipTrailingSlashes is not set, return 404
 		if (
 			hasTrailingSlash !== routeHasTrailingSlash &&
 			!config?.skipTrailingSlashes
@@ -218,7 +149,6 @@ export const createRouter = <
 		const handler = route.data as Endpoint;
 
 		try {
-			// Determine which allowedMediaTypes to use: endpoint-level overrides router-level
 			const allowedMediaTypes =
 				handler.options.metadata?.allowedMediaTypes ||
 				config?.allowedMediaTypes;

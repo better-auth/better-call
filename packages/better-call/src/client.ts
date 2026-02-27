@@ -3,9 +3,9 @@ import {
 	type BetterFetchResponse,
 	createFetch,
 } from "@better-fetch/fetch";
-import type { Router } from "./router";
-import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
 import type { Endpoint } from "./endpoint";
+import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
+import type { Router } from "./router";
 
 export type HasRequired<T extends object> = T extends {}
 	? false
@@ -51,13 +51,25 @@ type WithRequired<T, K> = T & {
 	[P in K extends string ? K : never]-?: T[P extends keyof T ? P : never];
 };
 
+/**
+ * Filter out endpoints that should not be exposed to the client.
+ * Checks the typed metadata on the Endpoint's options.
+ */
 type InferClientRoutes<T extends Record<string, Endpoint>> = {
-	[K in keyof T]: T[K] extends Endpoint<any, infer O>
-		? O extends
-				| { metadata: { scope: "http" } }
-				| { metadata: { scope: "server" } }
-				| { metadata: { SERVER_ONLY: true } }
-				| { metadata: { isAction: false } }
+	[K in keyof T]: T[K] extends Endpoint<
+		any,
+		any,
+		any,
+		any,
+		any,
+		any,
+		infer Meta
+	>
+		? Meta extends
+				| { scope: "http" }
+				| { scope: "server" }
+				| { SERVER_ONLY: true }
+				| { isAction: false }
 			? never
 			: T[K]
 		: T[K];
@@ -95,11 +107,11 @@ export const createClient = <R extends Router | Router["endpoints"]>(
 	type Options = API extends {
 		[key: string]: infer T;
 	}
-		? T extends Endpoint
+		? T extends Endpoint<infer P, infer M>
 			? {
-					[key in T["options"]["method"] extends "GET"
-						? T["path"]
-						: `@${T["options"]["method"] extends string ? Lowercase<T["options"]["method"]> : never}${T["path"]}`]: T;
+					[key in M extends "GET"
+						? P
+						: `@${M extends string ? Lowercase<M> : never}${P}`]: T;
 				}
 			: {}
 		: {};

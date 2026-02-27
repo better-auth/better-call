@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createClient } from "./client";
 import { z } from "zod";
+import { createClient } from "./client";
 import { createEndpoint } from "./endpoint";
-import { createRouter, type Router } from "./router";
 import { createMiddleware } from "./middleware";
+import { createRouter, type Router } from "./router";
 
 describe("client", () => {
 	const getEndpoint = createEndpoint(
@@ -325,7 +325,7 @@ describe("client", () => {
 		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
 			"@post/test" | "/test2"
 		>();
-		client("@post/test");
-		client("/test2");
+		client("@post/test", { body: undefined, query: undefined, params: undefined });
+		client("/test2", { body: undefined, query: undefined, params: undefined });
 	});
 });
