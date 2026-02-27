@@ -70,7 +70,9 @@ export type EndpointContext<
 			  }
 			| Response,
 	) => R;
-	context: Prettify<Context & InferUse<Use>>;
+	context: 0 extends 1 & Use
+		? Prettify<Context>
+		: Prettify<Context & InferUse<Use>>;
 	redirect: (url: string) => APIError;
 	error: (
 		status: keyof typeof statusCodes | Status,
