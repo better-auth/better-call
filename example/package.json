@@ -7,7 +7,7 @@
 	"dependencies": {
 		"arktype": "^2.1.29",
 		"better-call": "workspace:*",
-		"effect": "^3.19.18",
+		"effect": "^3.19.19",
 		"valibot": "^1.2.0",
 		"zod": "^4.3.6"
 	},
