@@ -8,6 +8,7 @@
 		// third party libraries
 		"attw",
 		"bumpp",
+		"arktype",
 
 		// auth words
 		"scim",
