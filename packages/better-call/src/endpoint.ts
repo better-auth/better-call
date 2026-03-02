@@ -116,6 +116,9 @@ export type Endpoint<
 	Use extends Middleware[] = any,
 	R = any,
 	Meta extends EndpointMetadata | undefined = EndpointMetadata | undefined,
+	ErrorSchema extends StandardSchemaV1 | undefined =
+		| StandardSchemaV1
+		| undefined,
 > = {
 	(
 		context: InputContext<Path, Method, Body, Query, false, false> & {
@@ -151,7 +154,11 @@ export type Endpoint<
 	(
 		context?: InputContext<Path, Method, Body, Query, false, false>,
 	): Promise<Awaited<R>>;
-	options: EndpointRuntimeOptions & { method: Method; metadata?: Meta };
+	options: EndpointRuntimeOptions & {
+		method: Method;
+		metadata?: Meta;
+		error?: ErrorSchema;
+	};
 	path: Path;
 };
 
@@ -166,6 +173,7 @@ export function createEndpoint<
 	ReqRequest extends boolean = false,
 	R = unknown,
 	Meta extends EndpointMetadata | undefined = undefined,
+	ErrorSchema extends StandardSchemaV1 | undefined = undefined,
 >(
 	path: Path,
 	options: { method: Method } & BodyOption<Method, BodySchema> & {
@@ -173,7 +181,7 @@ export function createEndpoint<
 			use?: [...Use];
 			requireHeaders?: ReqHeaders;
 			requireRequest?: ReqRequest;
-			error?: StandardSchemaV1;
+			error?: ErrorSchema;
 			cloneRequest?: boolean;
 			disableBody?: boolean;
 			metadata?: Meta;
@@ -204,7 +212,8 @@ export function createEndpoint<
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
 	R,
-	Meta
+	Meta,
+	ErrorSchema
 >;
 
 // Options-only (virtual/path-less) overload
@@ -217,6 +226,7 @@ export function createEndpoint<
 	ReqRequest extends boolean = false,
 	R = unknown,
 	Meta extends EndpointMetadata | undefined = undefined,
+	ErrorSchema extends StandardSchemaV1 | undefined = undefined,
 >(
 	options: { method: Method } & BodyOption<Method, BodySchema> & {
 			path?: never;
@@ -224,7 +234,7 @@ export function createEndpoint<
 			use?: [...Use];
 			requireHeaders?: ReqHeaders;
 			requireRequest?: ReqRequest;
-			error?: StandardSchemaV1;
+			error?: ErrorSchema;
 			cloneRequest?: boolean;
 			disableBody?: boolean;
 			metadata?: Meta;
@@ -255,7 +265,8 @@ export function createEndpoint<
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
 	R,
-	Meta
+	Meta,
+	ErrorSchema
 >;
 
 // Implementation
@@ -374,6 +385,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		ReqRequest extends boolean = false,
 		R = unknown,
 		Meta extends EndpointMetadata | undefined = undefined,
+		ErrorSchema extends StandardSchemaV1 | undefined = undefined,
 	>(
 		path: Path,
 		options: { method: Method } & BodyOption<Method, BodySchema> & {
@@ -381,7 +393,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 				use?: [...Use];
 				requireHeaders?: ReqHeaders;
 				requireRequest?: ReqRequest;
-				error?: StandardSchemaV1;
+				error?: ErrorSchema;
 				cloneRequest?: boolean;
 				disableBody?: boolean;
 				metadata?: Meta;
@@ -412,7 +424,8 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		ResolveQueryInput<QuerySchema, Meta>,
 		Use,
 		Awaited<R>,
-		Meta
+		Meta,
+		ErrorSchema
 	> => {
 		return createEndpoint(
 			path,
