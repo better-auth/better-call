@@ -62,6 +62,17 @@ export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 		: Record<string, any> | undefined;
 
 /**
+ * Resolves error schema to its input type (for InputContext at call-site).
+ */
+export type ResolveErrorInput<S, Meta = undefined> = Meta extends {
+	$Infer: { error: infer E };
+}
+	? E
+	: S extends StandardSchemaV1
+		? StandardSchemaV1.InferInput<S>
+		: undefined;
+
+/**
  * Constraint: body is `never` for GET/HEAD methods.
  */
 export type BodyOption<M, B extends object | undefined = undefined> = M extends
@@ -70,45 +81,6 @@ export type BodyOption<M, B extends object | undefined = undefined> = M extends
 	| ("GET" | "HEAD")[]
 	? { body?: never }
 	: { body?: B };
-
-/**
- * Resolves the result type based on asResponse/returnHeaders/returnStatus flags.
- */
-export type ResultType<
-	R,
-	AsResponse extends boolean,
-	ReturnHeaders extends boolean,
-	ReturnStatus extends boolean,
-> = boolean extends AsResponse
-	? Awaited<R>
-	: AsResponse extends true
-		? Response
-		: boolean extends ReturnHeaders
-			? Awaited<R>
-			: ReturnHeaders extends true
-				? boolean extends ReturnStatus
-					? {
-							headers: Headers;
-							response: Awaited<R>;
-						}
-					: ReturnStatus extends true
-						? {
-								headers: Headers;
-								status: number;
-								response: Awaited<R>;
-							}
-						: {
-								headers: Headers;
-								response: Awaited<R>;
-							}
-				: boolean extends ReturnStatus
-					? Awaited<R>
-					: ReturnStatus extends true
-						? {
-								status: number;
-								response: Awaited<R>;
-							}
-						: Awaited<R>;
 
 /**
  * Infer param types from a path string.
