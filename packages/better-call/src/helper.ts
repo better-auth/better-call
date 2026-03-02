@@ -10,9 +10,11 @@ export type RequiredKeysOf<BaseType extends object> = Exclude<
 export type HasRequiredKeys<BaseType extends object> =
 	RequiredKeysOf<BaseType> extends never ? false : true;
 
-export type Prettify<T> = {
-	[K in keyof T]: T[K];
-} & {};
+export type Prettify<T> = 0 extends 1 & T
+	? any
+	: {
+			[K in keyof T]: T[K];
+		} & {};
 
 export type IsEmptyObject<T> = keyof T extends never ? true : false;
 
@@ -23,11 +25,6 @@ export type UnionToIntersection<Union> = (
 ) extends (mergedIntersection: infer Intersection) => void
 	? Intersection & Union
 	: never;
-
-export type MergeObject<
-	T extends Record<string, any> | never,
-	S extends Record<string, any> | never,
-> = T extends never ? S : S extends never ? T : T & S;
 
 export type InferParamPath<Path> =
 	Path extends `${infer _Start}:${infer Param}/${infer Rest}`

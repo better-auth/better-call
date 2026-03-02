@@ -4,7 +4,7 @@ import {
 	findAllRoutes,
 	findRoute,
 } from "rou3";
-import { type Endpoint, createEndpoint } from "./endpoint";
+import { createEndpoint, type Endpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
@@ -124,7 +124,7 @@ export const createRouter = <
 				method: "GET",
 			},
 			async (c) => {
-				const schema = await generator(endpoints);
+				const schema = await generator(endpoints as any);
 				return new Response(getHTML(schema, openapi.scalar), {
 					headers: {
 						"Content-Type": "text/html",
@@ -147,7 +147,7 @@ export const createRouter = <
 			: [endpoint.options?.method];
 
 		for (const method of methods) {
-			addRoute(router, method, endpoint.path, endpoint);
+			addRoute(router, method as string, endpoint.path, endpoint);
 		}
 	}
 

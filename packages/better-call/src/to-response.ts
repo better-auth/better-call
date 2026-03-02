@@ -122,7 +122,7 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 		});
 	}
 	let body = data;
-	let headers = new Headers(init?.headers);
+	const headers = new Headers(init?.headers);
 	if (!data) {
 		if (data === null) {
 			body = JSON.stringify(null);

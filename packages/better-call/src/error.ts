@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "./standard-schema";
+
 // https://github.com/nodejs/node/blob/360f7cc7867b43344aac00564286b895e15f21d7/lib/internal/errors.js#L246C1-L261C2
 function isErrorStackTraceLimitWritable() {
 	const desc = Object.getOwnPropertyDescriptor(Error, "stackTraceLimit");
@@ -6,7 +7,7 @@ function isErrorStackTraceLimitWritable() {
 		return Object.isExtensible(Error);
 	}
 
-	return Object.prototype.hasOwnProperty.call(desc, "writable")
+	return Object.hasOwn(desc, "writable")
 		? desc.writable
 		: desc.set !== undefined;
 }

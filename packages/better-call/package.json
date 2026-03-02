@@ -79,7 +79,7 @@
 			}
 		},
 		"./node": {
-			"dev-source": "./src/node.ts",
+			"dev-source": "./src/adapters/node/index.ts",
 			"import": {
 				"types": "./dist/node.d.mts",
 				"default": "./dist/node.mjs"

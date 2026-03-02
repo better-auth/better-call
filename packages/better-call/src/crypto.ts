@@ -1,4 +1,5 @@
 import { getWebcryptoSubtle } from "@better-auth/utils";
+
 const algorithm = { name: "HMAC", hash: "SHA-256" };
 
 export const getCryptoKey = async (secret: string | BufferSource) => {

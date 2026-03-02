@@ -3,7 +3,13 @@
 	"workspaces": {
 		"./example": {
 			"project": ["example/**/*.ts!"],
-			"ignoreDependencies": ["better-call", "zod"]
+			"ignoreDependencies": [
+				"better-call",
+				"zod",
+				"arktype",
+				"effect",
+				"valibot"
+			]
 		},
 		"./packages/*": {
 			"project": ["src/**/*.ts!"],

@@ -8,9 +8,11 @@
 		// third party libraries
 		"attw",
 		"bumpp",
+		"arktype",
 
 		// auth words
 		"scim",
+		"OpenAPIHTML",
 
 		// proper names
 		"Bereket",
