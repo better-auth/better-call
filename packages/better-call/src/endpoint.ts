@@ -29,6 +29,9 @@ import { isAPIError, tryCatch } from "./utils";
 export type { EndpointContext } from "./context";
 
 export interface EndpointMetadata {
+	/**
+	 * Open API definition
+	 */
 	openapi?: {
 		summary?: string;
 		description?: string;
@@ -79,29 +82,123 @@ export interface EndpointMetadata {
 			};
 		};
 	};
+	/**
+	 * Infer body and query type from ts interface
+	 *
+	 * useful for generic and dynamic types
+	 *
+	 * @example
+	 * ```ts
+	 * const endpoint = createEndpoint("/path", {
+	 * 		method: "POST",
+	 * 		body: z.record(z.string()),
+	 * 		$Infer: {
+	 * 			body: {} as {
+	 * 				type: InferTypeFromOptions<Option> // custom type inference
+	 * 			}
+	 * 		}
+	 * 	}, async(ctx)=>{
+	 * 		const body = ctx.body
+	 * 	})
+	 * ```
+	 */
 	$Infer?: {
+		/**
+		 * Body
+		 */
 		body?: any;
+		/**
+		 * Query
+		 */
 		query?: Record<string, any>;
 	};
+	/**
+	 * If enabled, endpoint won't be exposed over a router
+	 * @deprecated Use path-less endpoints instead
+	 */
 	SERVER_ONLY?: boolean;
+	/**
+	 * If enabled, endpoint won't be exposed as an action to the client
+	 * @deprecated Use path-less endpoints instead
+	 */
 	isAction?: boolean;
+	/**
+	 * Defines the places where the endpoint will be available
+	 *
+	 * Possible options:
+	 * - `rpc` - the endpoint is exposed to the router, can be invoked directly and is available to the client
+	 * - `server` - the endpoint is exposed to the router, can be invoked directly, but is not available to the client
+	 * - `http` - the endpoint is only exposed to the router
+	 * @default "rpc"
+	 */
 	scope?: "rpc" | "server" | "http";
+	/**
+	 * List of allowed media types (MIME types) for the endpoint
+	 *
+	 * if provided, only the media types in the list will be allowed to be passed in the body
+	 *
+	 * @example
+	 * ```ts
+	 * const endpoint = createEndpoint("/path", {
+	 * 		method: "POST",
+	 * 		allowedMediaTypes: ["application/json", "application/x-www-form-urlencoded"],
+	 * 	}, async(ctx)=>{
+	 * 		const body = ctx.body
+	 * 	})
+	 * ```
+	 */
 	allowedMediaTypes?: string[];
+	/**
+	 * Extra metadata
+	 */
 	[key: string]: any;
 }
 
 export interface EndpointRuntimeOptions {
 	method: string | string[];
 	body?: StandardSchemaV1;
+	/**
+	 * Query Schema
+	 */
 	query?: StandardSchemaV1;
+	/**
+	 * Error Schema
+	 */
 	error?: StandardSchemaV1;
+	/**
+	 * If true headers will be required to be passed in the context
+	 */
 	requireHeaders?: boolean;
+	/**
+	 * If true request object will be required
+	 */
 	requireRequest?: boolean;
+	/**
+	 * Clone the request object from the router
+	 */
 	cloneRequest?: boolean;
+	/**
+	 * If true the body will be undefined
+	 */
 	disableBody?: boolean;
+	/**
+	 * Endpoint metadata
+	 */
 	metadata?: EndpointMetadata;
+	/**
+	 * List of middlewares to use
+	 */
 	use?: Middleware[];
+	/**
+	 * A callback to run before any API error is thrown or returned
+	 *
+	 * @param e - The API error
+	 */
 	onAPIError?: (e: APIError) => void | Promise<void>;
+	/**
+	 * A callback to run before a validation error is thrown.
+	 * You can customize the validation error message by throwing your own APIError.
+	 */
 	onValidationError?: (info: {
 		message: string;
 		issues: readonly StandardSchemaV1.Issue[];

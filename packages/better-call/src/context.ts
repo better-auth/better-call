@@ -36,29 +36,129 @@ export type EndpointContext<
 	Context = {},
 	Meta = undefined,
 > = {
+	/**
+	 * Method
+	 *
+	 * The request method
+	 */
 	method: ResolveMethod<M>;
+	/**
+	 * Path
+	 *
+	 * The path of the endpoint
+	 */
 	path: Path;
+	/**
+	 * Body
+	 *
+	 * The body object will be the parsed JSON from the request and validated
+	 * against the body schema if it exists.
+	 */
 	body: ResolveBody<BodySchema, Meta>;
+	/**
+	 * Query
+	 *
+	 * The query object will be the parsed query string from the request
+	 * and validated against the query schema if it exists
+	 */
 	query: ResolveQuery<QuerySchema, Meta>;
+	/**
+	 * Params
+	 *
+	 * If the path is `/user/:id` and the request is `/user/1` then the params will
+	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*` then the
+	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the wildcard
+	 * is named like `/user/**:name` then the params will be `{ name: string }`
+	 */
 	params: InferParam<Path>;
+	/**
+	 * Request object
+	 *
+	 * If `requireRequest` is set to true in the endpoint options this will be
+	 * required
+	 */
 	request: ReqRequest extends true ? Request : Request | undefined;
+	/**
+	 * Headers
+	 *
+	 * If `requireHeaders` is set to true in the endpoint options this will be
+	 * required
+	 */
 	headers: ReqHeaders extends true ? Headers : Headers | undefined;
+	/**
+	 * Set header
+	 *
+	 * If it's called outside of a request it will just be ignored.
+	 */
 	setHeader: (key: string, value: string) => void;
+	/**
+	 * Set the response status code
+	 */
 	setStatus: (status: Status) => void;
+	/**
+	 * Get header
+	 *
+	 * If it's called outside of a request it will just return null
+	 *
+	 * @param key - The key of the header
+	 */
 	getHeader: (key: string) => string | null;
+	/**
+	 * Get a cookie value from the request
+	 *
+	 * @param key - The key of the cookie
+	 * @param prefix - The prefix of the cookie between `__Secure-` and `__Host-`
+	 * @returns The value of the cookie
+	 */
 	getCookie: (key: string, prefix?: CookiePrefixOptions) => string | null;
+	/**
+	 * Get a signed cookie value from the request
+	 *
+	 * @param key - The key of the cookie
+	 * @param secret - The secret of the signed cookie
+	 * @param prefix - The prefix of the cookie between `__Secure-` and `__Host-`
+	 * @returns The value of the cookie or null if the cookie is not found or false if the signature is invalid
+	 */
 	getSignedCookie: (
 		key: string,
 		secret: string,
 		prefix?: CookiePrefixOptions,
 	) => Promise<string | null | false>;
+	/**
+	 * Set a cookie value in the response
+	 *
+	 * @param key - The key of the cookie
+	 * @param value - The value to set
+	 * @param options - The options of the cookie
+	 * @returns The cookie string
+	 */
 	setCookie: (key: string, value: string, options?: CookieOptions) => string;
+	/**
+	 * Set signed cookie
+	 *
+	 * @param key - The key of the cookie
+	 * @param value - The value to set
+	 * @param secret - The secret to sign the cookie with
+	 * @param options - The options of the cookie
+	 * @returns The cookie string
+	 */
 	setSignedCookie: (
 		key: string,
 		value: string,
 		secret: string,
 		options?: CookieOptions,
 	) => Promise<string>;
+	/**
+	 * JSON
+	 *
+	 * A helper function to create a JSON response with the correct headers
+	 * and status code. If `asResponse` is set to true in the context then
+	 * it will return a Response object instead of the JSON object.
+	 *
+	 * @param json - The JSON object to return
+	 * @param routerResponse - The response object to return if `asResponse` is
+	 * true in the context this will take precedence
+	 */
 	json: <R extends Record<string, any> | null>(
 		json: R,
 		routerResponse?:
@@ -70,10 +170,19 @@ export type EndpointContext<
 			  }
 			| Response,
 	) => R;
+	/**
+	 * Middleware context
+	 */
 	context: 0 extends 1 & Use
 		? Prettify<Context>
 		: Prettify<Context & InferUse<Use>>;
+	/**
+	 * Redirect to a new URL
+	 */
 	redirect: (url: string) => APIError;
+	/**
+	 * Return error
+	 */
 	error: (
 		status: keyof typeof statusCodes | Status,
 		body?: {
