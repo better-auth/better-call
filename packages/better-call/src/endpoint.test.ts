@@ -218,6 +218,28 @@ describe("types", async () => {
 				}>();
 			},
 		);
+
+		// $Infer.body accepts a StandardSchemaV1 schema directly and resolves
+		// its output type instead of leaking the schema's internal structure.
+		const bodySchema = z.object({ name: z.string(), age: z.number() });
+		createEndpoint(
+			"/path",
+			{
+				method: "POST",
+				body: {},
+				metadata: {
+					$Infer: {
+						body: bodySchema,
+					},
+				},
+			},
+			async (c) => {
+				expectTypeOf(c.body).toEqualTypeOf<{
+					name: string;
+					age: number;
+				}>();
+			},
+		);
 	});
 
 	it("query", async () => {
@@ -278,6 +300,27 @@ describe("types", async () => {
 			async (c) => {
 				expectTypeOf(c.query).toMatchTypeOf<{
 					hello: "world";
+				}>();
+			},
+		);
+
+		// $Infer.query accepts a StandardSchemaV1 schema directly and resolves
+		// its output type instead of leaking the schema's internal structure.
+		const querySchema = z.object({ page: z.number(), limit: z.number() });
+		createEndpoint(
+			"/path",
+			{
+				method: "GET",
+				metadata: {
+					$Infer: {
+						query: querySchema,
+					},
+				},
+			},
+			async (c) => {
+				expectTypeOf(c.query).toEqualTypeOf<{
+					page: number;
+					limit: number;
 				}>();
 			},
 		);

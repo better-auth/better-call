@@ -18,12 +18,23 @@ export type ResolveMethod<M> =
 	M extends Array<infer U> ? U : M extends "*" ? HTTPMethod : M;
 
 /**
+ * Resolve a $Infer value: if it's a StandardSchemaV1 schema, extract the
+ * output type; otherwise use as-is.
+ */
+type ResolveInferValue<T> = T extends StandardSchemaV1
+	? StandardSchemaV1.InferOutput<T>
+	: T;
+type ResolveInferValueInput<T> = T extends StandardSchemaV1
+	? StandardSchemaV1.InferInput<T>
+	: T;
+
+/**
  * Resolves a body schema to its output type.
  */
 export type ResolveBody<S, Meta = undefined> = Meta extends {
 	$Infer: { body: infer B };
 }
-	? B
+	? ResolveInferValue<B>
 	: S extends StandardSchemaV1
 		? StandardSchemaV1.InferOutput<S>
 		: any;
@@ -34,7 +45,7 @@ export type ResolveBody<S, Meta = undefined> = Meta extends {
 export type ResolveQuery<S, Meta = undefined> = Meta extends {
 	$Infer: { query: infer Q };
 }
-	? Q
+	? ResolveInferValue<Q>
 	: S extends StandardSchemaV1
 		? StandardSchemaV1.InferOutput<S>
 		: Record<string, any> | undefined;
@@ -45,7 +56,7 @@ export type ResolveQuery<S, Meta = undefined> = Meta extends {
 export type ResolveBodyInput<S, Meta = undefined> = Meta extends {
 	$Infer: { body: infer B };
 }
-	? B
+	? ResolveInferValueInput<B>
 	: S extends StandardSchemaV1
 		? StandardSchemaV1.InferInput<S>
 		: undefined;
@@ -56,7 +67,7 @@ export type ResolveBodyInput<S, Meta = undefined> = Meta extends {
 export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 	$Infer: { query: infer Q };
 }
-	? Q
+	? ResolveInferValueInput<Q>
 	: S extends StandardSchemaV1
 		? StandardSchemaV1.InferInput<S>
 		: Record<string, any> | undefined;
@@ -67,7 +78,7 @@ export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 export type ResolveErrorInput<S, Meta = undefined> = Meta extends {
 	$Infer: { error: infer E };
 }
-	? E
+	? ResolveInferValueInput<E>
 	: S extends StandardSchemaV1
 		? StandardSchemaV1.InferInput<S>
 		: undefined;
