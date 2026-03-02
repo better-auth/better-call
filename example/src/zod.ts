@@ -19,7 +19,7 @@ export const getUserEndpoint = createEndpoint(
 		}),
 		use: [contextMiddleware],
 	},
-	(ctx) => {
+	async (ctx) => {
 		ctx.context.test;
 		return ctx.json({});
 	},
