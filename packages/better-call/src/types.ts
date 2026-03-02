@@ -62,6 +62,17 @@ export type ResolveQueryInput<S, Meta = undefined> = Meta extends {
 		: Record<string, any> | undefined;
 
 /**
+ * Resolves error schema to its input type (for InputContext at call-site).
+ */
+export type ResolveErrorInput<S, Meta = undefined> = Meta extends {
+	$Infer: { error: infer E };
+}
+	? E
+	: S extends StandardSchemaV1
+		? StandardSchemaV1.InferInput<S>
+		: undefined;
+
+/**
  * Constraint: body is `never` for GET/HEAD methods.
  */
 export type BodyOption<M, B extends object | undefined = undefined> = M extends

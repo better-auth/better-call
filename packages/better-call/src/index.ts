@@ -38,6 +38,7 @@ export type {
 	HTTPMethod,
 	InputContext,
 	ResolveBodyInput,
+	ResolveErrorInput,
 	ResolveQueryInput,
 } from "./types";
 // Schema

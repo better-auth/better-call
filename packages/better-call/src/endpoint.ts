@@ -18,11 +18,9 @@ import type {
 	HTTPMethod,
 	InferUse,
 	InputContext,
-	ResolveBody,
 	ResolveBodyInput,
-	ResolveQuery,
+	ResolveErrorInput,
 	ResolveQueryInput,
-	ResultType,
 } from "./types";
 import { isAPIError, tryCatch } from "./utils";
 
@@ -111,6 +109,10 @@ export interface EndpointMetadata {
 		 * Query
 		 */
 		query?: Record<string, any>;
+		/**
+		 * Error
+		 */
+		error?: any;
 	};
 	/**
 	 * If enabled, endpoint won't be exposed over a router
@@ -213,9 +215,7 @@ export type Endpoint<
 	Use extends Middleware[] = any,
 	R = any,
 	Meta extends EndpointMetadata | undefined = EndpointMetadata | undefined,
-	ErrorSchema extends StandardSchemaV1 | undefined =
-		| StandardSchemaV1
-		| undefined,
+	Error = any,
 > = {
 	(
 		context: InputContext<Path, Method, Body, Query, false, false> & {
@@ -254,7 +254,6 @@ export type Endpoint<
 	options: EndpointRuntimeOptions & {
 		method: Method;
 		metadata?: Meta;
-		error?: ErrorSchema;
 	};
 	path: Path;
 };
@@ -310,7 +309,7 @@ export function createEndpoint<
 	Use,
 	R,
 	Meta,
-	ErrorSchema
+	ResolveErrorInput<ErrorSchema, Meta>
 >;
 
 // Options-only (virtual/path-less) overload
@@ -363,7 +362,7 @@ export function createEndpoint<
 	Use,
 	R,
 	Meta,
-	ErrorSchema
+	ResolveErrorInput<ErrorSchema, Meta>
 >;
 
 // Implementation
@@ -522,7 +521,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		Use,
 		Awaited<R>,
 		Meta,
-		ErrorSchema
+		ResolveErrorInput<ErrorSchema, Meta>
 	> => {
 		return createEndpoint(
 			path,
