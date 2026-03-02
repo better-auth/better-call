@@ -82,7 +82,6 @@ export type BodyOption<M, B extends object | undefined = undefined> = M extends
 	? { body?: never }
 	: { body?: B };
 
-
 /**
  * Infer param types from a path string.
  */
