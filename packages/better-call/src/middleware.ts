@@ -202,7 +202,7 @@ export function createMiddleware(handler: any) {
 			if (isAPIError(e)) {
 				Object.defineProperty(e, kAPIErrorHeaderSymbol, {
 					enumerable: false,
-					configurable: false,
+					configurable: true,
 					get() {
 						return internalContext.responseHeaders;
 					},
@@ -248,7 +248,7 @@ createMiddleware.create = <
 					if (isAPIError(e)) {
 						Object.defineProperty(e, kAPIErrorHeaderSymbol, {
 							enumerable: false,
-							configurable: false,
+							configurable: true,
 							get() {
 								return internalContext.responseHeaders;
 							},
@@ -279,7 +279,7 @@ createMiddleware.create = <
 				if (isAPIError(e)) {
 					Object.defineProperty(e, kAPIErrorHeaderSymbol, {
 						enumerable: false,
-						configurable: false,
+						configurable: true,
 						get() {
 							return internalContext.responseHeaders;
 						},
