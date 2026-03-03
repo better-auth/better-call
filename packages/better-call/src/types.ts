@@ -84,6 +84,20 @@ export type ResolveErrorInput<S, Meta = undefined> = Meta extends {
 		: undefined;
 
 /**
+ * Resolves metadata by resolving any StandardSchemaV1 schemas inside $Infer to their input types.
+ * Uses mapped type instead of Omit to avoid preserving the original schema types in declaration emit.
+ */
+export type ResolveMetaInput<Meta> = Meta extends {
+	$Infer: infer I;
+}
+	? {
+			[K in keyof Meta]: K extends "$Infer"
+				? { [J in keyof I]: ResolveInferValueInput<I[J]> }
+				: Meta[K];
+		}
+	: Meta;
+
+/**
  * Constraint: body is `never` for GET/HEAD methods.
  */
 export type BodyOption<M, B extends object | undefined = undefined> = M extends

@@ -39,6 +39,7 @@ export type {
 	InputContext,
 	ResolveBodyInput,
 	ResolveErrorInput,
+	ResolveMetaInput,
 	ResolveQueryInput,
 } from "./types";
 // Schema

@@ -24,9 +24,32 @@ export const getUserEndpoint = createEndpoint(
 		return ctx.json({});
 	},
 );
+const schema = z.object({
+	name: z.string(),
+});
+export const getUser2Endpoint = createEndpoint(
+	"/user2",
+	{
+		method: "POST",
+		body: z.object({
+			name: z.string(),
+		}),
+		use: [contextMiddleware],
+		metadata: {
+			$Infer: {
+				body: schema,
+			},
+		},
+	},
+	async (ctx) => {
+		ctx.context.test;
+		return ctx.json({});
+	},
+);
 
 export const router = createRouter({
 	getUserEndpoint,
+	getUser2Endpoint,
 });
 
 export const client = createClient<typeof router>();

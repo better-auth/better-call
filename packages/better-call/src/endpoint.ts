@@ -20,6 +20,7 @@ import type {
 	InputContext,
 	ResolveBodyInput,
 	ResolveErrorInput,
+	ResolveMetaInput,
 	ResolveQueryInput,
 } from "./types";
 import { isAPIError, tryCatch } from "./utils";
@@ -308,7 +309,7 @@ export function createEndpoint<
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
 	R,
-	Meta,
+	ResolveMetaInput<Meta>,
 	ResolveErrorInput<ErrorSchema, Meta>
 >;
 
@@ -361,7 +362,7 @@ export function createEndpoint<
 	ResolveQueryInput<QuerySchema, Meta>,
 	Use,
 	R,
-	Meta,
+	ResolveMetaInput<Meta>,
 	ResolveErrorInput<ErrorSchema, Meta>
 >;
 
@@ -520,7 +521,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		ResolveQueryInput<QuerySchema, Meta>,
 		Use,
 		Awaited<R>,
-		Meta,
+		ResolveMetaInput<Meta>,
 		ResolveErrorInput<ErrorSchema, Meta>
 	> => {
 		return createEndpoint(
