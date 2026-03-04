@@ -174,7 +174,7 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 			if (isAPIError(e)) {
 				Object.defineProperty(e, kAPIErrorHeaderSymbol, {
 					enumerable: false,
-					configurable: false,
+					configurable: true,
 					get() {
 						return internalContext.responseHeaders;
 					},
