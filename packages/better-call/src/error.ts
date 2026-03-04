@@ -249,9 +249,18 @@ export class BetterCallError extends Error {
 	}
 }
 
-export const kAPIErrorHeaderSymbol = Symbol.for(
-	"better-call:api-error-headers",
-);
+const errorMetaMap = new WeakMap<Error, Headers>();
+
+/**
+ * @internal
+ */
+export function __setErrorMeta(error: Error, headers: Headers): void {
+	errorMetaMap.set(error, headers);
+}
+
+export function getErrorMeta(error: Error): Headers | undefined {
+	return errorMetaMap.get(error);
+}
 
 export type APIError = InstanceType<typeof InternalAPIError>;
 export const APIError = makeErrorForHideStackFrame(InternalAPIError, Error);

@@ -1,7 +1,7 @@
 import { createInternalContext } from "./context";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import type { Status, statusCodes } from "./error";
-import { type APIError, kAPIErrorHeaderSymbol } from "./error";
+import { type APIError, __setErrorMeta } from "./error";
 import type { Prettify } from "./helper";
 import type { InferUse } from "./types";
 import { isAPIError } from "./utils";
@@ -198,15 +198,8 @@ export function createMiddleware(handler: any) {
 					}
 				: response;
 		} catch (e) {
-			// fixme(alex): this is workaround that set-cookie headers are not accessible when error is thrown from middleware
 			if (isAPIError(e)) {
-				Object.defineProperty(e, kAPIErrorHeaderSymbol, {
-					enumerable: false,
-					configurable: false,
-					get() {
-						return internalContext.responseHeaders;
-					},
-				});
+				__setErrorMeta(e, internalContext.responseHeaders);
 			}
 			throw e;
 		}
@@ -246,13 +239,7 @@ createMiddleware.create = <
 					return context.returnHeaders ? { headers, response } : response;
 				} catch (e) {
 					if (isAPIError(e)) {
-						Object.defineProperty(e, kAPIErrorHeaderSymbol, {
-							enumerable: false,
-							configurable: false,
-							get() {
-								return internalContext.responseHeaders;
-							},
-						});
+						__setErrorMeta(e, internalContext.responseHeaders);
 					}
 					throw e;
 				}
@@ -277,13 +264,7 @@ createMiddleware.create = <
 				return context.returnHeaders ? { headers, response } : response;
 			} catch (e) {
 				if (isAPIError(e)) {
-					Object.defineProperty(e, kAPIErrorHeaderSymbol, {
-						enumerable: false,
-						configurable: false,
-						get() {
-							return internalContext.responseHeaders;
-						},
-					});
+					__setErrorMeta(e, internalContext.responseHeaders);
 				}
 				throw e;
 			}
