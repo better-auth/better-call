@@ -1,5 +1,3 @@
-// Core
-
 // Cookies
 export type { CookieOptions, CookiePrefixOptions } from "./cookies";
 export { serializeSignedCookie } from "./cookies";
@@ -15,7 +13,7 @@ export type { Status } from "./error";
 export {
 	APIError,
 	BetterCallError,
-	kAPIErrorHeaderSymbol,
+	getErrorMeta,
 	statusCodes,
 	ValidationError,
 } from "./error";

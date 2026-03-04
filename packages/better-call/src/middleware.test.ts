@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createEndpoint } from "./endpoint";
-import { APIError, kAPIErrorHeaderSymbol } from "./error";
+import { APIError, getErrorMeta } from "./error";
 import { createMiddleware } from "./middleware";
 
 describe("type", () => {
@@ -170,8 +170,8 @@ describe("creator", () => {
 		await expect(middleware({})).rejects.toThrowError(APIError);
 		await expect(
 			middleware({}).catch((e: any) => {
-				const headers = e[kAPIErrorHeaderSymbol] as Headers;
-				expect(headers.get("X-Test")).toBe("test");
+				const headers = getErrorMeta(e);
+				expect(headers?.get("X-Test")).toBe("test");
 			}),
 		).resolves.toBeUndefined();
 	});
