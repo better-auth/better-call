@@ -252,7 +252,7 @@ export type Endpoint<
 	(
 		context?: InputContext<Path, Method, Body, Query, false, false>,
 	): Promise<Awaited<R>>;
-	options: EndpointRuntimeOptions & {
+	options: Omit<EndpointRuntimeOptions, "method" | "metadata"> & {
 		method: Method;
 		metadata?: Meta;
 	};
