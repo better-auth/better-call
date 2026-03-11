@@ -76,7 +76,11 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 	if (data instanceof Response) {
 		if (init?.headers instanceof Headers) {
 			init.headers.forEach((value, key) => {
-				data.headers.set(key, value);
+				if (key.toLowerCase() === "set-cookie") {
+					data.headers.append(key, value);
+				} else {
+					data.headers.set(key, value);
+				}
 			});
 		}
 		return data;
@@ -90,19 +94,30 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 		}
 		const headers = new Headers();
 		if (routerResponse?.headers) {
-			const headers = new Headers(routerResponse.headers);
-			for (const [key, value] of headers.entries()) {
-				headers.set(key, value);
+			for (const [key, value] of new Headers(routerResponse.headers).entries()) {
+				if (key.toLowerCase() === "set-cookie") {
+					headers.append(key, value);
+				} else {
+					headers.set(key, value);
+				}
 			}
 		}
 		if (data.headers) {
 			for (const [key, value] of new Headers(data.headers).entries()) {
-				headers.set(key, value);
+				if (key.toLowerCase() === "set-cookie") {
+					headers.append(key, value);
+				} else {
+					headers.set(key, value);
+				}
 			}
 		}
 		if (init?.headers) {
 			for (const [key, value] of new Headers(init.headers).entries()) {
-				headers.set(key, value);
+				if (key.toLowerCase() === "set-cookie") {
+					headers.append(key, value);
+				} else {
+					headers.set(key, value);
+				}
 			}
 		}
 

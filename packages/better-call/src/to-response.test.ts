@@ -162,6 +162,53 @@ describe("toResponse", () => {
 		});
 	});
 
+	describe("Set-Cookie header preservation", () => {
+		it("should preserve multiple Set-Cookie when merging onto existing Response", () => {
+			const res = new Response("ok");
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "session=abc123; Path=/");
+			initHeaders.append("set-cookie", "session_data=xyz; Path=/");
+			const response = toResponse(res, { headers: initHeaders });
+			const setCookies = response.headers.getSetCookie?.() ?? [];
+			expect(setCookies).toHaveLength(2);
+			expect(setCookies[0]).toContain("session=abc123");
+			expect(setCookies[1]).toContain("session_data=xyz");
+		});
+
+		it("should preserve multiple Set-Cookie in _flag=json with init.headers", () => {
+			const flaggedData = {
+				_flag: "json",
+				body: { ok: true },
+				status: 200,
+			};
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "session_token=token1; Path=/; HttpOnly");
+			initHeaders.append("set-cookie", "session_data=cache; Path=/");
+			const response = toResponse(flaggedData, { headers: initHeaders });
+			const setCookies = response.headers.getSetCookie?.() ?? [];
+			expect(setCookies).toHaveLength(2);
+			expect(setCookies[0]).toContain("session_token=token1");
+			expect(setCookies[1]).toContain("session_data=cache");
+		});
+
+		it("should preserve multiple Set-Cookie from routerResponse.headers in _flag=json", () => {
+			const routerHeaders = new Headers();
+			routerHeaders.append("set-cookie", "a=1; Path=/");
+			routerHeaders.append("set-cookie", "b=2; Path=/");
+			const flaggedData = {
+				_flag: "json",
+				body: { ok: true },
+				routerResponse: { headers: routerHeaders },
+				status: 200,
+			};
+			const response = toResponse(flaggedData);
+			const setCookies = response.headers.getSetCookie?.() ?? [];
+			expect(setCookies).toHaveLength(2);
+			expect(setCookies[0]).toContain("a=1");
+			expect(setCookies[1]).toContain("b=2");
+		});
+	});
+
 	describe("BigInt handling", () => {
 		it("should handle simple bigint values", async () => {
 			const data = { id: BigInt(9007199254740991) };
