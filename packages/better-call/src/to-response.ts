@@ -72,11 +72,36 @@ function isJSONResponse(value: any): value is JSONResponse {
 	return "_flag" in value && value._flag === "json";
 }
 
+/**
+ * Headers that are inherently request-only and must never appear on responses.
+ * Leaking these (especially content-length) causes protocol-level errors such as
+ * net::ERR_CONTENT_LENGTH_MISMATCH in browsers.
+ */
+const REQUEST_ONLY_HEADERS = new Set([
+	"content-length",
+	"transfer-encoding",
+	"host",
+	"connection",
+	"accept",
+	"accept-encoding",
+	"accept-language",
+	"user-agent",
+	"referer",
+	"origin",
+	"cookie",
+]);
+
+function isRequestOnlyHeader(name: string): boolean {
+	return REQUEST_ONLY_HEADERS.has(name.toLowerCase());
+}
+
 export function toResponse(data?: any, init?: ResponseInit): Response {
 	if (data instanceof Response) {
 		if (init?.headers instanceof Headers) {
 			init.headers.forEach((value, key) => {
-				data.headers.set(key, value);
+				if (!isRequestOnlyHeader(key)) {
+					data.headers.set(key, value);
+				}
 			});
 		}
 		return data;
@@ -102,7 +127,9 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 		}
 		if (init?.headers) {
 			for (const [key, value] of new Headers(init.headers).entries()) {
-				headers.set(key, value);
+				if (!isRequestOnlyHeader(key)) {
+					headers.set(key, value);
+				}
 			}
 		}
 
@@ -123,6 +150,9 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 	}
 	let body = data;
 	const headers = new Headers(init?.headers);
+	for (const name of REQUEST_ONLY_HEADERS) {
+		headers.delete(name);
+	}
 	if (!data) {
 		if (data === null) {
 			body = JSON.stringify(null);

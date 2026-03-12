@@ -411,6 +411,68 @@ describe("toResponse", () => {
 		});
 	});
 
+	describe("Request header stripping", () => {
+		const REQUEST_ONLY_HEADERS = [
+			"content-length",
+			"transfer-encoding",
+			"host",
+			"connection",
+			"accept",
+			"accept-encoding",
+			"accept-language",
+			"user-agent",
+			"referer",
+			"origin",
+			"cookie",
+		];
+
+		it("should strip request-only headers from init when building JSON response", async () => {
+			const requestHeaders = new Headers({
+				"content-length": "42",
+				"host": "example.com",
+				"accept": "text/html",
+				"user-agent": "TestAgent/1.0",
+				"cookie": "session=abc",
+				"x-custom": "keep-me",
+			});
+			const response = toResponse({ message: "ok" }, { headers: requestHeaders });
+			for (const h of REQUEST_ONLY_HEADERS) {
+				expect(response.headers.has(h)).toBe(false);
+			}
+			expect(response.headers.get("x-custom")).toBe("keep-me");
+		});
+
+		it("should strip request-only headers from init on fallback path", async () => {
+			const requestHeaders = new Headers({
+				"content-length": "100",
+				"transfer-encoding": "chunked",
+				"origin": "http://evil.com",
+				"x-request-id": "keep-me",
+			});
+			const response = toResponse(undefined, { headers: requestHeaders });
+			for (const h of REQUEST_ONLY_HEADERS) {
+				expect(response.headers.has(h)).toBe(false);
+			}
+			expect(response.headers.get("x-request-id")).toBe("keep-me");
+		});
+
+		it("should strip request-only headers when merging into existing Response", async () => {
+			const existingResponse = new Response("body", {
+				headers: { "x-existing": "yes" },
+			});
+			const requestHeaders = new Headers({
+				"content-length": "999",
+				"host": "attacker.com",
+				"x-custom": "also-keep",
+			});
+			const response = toResponse(existingResponse, { headers: requestHeaders });
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("host")).toBe(false);
+			expect(response.headers.get("x-existing")).toBe("yes");
+			expect(response.headers.get("x-custom")).toBe("also-keep");
+		});
+	});
+
 	describe("Circular reference handling", () => {
 		it("should handle ORM-like circular references", async () => {
 			// Types representing common ORM entities
