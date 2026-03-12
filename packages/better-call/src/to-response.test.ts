@@ -413,17 +413,41 @@ describe("toResponse", () => {
 
 	describe("Request header stripping", () => {
 		const REQUEST_ONLY_HEADERS = [
-			"content-length",
-			"transfer-encoding",
+			// Request context (RFC 9110 §10.1)
 			"host",
-			"connection",
-			"accept",
-			"accept-encoding",
-			"accept-language",
 			"user-agent",
 			"referer",
-			"origin",
+			"from",
+			"expect",
+			// Authentication / credentials
+			"authorization",
+			"proxy-authorization",
 			"cookie",
+			"origin",
+			// Content negotiation (RFC 9110 §12.5)
+			"accept-charset",
+			"accept-encoding",
+			"accept-language",
+			// Conditional requests (RFC 9110 §13.1)
+			"if-match",
+			"if-none-match",
+			"if-modified-since",
+			"if-unmodified-since",
+			"if-range",
+			// Range requests (RFC 9110 §14.2)
+			"range",
+			// Forwarding control (RFC 9110 §7.6)
+			"max-forwards",
+			// Hop-by-hop (RFC 9110 §7.6.1)
+			"connection",
+			"keep-alive",
+			"transfer-encoding",
+			"te",
+			"upgrade",
+			"trailer",
+			"proxy-connection",
+			// Contextual: wrong if copied from request
+			"content-length",
 		];
 
 		it("should strip request-only headers from init when building JSON response", async () => {
@@ -470,6 +494,43 @@ describe("toResponse", () => {
 			expect(response.headers.has("host")).toBe(false);
 			expect(response.headers.get("x-existing")).toBe("yes");
 			expect(response.headers.get("x-custom")).toBe("also-keep");
+		});
+
+		it("should strip request-only headers when merging plain-object headers into existing Response", async () => {
+			const existingResponse = new Response("body", {
+				headers: { "x-existing": "yes" },
+			});
+			const response = toResponse(existingResponse, {
+				headers: {
+					"content-length": "999",
+					"host": "attacker.com",
+					"authorization": "Bearer secret",
+					"x-custom": "also-keep",
+				},
+			});
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("host")).toBe(false);
+			expect(response.headers.has("authorization")).toBe(false);
+			expect(response.headers.get("x-existing")).toBe("yes");
+			expect(response.headers.get("x-custom")).toBe("also-keep");
+		});
+
+		it("should strip request-only headers from APIError responses", async () => {
+			const error = new APIError("BAD_REQUEST", {
+				message: "bad request",
+			});
+			const requestHeaders = new Headers({
+				"content-length": "42",
+				"cookie": "session=abc",
+				"authorization": "Bearer secret",
+				"x-custom": "keep-me",
+			});
+			const response = toResponse(error, { headers: requestHeaders });
+			expect(response.status).toBe(400);
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("cookie")).toBe(false);
+			expect(response.headers.has("authorization")).toBe(false);
+			expect(response.headers.get("x-custom")).toBe("keep-me");
 		});
 	});
 
