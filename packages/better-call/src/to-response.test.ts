@@ -453,13 +453,16 @@ describe("toResponse", () => {
 		it("should strip request-only headers from init when building JSON response", async () => {
 			const requestHeaders = new Headers({
 				"content-length": "42",
-				"host": "example.com",
-				"accept": "text/html",
+				host: "example.com",
+				accept: "text/html",
 				"user-agent": "TestAgent/1.0",
-				"cookie": "session=abc",
+				cookie: "session=abc",
 				"x-custom": "keep-me",
 			});
-			const response = toResponse({ message: "ok" }, { headers: requestHeaders });
+			const response = toResponse(
+				{ message: "ok" },
+				{ headers: requestHeaders },
+			);
 			for (const h of REQUEST_ONLY_HEADERS) {
 				expect(response.headers.has(h)).toBe(false);
 			}
@@ -470,7 +473,7 @@ describe("toResponse", () => {
 			const requestHeaders = new Headers({
 				"content-length": "100",
 				"transfer-encoding": "chunked",
-				"origin": "http://evil.com",
+				origin: "http://evil.com",
 				"x-request-id": "keep-me",
 			});
 			const response = toResponse(undefined, { headers: requestHeaders });
@@ -486,10 +489,12 @@ describe("toResponse", () => {
 			});
 			const requestHeaders = new Headers({
 				"content-length": "999",
-				"host": "attacker.com",
+				host: "attacker.com",
 				"x-custom": "also-keep",
 			});
-			const response = toResponse(existingResponse, { headers: requestHeaders });
+			const response = toResponse(existingResponse, {
+				headers: requestHeaders,
+			});
 			expect(response.headers.has("content-length")).toBe(false);
 			expect(response.headers.has("host")).toBe(false);
 			expect(response.headers.get("x-existing")).toBe("yes");
@@ -503,8 +508,8 @@ describe("toResponse", () => {
 			const response = toResponse(existingResponse, {
 				headers: {
 					"content-length": "999",
-					"host": "attacker.com",
-					"authorization": "Bearer secret",
+					host: "attacker.com",
+					authorization: "Bearer secret",
 					"x-custom": "also-keep",
 				},
 			});
@@ -521,8 +526,8 @@ describe("toResponse", () => {
 			});
 			const requestHeaders = new Headers({
 				"content-length": "42",
-				"cookie": "session=abc",
-				"authorization": "Bearer secret",
+				cookie: "session=abc",
+				authorization: "Bearer secret",
 				"x-custom": "keep-me",
 			});
 			const response = toResponse(error, { headers: requestHeaders });
