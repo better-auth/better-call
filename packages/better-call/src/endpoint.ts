@@ -252,11 +252,11 @@ export type Endpoint<
 	(
 		context?: InputContext<Path, Method, Body, Query, false, false>,
 	): Promise<Awaited<R>>;
-	options: Omit<EndpointRuntimeOptions, "method" | "metadata"> & {
-		method: Method;
-		metadata?: Meta;
+	readonly options: Omit<EndpointRuntimeOptions, "method" | "metadata"> & {
+		readonly method: Method;
+		readonly metadata?: Meta;
 	};
-	path: Path;
+	readonly path: Path;
 };
 
 // Path + options + handler overload
