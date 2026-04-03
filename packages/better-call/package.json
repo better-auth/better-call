@@ -31,7 +31,7 @@
 		"supertest": "^7.1.4"
 	},
 	"dependencies": {
-		"@better-auth/utils": "^0.3.1",
+		"@better-auth/utils": "^0.4.0",
 		"@better-fetch/fetch": "^1.1.21",
 		"rou3": "^0.7.12",
 		"set-cookie-parser": "^3.0.1"

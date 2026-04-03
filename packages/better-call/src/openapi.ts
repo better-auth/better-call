@@ -16,15 +16,15 @@ export interface OpenAPIParameter {
 	required?: boolean;
 	schema?: {
 		type: OpenAPISchemaType;
-		format?: string;
+		format?: string | undefined;
 		items?: {
 			type: OpenAPISchemaType;
 		};
 		enum?: string[];
 		minLength?: number;
-		description?: string;
-		default?: string;
-		example?: string;
+		description?: string | undefined;
+		default?: string | undefined;
+		example?: string | undefined;
 	};
 }
 

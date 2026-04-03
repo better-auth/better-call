@@ -72,10 +72,79 @@ function isJSONResponse(value: any): value is JSONResponse {
 	return "_flag" in value && value._flag === "json";
 }
 
+/**
+ * Headers that MUST be stripped when building an HTTP response from
+ * arbitrary header input. These are request-only, hop-by-hop, or
+ * transport-managed headers that cause protocol violations when present
+ * on responses (e.g. Content-Length mismatch → net::ERR_CONTENT_LENGTH_MISMATCH).
+ *
+ * Sources:
+ *   - RFC 9110 §10.1   (Request Context Fields)
+ *   - RFC 9110 §7.6.1  (Connection / hop-by-hop)
+ *   - RFC 9110 §11.6-7 (Authentication credentials)
+ *   - RFC 9110 §12.5   (Content negotiation)
+ *   - RFC 9110 §13.1   (Conditional request headers)
+ *   - RFC 9110 §14.2   (Range requests)
+ *   - RFC 6265 §5.4    (Cookie)
+ *   - RFC 6454         (Origin)
+ */
+const REQUEST_ONLY_HEADERS = new Set([
+	// Request context (RFC 9110 §10.1)
+	"host", // §7.2
+	"user-agent", // §10.1.5
+	"referer", // §10.1.3
+	"from", // §10.1.2
+	"expect", // §10.1.1
+
+	// Authentication credentials (RFC 9110 §11.6-7)
+	"authorization", // §11.6.2
+	"proxy-authorization", // §11.7.2
+	"cookie", // RFC 6265 §5.4
+	"origin", // RFC 6454
+
+	// Content negotiation (RFC 9110 §12.5)
+	"accept-charset", // §12.5.2 (deprecated)
+	"accept-encoding", // §12.5.3
+	"accept-language", // §12.5.4
+
+	// Conditional requests (RFC 9110 §13.1)
+	"if-match", // §13.1.1
+	"if-none-match", // §13.1.2
+	"if-modified-since", // §13.1.3
+	"if-unmodified-since", // §13.1.4
+	"if-range", // §13.1.5
+
+	// Range requests (RFC 9110 §14.2)
+	"range", // §14.2
+
+	// Forwarding control (RFC 9110 §7.6)
+	"max-forwards", // §7.6.2
+
+	// Hop-by-hop (RFC 9110 §7.6.1)
+	"connection", // §7.6.1
+	"keep-alive",
+	"transfer-encoding",
+	"te", // §10.1.4
+	"upgrade",
+	"trailer",
+	"proxy-connection", // non-standard
+
+	// Valid on responses but WRONG if copied from request (RFC 9110 §8.6)
+	"content-length",
+]);
+
+function stripRequestOnlyHeaders(headers: Headers): void {
+	for (const name of REQUEST_ONLY_HEADERS) {
+		headers.delete(name);
+	}
+}
+
 export function toResponse(data?: any, init?: ResponseInit): Response {
 	if (data instanceof Response) {
-		if (init?.headers instanceof Headers) {
-			init.headers.forEach((value, key) => {
+		if (init?.headers) {
+			const safeHeaders = new Headers(init.headers);
+			stripRequestOnlyHeaders(safeHeaders);
+			safeHeaders.forEach((value, key) => {
 				data.headers.set(key, value);
 			});
 		}
@@ -101,7 +170,9 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 			}
 		}
 		if (init?.headers) {
-			for (const [key, value] of new Headers(init.headers).entries()) {
+			const safeHeaders = new Headers(init.headers);
+			stripRequestOnlyHeaders(safeHeaders);
+			for (const [key, value] of safeHeaders.entries()) {
 				headers.set(key, value);
 			}
 		}
@@ -122,7 +193,8 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 		});
 	}
 	let body = data;
-	let headers = new Headers(init?.headers);
+	const headers = new Headers(init?.headers);
+	stripRequestOnlyHeaders(headers);
 	if (!data) {
 		if (data === null) {
 			body = JSON.stringify(null);
