@@ -416,4 +416,58 @@ describe("setResponse", () => {
 		expect(statusCodeBeforeWriteHead).toBe(400);
 		expect(res.statusCode).toBe(400);
 	});
+
+	it("should call res.end() after all streamed chunks are written", async () => {
+		// Regression test for streaming response truncation issue https://github.com/better-auth/better-call/issues/123
+		// Previously res.end() was inside the streaming for-loop's inner block,
+		// which could cause it to be skipped when backpressure triggered an
+		// early return to wait for the "drain" event, truncating the response.
+		const socket = new Socket();
+		const req = new IncomingMessage(socket);
+		const res = new ServerResponse(req);
+
+		const callOrder: string[] = [];
+
+		// setResponse calls next() without awaiting it, so we need to
+		// track when res.end() is called to know streaming is complete.
+		const endPromise = new Promise<void>((resolve) => {
+			res.write = vi.fn().mockImplementation(() => {
+				callOrder.push("write");
+				return true;
+			});
+			res.end = vi.fn().mockImplementation(() => {
+				callOrder.push("end");
+				resolve();
+				return res;
+			});
+		});
+
+		const encoder = new TextEncoder();
+		const chunks = ["chunk1", "chunk2", "chunk3"];
+		let i = 0;
+		const stream = new ReadableStream({
+			pull(controller) {
+				if (i < chunks.length) {
+					controller.enqueue(encoder.encode(chunks[i++]));
+				} else {
+					controller.close();
+				}
+			},
+		});
+
+		const webResponse = new Response(stream, {
+			status: 200,
+			headers: { "Content-Type": "text/plain" },
+		});
+
+		await setResponse(res, webResponse);
+		await endPromise;
+
+		// res.write must have been called for each chunk
+		expect(res.write).toHaveBeenCalledTimes(3);
+		// res.end() must be called exactly once
+		expect(res.end).toHaveBeenCalledTimes(1);
+		// res.end() must come after all writes
+		expect(callOrder).toEqual(["write", "write", "write", "end"]);
+	});
 });
