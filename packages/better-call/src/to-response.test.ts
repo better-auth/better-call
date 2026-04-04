@@ -411,6 +411,126 @@ describe("toResponse", () => {
 		});
 	});
 
+	describe("Request header stripping", () => {
+		const REQUEST_ONLY_HEADERS = [
+			"host",
+			"user-agent",
+			"referer",
+			"from",
+			"expect",
+			"authorization",
+			"proxy-authorization",
+			"cookie",
+			"origin",
+			"accept-charset",
+			"accept-encoding",
+			"accept-language",
+			"if-match",
+			"if-none-match",
+			"if-modified-since",
+			"if-unmodified-since",
+			"if-range",
+			"range",
+			"max-forwards",
+			"connection",
+			"keep-alive",
+			"transfer-encoding",
+			"te",
+			"upgrade",
+			"trailer",
+			"proxy-connection",
+			"content-length",
+		];
+
+		it("should strip request-only headers from init when building JSON response", async () => {
+			const requestHeaders = new Headers({
+				"content-length": "42",
+				host: "example.com",
+				accept: "text/html",
+				"user-agent": "TestAgent/1.0",
+				cookie: "session=abc",
+				"x-custom": "keep-me",
+			});
+			const response = toResponse(
+				{ message: "ok" },
+				{ headers: requestHeaders },
+			);
+			for (const h of REQUEST_ONLY_HEADERS) {
+				expect(response.headers.has(h)).toBe(false);
+			}
+			expect(response.headers.get("x-custom")).toBe("keep-me");
+		});
+
+		it("should strip request-only headers from init on fallback path", async () => {
+			const requestHeaders = new Headers({
+				"content-length": "100",
+				"transfer-encoding": "chunked",
+				origin: "http://evil.com",
+				"x-request-id": "keep-me",
+			});
+			const response = toResponse(undefined, { headers: requestHeaders });
+			for (const h of REQUEST_ONLY_HEADERS) {
+				expect(response.headers.has(h)).toBe(false);
+			}
+			expect(response.headers.get("x-request-id")).toBe("keep-me");
+		});
+
+		it("should strip request-only headers when merging into existing Response", async () => {
+			const existingResponse = new Response("body", {
+				headers: { "x-existing": "yes" },
+			});
+			const requestHeaders = new Headers({
+				"content-length": "999",
+				host: "attacker.com",
+				"x-custom": "also-keep",
+			});
+			const response = toResponse(existingResponse, {
+				headers: requestHeaders,
+			});
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("host")).toBe(false);
+			expect(response.headers.get("x-existing")).toBe("yes");
+			expect(response.headers.get("x-custom")).toBe("also-keep");
+		});
+
+		it("should strip request-only headers when merging plain-object headers into existing Response", async () => {
+			const existingResponse = new Response("body", {
+				headers: { "x-existing": "yes" },
+			});
+			const response = toResponse(existingResponse, {
+				headers: {
+					"content-length": "999",
+					host: "attacker.com",
+					authorization: "Bearer secret",
+					"x-custom": "also-keep",
+				},
+			});
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("host")).toBe(false);
+			expect(response.headers.has("authorization")).toBe(false);
+			expect(response.headers.get("x-existing")).toBe("yes");
+			expect(response.headers.get("x-custom")).toBe("also-keep");
+		});
+
+		it("should strip request-only headers from APIError responses", async () => {
+			const error = new APIError("BAD_REQUEST", {
+				message: "bad request",
+			});
+			const requestHeaders = new Headers({
+				"content-length": "42",
+				cookie: "session=abc",
+				authorization: "Bearer secret",
+				"x-custom": "keep-me",
+			});
+			const response = toResponse(error, { headers: requestHeaders });
+			expect(response.status).toBe(400);
+			expect(response.headers.has("content-length")).toBe(false);
+			expect(response.headers.has("cookie")).toBe(false);
+			expect(response.headers.has("authorization")).toBe(false);
+			expect(response.headers.get("x-custom")).toBe("keep-me");
+		});
+	});
+
 	describe("Circular reference handling", () => {
 		it("should handle ORM-like circular references", async () => {
 			// Types representing common ORM entities
