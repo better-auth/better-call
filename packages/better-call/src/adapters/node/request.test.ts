@@ -385,6 +385,41 @@ describe("getRequest", () => {
 });
 
 describe("setResponse", () => {
+	it("should write the full response body when it spans multiple chunks", async () => {
+		const socket = new Socket();
+		const req = new IncomingMessage(socket);
+		const res = new ServerResponse(req);
+
+		const chunks: Buffer[] = [];
+		let ended = false;
+
+		res.writeHead = vi.fn().mockReturnValue(res);
+		res.write = vi.fn().mockImplementation((chunk: Buffer) => {
+			chunks.push(Buffer.from(chunk));
+			return true;
+		});
+		res.end = vi.fn().mockImplementation(() => {
+			ended = true;
+			return res;
+		});
+
+		// Create a response body larger than 16KB to ensure multiple chunks
+		const largePayload = JSON.stringify({
+			data: "x".repeat(32 * 1024),
+		});
+
+		const webResponse = new Response(largePayload, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+
+		await setResponse(res, webResponse);
+
+		const fullBody = Buffer.concat(chunks).toString();
+		expect(fullBody).toBe(largePayload);
+		expect(ended).toBe(true);
+	});
+
 	it("should set res.statusCode before writeHead for middleware compatibility", async () => {
 		// Regression test for https://github.com/better-auth/better-auth/issues/7035
 		// Some frameworks/middleware read res.statusCode before writeHead is called.
