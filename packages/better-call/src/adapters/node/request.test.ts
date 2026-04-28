@@ -417,11 +417,16 @@ describe("setResponse", () => {
 		expect(res.statusCode).toBe(400);
 	});
 
+	/**
+	 * Regression test for streaming response truncation issue
+	 *
+	 * @see https://github.com/better-auth/better-call/issues/123
+	 *
+	 * Previously res.end() was inside the streaming for-loop's inner block,
+	 * which could cause it to be skipped when backpressure triggered an
+	 * early return to wait for the "drain" event, truncating the response.
+	 */
 	it("should call res.end() after all streamed chunks are written", async () => {
-		// Regression test for streaming response truncation issue https://github.com/better-auth/better-call/issues/123
-		// Previously res.end() was inside the streaming for-loop's inner block,
-		// which could cause it to be skipped when backpressure triggered an
-		// early return to wait for the "drain" event, truncating the response.
 		const socket = new Socket();
 		const req = new IncomingMessage(socket);
 		const res = new ServerResponse(req);
