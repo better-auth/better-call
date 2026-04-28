@@ -39,7 +39,17 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 	}
 
 	if (jsonContentTypeRegex.test(normalizedContentType)) {
-		return await request.json();
+		try {
+			return await request.json();
+		} catch (e) {
+			if (e instanceof SyntaxError) {
+				throw new APIError(400, {
+					message: "Invalid JSON in request body",
+					code: "BAD_REQUEST",
+				});
+			}
+			throw e;
+		}
 	}
 
 	if (normalizedContentType.includes("application/x-www-form-urlencoded")) {
