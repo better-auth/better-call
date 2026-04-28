@@ -370,6 +370,22 @@ export type EndpointContext<
 		options?: CookieOptions,
 	) => Promise<string>;
 	/**
+	 * Response headers
+	 *
+	 * The live `Headers` for the response being built in the current
+	 * request. Read it to inspect what has already been queued, e.g. to
+	 * avoid emitting a `Set-Cookie` twice or to check headers set by an
+	 * earlier handler in the chain.
+	 *
+	 * @example
+	 * ```ts
+	 * const alreadySet = ctx.responseHeaders
+	 *   .getSetCookie()
+	 *   .some((c) => c.startsWith("session="));
+	 * ```
+	 */
+	responseHeaders: Headers;
+	/**
 	 * JSON
 	 *
 	 * a helper function to create a JSON response with
