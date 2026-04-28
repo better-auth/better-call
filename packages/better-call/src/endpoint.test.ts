@@ -1097,3 +1097,34 @@ describe("onAPIError", () => {
 		expect(error?.status).toBe("UNAUTHORIZED");
 	});
 });
+
+describe("responseHeaders", () => {
+	it("exposes the live response headers accumulator inside the handler", async () => {
+		const endpoint = createEndpoint("/test", { method: "GET" }, async (ctx) => {
+			ctx.setCookie("session", "abc");
+			ctx.setHeader("x-custom", "1");
+			const setCookies = ctx.responseHeaders.getSetCookie();
+			const custom = ctx.responseHeaders.get("x-custom");
+			return { setCookies, custom };
+		});
+		const result = await endpoint();
+		expect(result.custom).toBe("1");
+		expect(result.setCookies).toHaveLength(1);
+		expect(result.setCookies[0]).toMatch(/^session=abc/);
+	});
+
+	it("lets a later handler step observe what an earlier one wrote", async () => {
+		const endpoint = createEndpoint("/test", { method: "GET" }, async (ctx) => {
+			ctx.setCookie("first", "v1");
+			const alreadySet = ctx.responseHeaders
+				.getSetCookie()
+				.some((c) => c.startsWith("first="));
+			if (!alreadySet) {
+				ctx.setCookie("first", "v2");
+			}
+			return { count: ctx.responseHeaders.getSetCookie().length };
+		});
+		const result = await endpoint();
+		expect(result.count).toBe(1);
+	});
+});
