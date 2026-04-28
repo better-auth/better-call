@@ -330,8 +330,8 @@ export async function setResponse(res: ServerResponse, response: Response) {
 						return;
 					}
 				}
-				res.end();
 			}
+			res.end();
 		} catch (error) {
 			cancel(error instanceof Error ? error : new Error(String(error)));
 		}
