@@ -620,6 +620,73 @@ describe("error handling", () => {
 		expect(body.message).toBe("Resource not found");
 	});
 
+	describe("invalid JSON body", () => {
+		it("should return 400 for empty JSON body", async () => {
+			const endpoint = createEndpoint(
+				"/post",
+				{
+					method: "POST",
+				},
+				async (c) => {
+					return c.body;
+				},
+			);
+			const router = createRouter({ endpoint });
+			const request = new Request("http://localhost/post", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "",
+			});
+			const response = await router.handler(request);
+			expect(response.status).toBe(400);
+			const body = await response.json();
+			expect(body.code).toBe("BAD_REQUEST");
+			expect(body.message).toBe("Invalid JSON in request body");
+		});
+
+		it("should return 400 for malformed JSON body", async () => {
+			const endpoint = createEndpoint(
+				"/post",
+				{
+					method: "POST",
+				},
+				async (c) => {
+					return c.body;
+				},
+			);
+			const router = createRouter({ endpoint });
+			const request = new Request("http://localhost/post", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "not json",
+			});
+			const response = await router.handler(request);
+			expect(response.status).toBe(400);
+			const body = await response.json();
+			expect(body.code).toBe("BAD_REQUEST");
+		});
+
+		it("should return 200 for valid JSON body", async () => {
+			const endpoint = createEndpoint(
+				"/post",
+				{
+					method: "POST",
+				},
+				async (c) => {
+					return c.body;
+				},
+			);
+			const router = createRouter({ endpoint });
+			const request = new Request("http://localhost/post", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "{}",
+			});
+			const response = await router.handler(request);
+			expect(response.status).toBe(200);
+		});
+	});
+
 	describe("allowedMediaTypes", () => {
 		it("should allow requests with allowed media type at router level", async () => {
 			const endpoint = createEndpoint(
