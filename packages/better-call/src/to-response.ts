@@ -24,37 +24,31 @@ function isJSONSerializable(value: any) {
 	);
 }
 
-function safeStringify(
-	obj: any,
-	replacer?: (key: string, value: any) => any,
-	space?: string | number,
-): string {
+function safeStringify(obj: unknown): string {
+	const parents = new WeakMap<object, object>();
+	const ids = new WeakMap<object, number>();
 	let id = 0;
-	const seen = new WeakMap<object, number>(); // ref -> counter
 
-	const safeReplacer = (key: string, value: any) => {
-		// Handle bigint first
-		if (typeof value === "bigint") {
-			return value.toString();
+	const isAncestor = (value: object, holder: object): boolean => {
+		let curr: object | undefined = holder;
+		while (curr) {
+			if (curr === value) return true;
+			curr = parents.get(curr);
 		}
-
-		// Then handle circular references
-		if (typeof value === "object" && value !== null) {
-			if (seen.has(value)) {
-				return `[Circular ref-${seen.get(value)}]`;
-			}
-			seen.set(value, id++);
-		}
-
-		// Finally apply any custom replacer
-		if (replacer) {
-			return replacer(key, value);
-		}
-
-		return value;
+		return false;
 	};
 
-	return JSON.stringify(obj, safeReplacer, space);
+	return JSON.stringify(obj, function (this: any, _key, value) {
+		if (typeof value === "bigint") return value.toString();
+		if (typeof value === "object" && value !== null) {
+			if (isAncestor(value, this)) {
+				return `[Circular ref-${ids.get(value)}]`;
+			}
+			parents.set(value, this);
+			if (!ids.has(value)) ids.set(value, id++);
+		}
+		return value;
+	});
 }
 
 export type JSONResponse = {
