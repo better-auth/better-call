@@ -264,7 +264,9 @@ describe("toResponse", () => {
 				first: {
 					ref1: "[Circular ref-1]",
 				},
-				second: "[Circular ref-1]",
+				second: {
+					ref1: "[Circular ref-1]",
+				},
 			});
 		});
 
@@ -317,6 +319,33 @@ describe("toResponse", () => {
 			const body = await response.text();
 			const parsed = JSON.parse(body);
 			expect(parsed).toEqual([3, [1, 2, "[Circular ref-0]"]]);
+		});
+	});
+
+	/**
+	 * @see https://github.com/better-auth/better-call/issues/86
+	 */
+	describe("shared but non-cyclic references", () => {
+		it("serializes shared object references in full", async () => {
+			const shared = { foo: 1 };
+			const data = { a: shared, b: shared };
+			const response = toResponse(data);
+			const body = await response.text();
+			expect(JSON.parse(body)).toEqual({
+				a: { foo: 1 },
+				b: { foo: 1 },
+			});
+		});
+
+		it("serializes shared array references in full", async () => {
+			const shared = [1, 2, 3];
+			const data = { a: shared, b: shared };
+			const response = toResponse(data);
+			const body = await response.text();
+			expect(JSON.parse(body)).toEqual({
+				a: [1, 2, 3],
+				b: [1, 2, 3],
+			});
 		});
 	});
 
