@@ -264,7 +264,9 @@ describe("toResponse", () => {
 				first: {
 					ref1: "[Circular ref-1]",
 				},
-				second: "[Circular ref-1]",
+				second: {
+					ref1: "[Circular ref-1]",
+				},
 			});
 		});
 
@@ -317,6 +319,33 @@ describe("toResponse", () => {
 			const body = await response.text();
 			const parsed = JSON.parse(body);
 			expect(parsed).toEqual([3, [1, 2, "[Circular ref-0]"]]);
+		});
+	});
+
+	/**
+	 * @see https://github.com/better-auth/better-call/issues/86
+	 */
+	describe("shared but non-cyclic references", () => {
+		it("serializes shared object references in full", async () => {
+			const shared = { foo: 1 };
+			const data = { a: shared, b: shared };
+			const response = toResponse(data);
+			const body = await response.text();
+			expect(JSON.parse(body)).toEqual({
+				a: { foo: 1 },
+				b: { foo: 1 },
+			});
+		});
+
+		it("serializes shared array references in full", async () => {
+			const shared = [1, 2, 3];
+			const data = { a: shared, b: shared };
+			const response = toResponse(data);
+			const body = await response.text();
+			expect(JSON.parse(body)).toEqual({
+				a: [1, 2, 3],
+				b: [1, 2, 3],
+			});
 		});
 	});
 
@@ -408,6 +437,89 @@ describe("toResponse", () => {
 					refs: ["[Circular ref-0]"],
 				},
 			});
+		});
+	});
+
+	/**
+	 * @see https://github.com/better-auth/better-call/issues/118
+	 */
+	describe("multiple Set-Cookie preservation", () => {
+		it("preserves every Set-Cookie when merging init.headers onto an existing Response", () => {
+			const existing = new Response("ok");
+			existing.headers.append("set-cookie", "a=1; Path=/");
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "b=2; Path=/");
+			initHeaders.append("set-cookie", "c=3; Path=/");
+
+			const response = toResponse(existing, { headers: initHeaders });
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+				"c=3; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from init.headers in JSON-flag responses", () => {
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "a=1; Path=/");
+			initHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse(
+				{ _flag: "json", body: { ok: true } },
+				{ headers: initHeaders },
+			);
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from data.headers in JSON-flag responses", () => {
+			const dataHeaders = new Headers();
+			dataHeaders.append("set-cookie", "a=1; Path=/");
+			dataHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				headers: dataHeaders,
+			});
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from routerResponse.headers in JSON-flag responses", () => {
+			const routerHeaders = new Headers();
+			routerHeaders.append("set-cookie", "a=1; Path=/");
+			routerHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				routerResponse: { headers: routerHeaders },
+			});
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("propagates non-cookie headers from routerResponse.headers in JSON-flag responses", () => {
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				routerResponse: {
+					headers: { "x-custom": "from-router" },
+				},
+			});
+
+			expect(response.headers.get("x-custom")).toBe("from-router");
 		});
 	});
 

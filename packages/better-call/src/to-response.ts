@@ -24,37 +24,31 @@ function isJSONSerializable(value: any) {
 	);
 }
 
-function safeStringify(
-	obj: any,
-	replacer?: (key: string, value: any) => any,
-	space?: string | number,
-): string {
+function safeStringify(obj: unknown): string {
+	const parents = new WeakMap<object, object>();
+	const ids = new WeakMap<object, number>();
 	let id = 0;
-	const seen = new WeakMap<object, number>(); // ref -> counter
 
-	const safeReplacer = (key: string, value: any) => {
-		// Handle bigint first
-		if (typeof value === "bigint") {
-			return value.toString();
+	const isAncestor = (value: object, holder: object): boolean => {
+		let curr: object | undefined = holder;
+		while (curr) {
+			if (curr === value) return true;
+			curr = parents.get(curr);
 		}
-
-		// Then handle circular references
-		if (typeof value === "object" && value !== null) {
-			if (seen.has(value)) {
-				return `[Circular ref-${seen.get(value)}]`;
-			}
-			seen.set(value, id++);
-		}
-
-		// Finally apply any custom replacer
-		if (replacer) {
-			return replacer(key, value);
-		}
-
-		return value;
+		return false;
 	};
 
-	return JSON.stringify(obj, safeReplacer, space);
+	return JSON.stringify(obj, function (this: any, _key, value) {
+		if (typeof value === "bigint") return value.toString();
+		if (typeof value === "object" && value !== null) {
+			if (isAncestor(value, this)) {
+				return `[Circular ref-${ids.get(value)}]`;
+			}
+			parents.set(value, this);
+			if (!ids.has(value)) ids.set(value, id++);
+		}
+		return value;
+	});
 }
 
 export type JSONResponse = {
@@ -139,14 +133,28 @@ function stripRequestOnlyHeaders(headers: Headers): void {
 	}
 }
 
+/**
+ * Copy headers from `source` into `target`. `Set-Cookie` is appended (one
+ * header per cookie) because RFC 9110 §5.3 notes it cannot be combined
+ * into a single comma-separated value; other headers are set (replace).
+ */
+function copyHeaders(target: Headers, source: HeadersInit | undefined): void {
+	if (!source) return;
+	for (const [key, value] of new Headers(source).entries()) {
+		if (key.toLowerCase() === "set-cookie") {
+			target.append(key, value);
+		} else {
+			target.set(key, value);
+		}
+	}
+}
+
 export function toResponse(data?: any, init?: ResponseInit): Response {
 	if (data instanceof Response) {
 		if (init?.headers) {
 			const safeHeaders = new Headers(init.headers);
 			stripRequestOnlyHeaders(safeHeaders);
-			safeHeaders.forEach((value, key) => {
-				data.headers.set(key, value);
-			});
+			copyHeaders(data.headers, safeHeaders);
 		}
 		return data;
 	}
@@ -158,23 +166,12 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 			return routerResponse;
 		}
 		const headers = new Headers();
-		if (routerResponse?.headers) {
-			const headers = new Headers(routerResponse.headers);
-			for (const [key, value] of headers.entries()) {
-				headers.set(key, value);
-			}
-		}
-		if (data.headers) {
-			for (const [key, value] of new Headers(data.headers).entries()) {
-				headers.set(key, value);
-			}
-		}
+		copyHeaders(headers, routerResponse?.headers);
+		copyHeaders(headers, data.headers);
 		if (init?.headers) {
 			const safeHeaders = new Headers(init.headers);
 			stripRequestOnlyHeaders(safeHeaders);
-			for (const [key, value] of safeHeaders.entries()) {
-				headers.set(key, value);
-			}
+			copyHeaders(headers, safeHeaders);
 		}
 
 		headers.set("Content-Type", "application/json");
