@@ -2,7 +2,8 @@
 	"extends": "../tsconfig.base.json",
 	"include": ["./hello.ts", "bundle.ts"],
 	"compilerOptions": {
-		"declaration": true
+		"declaration": true,
+		"types": ["node", "bun"]
 	},
 	"references": [
 		{
