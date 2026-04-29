@@ -139,14 +139,28 @@ function stripRequestOnlyHeaders(headers: Headers): void {
 	}
 }
 
+/**
+ * Copy headers from `source` into `target`. `Set-Cookie` is appended (one
+ * header per cookie) because RFC 9110 §5.3 notes it cannot be combined
+ * into a single comma-separated value; other headers are set (replace).
+ */
+function copyHeaders(target: Headers, source: HeadersInit | undefined): void {
+	if (!source) return;
+	for (const [key, value] of new Headers(source).entries()) {
+		if (key.toLowerCase() === "set-cookie") {
+			target.append(key, value);
+		} else {
+			target.set(key, value);
+		}
+	}
+}
+
 export function toResponse(data?: any, init?: ResponseInit): Response {
 	if (data instanceof Response) {
 		if (init?.headers) {
 			const safeHeaders = new Headers(init.headers);
 			stripRequestOnlyHeaders(safeHeaders);
-			safeHeaders.forEach((value, key) => {
-				data.headers.set(key, value);
-			});
+			copyHeaders(data.headers, safeHeaders);
 		}
 		return data;
 	}
@@ -158,23 +172,12 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 			return routerResponse;
 		}
 		const headers = new Headers();
-		if (routerResponse?.headers) {
-			const headers = new Headers(routerResponse.headers);
-			for (const [key, value] of headers.entries()) {
-				headers.set(key, value);
-			}
-		}
-		if (data.headers) {
-			for (const [key, value] of new Headers(data.headers).entries()) {
-				headers.set(key, value);
-			}
-		}
+		copyHeaders(headers, routerResponse?.headers);
+		copyHeaders(headers, data.headers);
 		if (init?.headers) {
 			const safeHeaders = new Headers(init.headers);
 			stripRequestOnlyHeaders(safeHeaders);
-			for (const [key, value] of safeHeaders.entries()) {
-				headers.set(key, value);
-			}
+			copyHeaders(headers, safeHeaders);
 		}
 
 		headers.set("Content-Type", "application/json");

@@ -411,6 +411,89 @@ describe("toResponse", () => {
 		});
 	});
 
+	/**
+	 * @see https://github.com/better-auth/better-call/issues/118
+	 */
+	describe("multiple Set-Cookie preservation", () => {
+		it("preserves every Set-Cookie when merging init.headers onto an existing Response", () => {
+			const existing = new Response("ok");
+			existing.headers.append("set-cookie", "a=1; Path=/");
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "b=2; Path=/");
+			initHeaders.append("set-cookie", "c=3; Path=/");
+
+			const response = toResponse(existing, { headers: initHeaders });
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+				"c=3; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from init.headers in JSON-flag responses", () => {
+			const initHeaders = new Headers();
+			initHeaders.append("set-cookie", "a=1; Path=/");
+			initHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse(
+				{ _flag: "json", body: { ok: true } },
+				{ headers: initHeaders },
+			);
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from data.headers in JSON-flag responses", () => {
+			const dataHeaders = new Headers();
+			dataHeaders.append("set-cookie", "a=1; Path=/");
+			dataHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				headers: dataHeaders,
+			});
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("preserves every Set-Cookie from routerResponse.headers in JSON-flag responses", () => {
+			const routerHeaders = new Headers();
+			routerHeaders.append("set-cookie", "a=1; Path=/");
+			routerHeaders.append("set-cookie", "b=2; Path=/");
+
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				routerResponse: { headers: routerHeaders },
+			});
+
+			expect(response.headers.getSetCookie()).toEqual([
+				"a=1; Path=/",
+				"b=2; Path=/",
+			]);
+		});
+
+		it("propagates non-cookie headers from routerResponse.headers in JSON-flag responses", () => {
+			const response = toResponse({
+				_flag: "json",
+				body: { ok: true },
+				routerResponse: {
+					headers: { "x-custom": "from-router" },
+				},
+			});
+
+			expect(response.headers.get("x-custom")).toBe("from-router");
+		});
+	});
+
 	describe("Request header stripping", () => {
 		const REQUEST_ONLY_HEADERS = [
 			// Request context (RFC 9110 §10.1)
