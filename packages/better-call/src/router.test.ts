@@ -1125,3 +1125,60 @@ describe("base path", () => {
 		expect(text).toBe("hello world");
 	});
 });
+
+/**
+ * @see https://github.com/better-auth/better-call/issues/12
+ */
+describe("streaming response", () => {
+	it("returns a Response with a ReadableStream body unchanged from the handler", async () => {
+		const encoder = new TextEncoder();
+		const messages = ["Message 0\n", "Message 1\n", "Message 2\n"];
+		const endpoint = createEndpoint(
+			"/ai/realtime",
+			{ method: "POST" },
+			async () => {
+				const queue = [...messages];
+				const stream = new ReadableStream({
+					pull(controller) {
+						const next = queue.shift();
+						if (next === undefined) {
+							controller.close();
+							return;
+						}
+						controller.enqueue(encoder.encode(next));
+					},
+				});
+				return new Response(stream, {
+					status: 200,
+					headers: {
+						"Content-Type": "application/x-ndjson",
+						"Cache-Control": "no-cache",
+					},
+				});
+			},
+		);
+		const router = createRouter({ endpoint });
+
+		const res = await router.handler(
+			new Request("http://localhost/ai/realtime", { method: "POST" }),
+		);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("application/x-ndjson");
+		expect(res.headers.get("Cache-Control")).toBe("no-cache");
+
+		if (!res.body) {
+			throw new Error("Body is null");
+		}
+		const reader = res.body.getReader();
+		const decoder = new TextDecoder();
+		let combined = "";
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			combined += decoder.decode(value, { stream: true });
+		}
+		combined += decoder.decode();
+		expect(combined).toBe(messages.join(""));
+	});
+});
