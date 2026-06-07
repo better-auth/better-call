@@ -328,4 +328,29 @@ describe("client", () => {
 		client("@post/test");
 		client("/test2");
 	});
+
+	it("should return unwrapped type T when throw: true is set", async () => {
+		const itemEndpoint = createEndpoint(
+			"/item",
+			{ method: "GET" },
+			async () => ({ id: "123", name: "test" }),
+		);
+
+		const router = createRouter({ itemEndpoint });
+
+		const client = createClient<typeof router>({
+			baseURL: "http://localhost:3000",
+			customFetchImpl: async (url, init) => {
+				return router.handler(new Request(url, init));
+			},
+		});
+
+		const res = await client("/item", {
+			throw: true,
+		});
+
+		expect(res).toMatchObject({ id: "123", name: "test" });
+
+		expectTypeOf(res).toExtend<{ id: string; name: string }>();
+	});
 });
