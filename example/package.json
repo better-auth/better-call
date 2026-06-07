@@ -1,5 +1,6 @@
 {
 	"name": "better-call-example",
+	"private": true,
 	"type": "module",
 	"scripts": {
 		"build": "tsc -b"
