@@ -1124,6 +1124,63 @@ describe("base path", () => {
 		const text = await response.text();
 		expect(text).toBe("hello world");
 	});
+
+	it("should not route a path where the base path is not a leading prefix", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+			},
+			async () => {
+				return "hello world";
+			},
+		);
+		const router = createRouter({ endpoint }, { basePath: "/api" });
+		// The base path appears mid-path, not as a leading prefix, so it should
+		// not be stripped and the request should not resolve onto "/test".
+		const response = await router.handler(
+			new Request("http://localhost/x/api/test"),
+		);
+		expect(response.status).toBe(404);
+	});
+
+	it("should not invoke a handler when the base path appears after another segment", async () => {
+		let called = false;
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+			},
+			async () => {
+				called = true;
+				return "hello world";
+			},
+		);
+		const router = createRouter({ endpoint }, { basePath: "/api" });
+		const response = await router.handler(
+			new Request("http://localhost/foo/api/test"),
+		);
+		expect(response.status).toBe(404);
+		expect(called).toBe(false);
+	});
+
+	it("should normalize a base path with a trailing slash", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+			},
+			async () => {
+				return "hello world";
+			},
+		);
+		const router = createRouter({ endpoint }, { basePath: "/api/" });
+		const response = await router.handler(
+			new Request("http://localhost/api/test"),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("hello world");
+	});
 });
 
 /**

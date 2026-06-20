@@ -160,23 +160,28 @@ export const createRouter = <
 	const processRequest = async (request: Request) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
-		const path =
-			config?.basePath && config.basePath !== "/"
-				? pathname
-						.split(config.basePath)
-						.reduce((acc, curr, index) => {
-							if (index !== 0) {
-								if (index > 1) {
-									acc.push(`${config.basePath}${curr}`);
-								} else {
-									acc.push(curr);
-								}
-							}
-							return acc;
-						}, [] as string[])
-						.join("")
-				: url.pathname;
-		if (!path?.length) {
+		// Strip `basePath` only when it is a leading, "/"-boundary prefix of the
+		// request pathname. A pathname that does not start with the configured
+		// basePath is outside this router and resolves to a 404. The previous
+		// implementation stripped basePath wherever it occurred
+		// (`pathname.split(basePath)`), which let a path like "/x/api/test"
+		// resolve onto the internal route "/test" even though it is not mounted
+		// under basePath.
+		let path: string | null;
+		if (config?.basePath && config.basePath !== "/") {
+			// Normalize trailing slashes so "/api/auth/" and "/api/auth" behave the same.
+			const normalizedBasePath = config.basePath.replace(/\/+$/, "");
+			if (!normalizedBasePath) {
+				path = pathname;
+			} else if (pathname.startsWith(`${normalizedBasePath}/`)) {
+				path = pathname.slice(normalizedBasePath.length);
+			} else {
+				path = null;
+			}
+		} else {
+			path = url.pathname;
+		}
+		if (path === null || path.length === 0) {
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 
