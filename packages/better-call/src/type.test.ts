@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import type { InferParamPath, InferParamWildCard } from "./helper";
+import { createRouter } from "./router";
 import type { InferParam } from "./types";
 
 describe("infer param", () => {
@@ -56,5 +57,36 @@ describe("infer param", () => {
 			userId: string;
 			_: string;
 		}>();
+	});
+});
+
+describe("router context type", () => {
+	it("threads routerContext type to callbacks and handler", () => {
+		type Ctx = { userId: string };
+		createRouter(
+			{},
+			{
+				routerContext: { userId: "x" } as Ctx,
+				onRequest(_request, requestContext) {
+					expectTypeOf(requestContext).toEqualTypeOf<Ctx | undefined>();
+				},
+				onResponse(_response, _request, requestContext) {
+					expectTypeOf(requestContext).toEqualTypeOf<Ctx | undefined>();
+				},
+				onError(_error, _request, requestContext) {
+					expectTypeOf(requestContext).toEqualTypeOf<Ctx | undefined>();
+				},
+			},
+		);
+
+		const { handler } = createRouter({}, { routerContext: {} as Ctx });
+		expectTypeOf(handler).parameter(1).toEqualTypeOf<Ctx | undefined>();
+	});
+
+	it("defaults to Record<string, any> without a routerContext", () => {
+		const { handler } = createRouter({});
+		expectTypeOf(handler)
+			.parameter(1)
+			.toEqualTypeOf<Record<string, any> | undefined>();
 	});
 });
