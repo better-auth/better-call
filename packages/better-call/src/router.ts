@@ -10,7 +10,9 @@ import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
 
-export interface RouterConfig<Ctx extends Record<string, any> = Record<string, any>> {
+export interface RouterConfig<
+	Ctx extends Record<string, any> = Record<string, any>,
+> {
 	throwError?: boolean;
 	basePath?: string;
 	routerMiddleware?: Array<{
@@ -38,10 +40,7 @@ export interface RouterConfig<Ctx extends Record<string, any> = Record<string, a
 	/**
 	 * A callback to run before any request
 	 */
-	onRequest?: (
-		request: Request,
-		requestContext?: Ctx,
-	) => any | Promise<any>;
+	onRequest?: (request: Request, requestContext?: Ctx) => any | Promise<any>;
 	/**
 	 * A callback to run when an error is thrown in the router or middleware.
 	 *
@@ -169,10 +168,7 @@ export const createRouter = <
 		}
 	}
 
-	const processRequest = async (
-		request: Request,
-		requestContext?: Ctx,
-	) => {
+	const processRequest = async (request: Request, requestContext?: Ctx) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
 		const path =
