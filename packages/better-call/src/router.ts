@@ -10,7 +10,9 @@ import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
 
-export interface RouterConfig {
+export interface RouterConfig<
+	Ctx extends Record<string, any> = Record<string, any>,
+> {
 	throwError?: boolean;
 	basePath?: string;
 	routerMiddleware?: Array<{
@@ -21,16 +23,24 @@ export interface RouterConfig {
 	 * additional Context that needs to passed to endpoints
 	 *
 	 * this will be available on `ctx.context` on endpoints
+	 *
+	 * Can be overridden per request by passing a context as the second
+	 * argument to `handler(request, requestContext)`. Its type flows to the
+	 * `requestContext` parameter of the callbacks below.
 	 */
-	routerContext?: Record<string, any>;
+	routerContext?: Ctx;
 	/**
 	 * A callback to run before any response
 	 */
-	onResponse?: (response: Response, request: Request) => any | Promise<any>;
+	onResponse?: (
+		response: Response,
+		request: Request,
+		requestContext?: Ctx,
+	) => any | Promise<any>;
 	/**
 	 * A callback to run before any request
 	 */
-	onRequest?: (request: Request) => any | Promise<any>;
+	onRequest?: (request: Request, requestContext?: Ctx) => any | Promise<any>;
 	/**
 	 * A callback to run when an error is thrown in the router or middleware.
 	 *
@@ -40,6 +50,7 @@ export interface RouterConfig {
 	onError?: (
 		error: unknown,
 		request: Request,
+		requestContext?: Ctx,
 	) => void | Promise<void> | Response | Promise<Response>;
 	/**
 	 * List of allowed media types (MIME types) for the router
@@ -107,10 +118,10 @@ export interface RouterConfig {
 
 export const createRouter = <
 	E extends Record<string, Endpoint>,
-	Config extends RouterConfig,
+	Ctx extends Record<string, any> = Record<string, any>,
 >(
 	endpoints: E,
-	config?: Config,
+	config?: RouterConfig<Ctx>,
 ) => {
 	if (!config?.openapi?.disabled) {
 		const openapi = {
@@ -157,7 +168,7 @@ export const createRouter = <
 		}
 	}
 
-	const processRequest = async (request: Request) => {
+	const processRequest = async (request: Request, requestContext?: Ctx) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
 		const path =
@@ -239,7 +250,7 @@ export const createRouter = <
 				query,
 				_flag: "router" as const,
 				asResponse: true,
-				context: config?.routerContext,
+				context: requestContext ?? config?.routerContext,
 			};
 			const middlewareRoutes = findAllRoutes(middlewareRouter, "*", path);
 			if (middlewareRoutes?.length) {
@@ -259,7 +270,11 @@ export const createRouter = <
 		} catch (error) {
 			if (config?.onError) {
 				try {
-					const errorResponse = await config.onError(error, request);
+					const errorResponse = await config.onError(
+						error,
+						request,
+						requestContext,
+					);
 
 					if (errorResponse instanceof Response) {
 						return toResponse(errorResponse);
@@ -290,14 +305,19 @@ export const createRouter = <
 	};
 
 	return {
-		handler: async (request: Request) => {
-			const onReq = await config?.onRequest?.(request);
+		/**
+		 * @param requestContext - per-request `ctx.context`, replacing
+		 * `routerContext` for this call. Not cloned: pass a non-shared object to
+		 * keep concurrent requests isolated.
+		 */
+		handler: async (request: Request, requestContext?: Ctx) => {
+			const onReq = await config?.onRequest?.(request, requestContext);
 			if (onReq instanceof Response) {
 				return onReq;
 			}
 			const req = isRequest(onReq) ? onReq : request;
-			const res = await processRequest(req);
-			const onRes = await config?.onResponse?.(res, req);
+			const res = await processRequest(req, requestContext);
+			const onRes = await config?.onResponse?.(res, req, requestContext);
 			if (onRes instanceof Response) {
 				return onRes;
 			}
