@@ -1182,3 +1182,55 @@ describe("streaming response", () => {
 		expect(combined).toBe(messages.join(""));
 	});
 });
+
+describe("per-request router context", () => {
+	const makeRouter = () => {
+		const endpoint = createEndpoint(
+			"/whoami",
+			{
+				method: "GET",
+			},
+			async (c) => {
+				return c.json({ host: (c.context as { host?: string })?.host ?? null });
+			},
+		);
+		return createRouter({ endpoint }, { routerContext: { host: "default" } });
+	};
+
+	it("overrides routerContext with the per-request context argument", async () => {
+		const router = makeRouter();
+		const response = await router.handler(
+			new Request("http://localhost/whoami"),
+			{ host: "a.example.com" },
+		);
+		expect(await response.json()).toEqual({ host: "a.example.com" });
+	});
+
+	it("falls back to routerContext when no per-request context is passed", async () => {
+		const router = makeRouter();
+		const response = await router.handler(
+			new Request("http://localhost/whoami"),
+		);
+		expect(await response.json()).toEqual({ host: "default" });
+	});
+
+	it("isolates the context between concurrent requests on different hosts", async () => {
+		// Guards against the first request's host leaking onto a shared context
+		// and being reused by a concurrent request resolving to a different host.
+		const router = makeRouter();
+		const [a, b] = await Promise.all([
+			router
+				.handler(new Request("http://localhost/whoami"), {
+					host: "a.example.com",
+				})
+				.then((res) => res.json()),
+			router
+				.handler(new Request("http://localhost/whoami"), {
+					host: "b.example.com",
+				})
+				.then((res) => res.json()),
+		]);
+		expect(a).toEqual({ host: "a.example.com" });
+		expect(b).toEqual({ host: "b.example.com" });
+	});
+});
