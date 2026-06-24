@@ -157,31 +157,37 @@ export const createRouter = <
 		}
 	}
 
+	// Normalize the configured base path once. `basePath` is configuration, not
+	// per-request input, so trailing-slash normalization belongs here rather than
+	// in the request hot path. An empty result (unset, "/", or all slashes) means
+	// "no base path": route on the full pathname.
+	const basePath =
+		config?.basePath && config.basePath !== "/"
+			? config.basePath.replace(/\/+$/, "")
+			: "";
+
 	const processRequest = async (request: Request) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
-		const path =
-			config?.basePath && config.basePath !== "/"
-				? pathname
-						.split(config.basePath)
-						.reduce((acc, curr, index) => {
-							if (index !== 0) {
-								if (index > 1) {
-									acc.push(`${config.basePath}${curr}`);
-								} else {
-									acc.push(curr);
-								}
-							}
-							return acc;
-						}, [] as string[])
-						.join("")
-				: url.pathname;
-		if (!path?.length) {
-			return new Response(null, { status: 404, statusText: "Not Found" });
+		// Strip `basePath` only when it is a leading, "/"-boundary prefix of the
+		// request pathname. A pathname that does not start with the configured
+		// basePath is outside this router and resolves to a 404, so a path like
+		// "/x/api/test" never reaches "/test". The "/" boundary also rejects a
+		// path where basePath is only a leading substring, not a full segment.
+		// The previous implementation stripped basePath wherever it occurred
+		// (`pathname.split(basePath)`).
+		let path: string;
+		if (basePath) {
+			if (!pathname.startsWith(`${basePath}/`)) {
+				return new Response(null, { status: 404, statusText: "Not Found" });
+			}
+			path = pathname.slice(basePath.length);
+		} else {
+			path = pathname;
 		}
 
-		// Reject paths with consecutive slashes
-		if (/\/{2,}/.test(path)) {
+		// Reject empty paths and paths with consecutive slashes.
+		if (path.length === 0 || /\/{2,}/.test(path)) {
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 
