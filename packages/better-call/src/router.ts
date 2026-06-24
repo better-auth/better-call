@@ -157,36 +157,37 @@ export const createRouter = <
 		}
 	}
 
+	// Normalize the configured base path once. `basePath` is configuration, not
+	// per-request input, so trailing-slash normalization belongs here rather than
+	// in the request hot path. An empty result (unset, "/", or all slashes) means
+	// "no base path": route on the full pathname.
+	const basePath =
+		config?.basePath && config.basePath !== "/"
+			? config.basePath.replace(/\/+$/, "")
+			: "";
+
 	const processRequest = async (request: Request) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
 		// Strip `basePath` only when it is a leading, "/"-boundary prefix of the
 		// request pathname. A pathname that does not start with the configured
-		// basePath is outside this router and resolves to a 404. The previous
-		// implementation stripped basePath wherever it occurred
-		// (`pathname.split(basePath)`), which let a path like "/x/api/test"
-		// resolve onto the internal route "/test" even though it is not mounted
-		// under basePath.
-		let path: string | null;
-		if (config?.basePath && config.basePath !== "/") {
-			// Normalize trailing slashes so "/api/auth/" and "/api/auth" behave the same.
-			const normalizedBasePath = config.basePath.replace(/\/+$/, "");
-			if (!normalizedBasePath) {
-				path = pathname;
-			} else if (pathname.startsWith(`${normalizedBasePath}/`)) {
-				path = pathname.slice(normalizedBasePath.length);
-			} else {
-				path = null;
+		// basePath is outside this router and resolves to a 404, so a path like
+		// "/x/api/test" never reaches "/test". The "/" boundary also rejects a
+		// path where basePath is only a leading substring, not a full segment.
+		// The previous implementation stripped basePath wherever it occurred
+		// (`pathname.split(basePath)`).
+		let path: string;
+		if (basePath) {
+			if (!pathname.startsWith(`${basePath}/`)) {
+				return new Response(null, { status: 404, statusText: "Not Found" });
 			}
+			path = pathname.slice(basePath.length);
 		} else {
-			path = url.pathname;
-		}
-		if (path === null || path.length === 0) {
-			return new Response(null, { status: 404, statusText: "Not Found" });
+			path = pathname;
 		}
 
-		// Reject paths with consecutive slashes
-		if (/\/{2,}/.test(path)) {
+		// Reject empty paths and paths with consecutive slashes.
+		if (path.length === 0 || /\/{2,}/.test(path)) {
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 

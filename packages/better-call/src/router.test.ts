@@ -1181,6 +1181,28 @@ describe("base path", () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("hello world");
 	});
+
+	it("should not route when the base path matches without a '/' boundary", async () => {
+		let called = false;
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+			},
+			async () => {
+				called = true;
+				return "hello world";
+			},
+		);
+		const router = createRouter({ endpoint }, { basePath: "/admin" });
+		// "/admin" is a leading substring of "/administrator" but not a
+		// "/"-boundary prefix, so the request must not resolve onto "/test".
+		const response = await router.handler(
+			new Request("http://localhost/administrator/test"),
+		);
+		expect(response.status).toBe(404);
+		expect(called).toBe(false);
+	});
 });
 
 /**
