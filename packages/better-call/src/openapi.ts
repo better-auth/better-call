@@ -121,6 +121,17 @@ const BODY_METHODS = new Set<string>(["POST", "PUT", "PATCH", "DELETE"]);
 const PATH_PARAM_REGEX = /:([A-Za-z0-9_]+)/g;
 
 /**
+ * The optional JSON Schema conversion exposed on `~standard.jsonSchema` per the
+ * StandardJSONSchemaV1 proposal (https://standardschema.dev/json-schema). Read
+ * via a local cast rather than by widening {@link StandardSchemaV1} itself —
+ * modifying the vendored spec type perturbs generic inference in consumers.
+ */
+interface JSONSchemaConverter {
+	input?: (options?: { target?: string }) => Record<string, any>;
+	output?: (options?: { target?: string }) => Record<string, any>;
+}
+
+/**
  * Convert a Standard Schema to a JSON Schema object using the library-agnostic
  * StandardJSONSchemaV1 interface (`schema["~standard"].jsonSchema`), natively
  * implemented by Zod (>= 4.2), ArkType (>= 2.1.28), and others.
@@ -132,7 +143,10 @@ function toJsonSchema(
 	schema: StandardSchemaV1 | undefined,
 	io: "input" | "output",
 ): Record<string, any> | undefined {
-	const converter = schema?.["~standard"]?.jsonSchema;
+	const std = schema?.["~standard"] as
+		| { jsonSchema?: JSONSchemaConverter }
+		| undefined;
+	const converter = std?.jsonSchema;
 	if (!converter) return undefined;
 	try {
 		const fn = io === "input" ? converter.input : converter.output;
