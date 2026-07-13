@@ -224,17 +224,6 @@ function getRequestBody(
 	};
 }
 
-const EMPTY_REQUEST_BODY = {
-	content: {
-		"application/json": {
-			schema: {
-				type: "object" as const,
-				properties: {},
-			},
-		},
-	},
-};
-
 function getResponse(responses?: Record<string, any>) {
 	return {
 		"400": {
@@ -358,7 +347,8 @@ function buildOperation(
 	if (parameters.length) operation.parameters = parameters;
 
 	if (BODY_METHODS.has(method)) {
-		operation.requestBody = getRequestBody(options) ?? EMPTY_REQUEST_BODY;
+		const requestBody = getRequestBody(options);
+		if (requestBody) operation.requestBody = requestBody;
 	}
 
 	operation.responses = getResponse(openapi?.responses);

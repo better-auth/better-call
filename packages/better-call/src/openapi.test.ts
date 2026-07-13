@@ -64,6 +64,18 @@ describe("openapi generator", () => {
 		expect(schema?.required).not.toContain("description");
 	});
 
+	it("does not advertise a request body for a bodyless route", async () => {
+		const deleteTicket = createEndpoint(
+			"/tickets/:id",
+			{ method: "DELETE" },
+			async () => ({}),
+		);
+
+		const doc = await generator(asEndpoints({ deleteTicket }));
+		expect(doc.paths["/tickets/{id}"]?.delete).toBeDefined();
+		expect(doc.paths["/tickets/{id}"]?.delete?.requestBody).toBeUndefined();
+	});
+
 	it("emits PATCH and DELETE operations", async () => {
 		const updateTicket = createEndpoint(
 			"/tickets/:id",
