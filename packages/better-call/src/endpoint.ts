@@ -9,7 +9,11 @@ import {
 } from "./error";
 import type { HasRequiredKeys, Prettify } from "./helper";
 import type { Middleware } from "./middleware";
-import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
+import type {
+	OpenAPIParameter,
+	OpenAPISchemaType,
+	OpenAPISecurityRequirement,
+} from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
 import type {
@@ -36,6 +40,12 @@ export interface EndpointMetadata {
 		description?: string;
 		tags?: string[];
 		operationId?: string;
+		/**
+		 * Security requirements for this operation. Overrides the document-level
+		 * `security` when set. Each entry maps a security scheme name (declared in
+		 * `components.securitySchemes`) to its required scopes.
+		 */
+		security?: OpenAPISecurityRequirement[];
 		parameters?: OpenAPIParameter[];
 		requestBody?: {
 			content: {

@@ -23,7 +23,13 @@ export type { Prettify } from "./helper";
 export type { Middleware, MiddlewareContext } from "./middleware";
 // Middleware
 export { createMiddleware } from "./middleware";
-export type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
+export type {
+	OpenAPIGeneratorConfig,
+	OpenAPIParameter,
+	OpenAPISchemaType,
+	OpenAPISecurityRequirement,
+	OpenAPISecurityScheme,
+} from "./openapi";
 
 // OpenAPI
 export {
@@ -33,6 +39,11 @@ export {
 export type { Router, RouterConfig } from "./router";
 // Router
 export { createRouter } from "./router";
+// Schema
+export type { StandardSchemaV1 } from "./standard-schema";
+export type { JSONResponse } from "./to-response";
+// Response
+export { toResponse } from "./to-response";
 // Types
 export type {
 	HTTPMethod,
@@ -42,8 +53,3 @@ export type {
 	ResolveMetaInput,
 	ResolveQueryInput,
 } from "./types";
-// Schema
-export type { StandardSchemaV1 } from "./standard-schema";
-export type { JSONResponse } from "./to-response";
-// Response
-export { toResponse } from "./to-response";

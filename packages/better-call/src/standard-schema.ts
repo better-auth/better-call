@@ -17,6 +17,35 @@ export declare namespace StandardSchemaV1 {
 		) => Result<Output> | Promise<Result<Output>>;
 		/** Inferred types associated with the schema. */
 		readonly types?: Types<Input, Output> | undefined;
+		/**
+		 * Optional JSON Schema conversion, per the StandardJSONSchemaV1 proposal
+		 * (https://standardschema.dev/json-schema). Natively implemented by Zod
+		 * (>= 4.2), ArkType (>= 2.1.28), and others. Consumed by the OpenAPI
+		 * generator to describe request bodies and query parameters in a
+		 * library-agnostic way.
+		 */
+		readonly jsonSchema?: JSONSchemaConverter | undefined;
+	}
+
+	/** Options accepted by the JSON Schema conversion methods. */
+	export interface JSONSchemaOptions {
+		/**
+		 * Target JSON Schema dialect. OpenAPI 3.1 aligns with `"draft-2020-12"`.
+		 */
+		readonly target?:
+			| "draft-2020-12"
+			| "draft-07"
+			| "openapi-3.0"
+			| (string & {});
+		readonly [key: string]: unknown;
+	}
+
+	/** The JSON Schema conversion interface exposed on `~standard.jsonSchema`. */
+	export interface JSONSchemaConverter {
+		/** JSON Schema describing accepted input values. */
+		readonly input?: (options?: JSONSchemaOptions) => Record<string, unknown>;
+		/** JSON Schema describing produced output values. */
+		readonly output?: (options?: JSONSchemaOptions) => Record<string, unknown>;
 	}
 
 	/** The result interface of the validate function. */

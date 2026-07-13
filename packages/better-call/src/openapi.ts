@@ -1,5 +1,5 @@
-import { ZodObject, ZodOptional, type ZodType } from "zod";
 import type { Endpoint, EndpointRuntimeOptions } from "./endpoint";
+import type { StandardSchemaV1 } from "./standard-schema";
 
 export type OpenAPISchemaType =
 	| "string"
@@ -15,7 +15,7 @@ export interface OpenAPIParameter {
 	description?: string;
 	required?: boolean;
 	schema?: {
-		type: OpenAPISchemaType;
+		type?: OpenAPISchemaType;
 		format?: string | undefined;
 		items?: {
 			type: OpenAPISchemaType;
@@ -25,159 +25,201 @@ export interface OpenAPIParameter {
 		description?: string | undefined;
 		default?: string | undefined;
 		example?: string | undefined;
+		[key: string]: any;
 	};
 }
 
-interface Path {
-	get?: {
-		tags?: string[];
-		operationId?: string;
-		description?: string;
-		security?: [{ bearerAuth: string[] }];
-		parameters?: OpenAPIParameter[];
-		responses?: {
-			[key in string]: {
-				description?: string;
-				content: {
-					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
-							required?: string[];
-							$ref?: string;
-						};
-					};
-				};
-			};
-		};
-	};
-	post?: {
-		tags?: string[];
-		operationId?: string;
-		description?: string;
-		security?: [{ bearerAuth: string[] }];
-		parameters?: OpenAPIParameter[];
-		requestBody?: {
-			content: {
-				"application/json": {
-					schema: {
-						type?: OpenAPISchemaType;
-						properties?: Record<string, any>;
-						required?: string[];
-						$ref?: string;
-					};
-				};
-			};
-		};
-		responses?: {
-			[key in string]: {
-				description?: string;
-				content: {
-					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
-							required?: string[];
-							$ref?: string;
-						};
-					};
-				};
-			};
-		};
-	};
-}
-const paths: Record<string, Path> = {};
+/**
+ * An OpenAPI Security Requirement Object. Maps a declared security scheme name
+ * to the list of scopes required (empty for non-oauth schemes).
+ */
+export type OpenAPISecurityRequirement = Record<string, string[]>;
 
-function getTypeFromZodType(zodType: ZodType<any>) {
-	switch (zodType.constructor.name) {
-		case "ZodString":
-			return "string";
-		case "ZodNumber":
-			return "number";
-		case "ZodBoolean":
-			return "boolean";
-		case "ZodObject":
-			return "object";
-		case "ZodArray":
-			return "array";
-		default:
-			return "string";
+/**
+ * An OpenAPI Security Scheme Object. `type` is one of the spec's canonical
+ * values; the remaining fields depend on the type (`scheme`, `bearerFormat`,
+ * `in`, `name`, `flows`, `openIdConnectUrl`, ...).
+ */
+export interface OpenAPISecurityScheme {
+	type: "apiKey" | "http" | "oauth2" | "openIdConnect" | "mutualTLS";
+	description?: string;
+	[key: string]: any;
+}
+
+/**
+ * Configuration for {@link generator}. Everything here is author-supplied — the
+ * generator infers paths/operations from the endpoints but never fabricates
+ * document-level metadata such as auth or server URLs.
+ */
+export interface OpenAPIGeneratorConfig {
+	/**
+	 * Convenience shortcut for a single server URL. Ignored when `servers` is set.
+	 */
+	url?: string;
+	/**
+	 * OpenAPI Info Object. Merged over the defaults
+	 * (`{ title: "API Reference", version: "1.0.0" }`).
+	 */
+	info?: {
+		title?: string;
+		description?: string;
+		version?: string;
+		[key: string]: any;
+	};
+	/**
+	 * OpenAPI Server Objects.
+	 */
+	servers?: { url: string; description?: string; [key: string]: any }[];
+	/**
+	 * Document-level security requirements. Applied to every operation unless a
+	 * per-endpoint `metadata.openapi.security` overrides it. Omitted by default —
+	 * better-call is auth-agnostic and asserts no scheme on its own.
+	 */
+	security?: OpenAPISecurityRequirement[];
+	/**
+	 * Named security schemes exposed under `components.securitySchemes`.
+	 */
+	securitySchemes?: Record<string, OpenAPISecurityScheme>;
+}
+
+interface Operation {
+	tags?: string[];
+	summary?: string;
+	operationId?: string;
+	description?: string;
+	security?: OpenAPISecurityRequirement[];
+	parameters?: OpenAPIParameter[];
+	requestBody?: {
+		required?: boolean;
+		content: {
+			"application/json": {
+				schema: Record<string, any>;
+			};
+		};
+	};
+	responses?: Record<string, any>;
+}
+
+type Path = Partial<Record<Lowercase<HTTPVerb>, Operation>>;
+
+type HTTPVerb = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+// HTTP methods that render as OpenAPI operations. HEAD/OPTIONS and the "*"
+// wildcard are intentionally skipped — see the README limitations note.
+const DOCUMENTED_METHODS = new Set<string>([
+	"GET",
+	"POST",
+	"PUT",
+	"PATCH",
+	"DELETE",
+]);
+
+// Methods that may carry a request body (mirrors the endpoint runtime guard,
+// which only forbids bodies on GET/HEAD).
+const BODY_METHODS = new Set<string>(["POST", "PUT", "PATCH", "DELETE"]);
+
+const PATH_PARAM_REGEX = /:([A-Za-z0-9_]+)/g;
+
+/**
+ * Convert a Standard Schema to a JSON Schema object using the library-agnostic
+ * StandardJSONSchemaV1 interface (`schema["~standard"].jsonSchema`), natively
+ * implemented by Zod (>= 4.2), ArkType (>= 2.1.28), and others.
+ *
+ * Returns `undefined` when the schema doesn't implement the interface (e.g.
+ * Valibot without its adapter, or an older Zod) so callers can fall back.
+ */
+function toJsonSchema(
+	schema: StandardSchemaV1 | undefined,
+	io: "input" | "output",
+): Record<string, any> | undefined {
+	const converter = schema?.["~standard"]?.jsonSchema;
+	if (!converter) return undefined;
+	try {
+		const fn = io === "input" ? converter.input : converter.output;
+		const produce = fn ?? converter.output ?? converter.input;
+		const result = produce?.({ target: "draft-2020-12" });
+		if (!result || typeof result !== "object") return undefined;
+		// `$schema` is a JSON-Schema document keyword; strip it so the fragment
+		// embeds cleanly inside an OpenAPI Schema Object.
+		const { $schema, ...rest } = result as Record<string, any>;
+		return rest;
+	} catch {
+		return undefined;
 	}
 }
 
-function getParameters(options: EndpointRuntimeOptions) {
+function getParameters(
+	options: EndpointRuntimeOptions,
+	path: string,
+): OpenAPIParameter[] {
 	const parameters: OpenAPIParameter[] = [];
-	if (options.metadata?.openapi?.parameters) {
-		parameters.push(...options.metadata.openapi.parameters);
-		return parameters;
-	}
-	if (options.query instanceof ZodObject) {
-		Object.entries(options.query.shape).forEach(([key, value]) => {
-			if (value instanceof ZodObject) {
-				parameters.push({
-					name: key,
-					in: "query",
-					schema: {
-						type: getTypeFromZodType(value),
-						...("minLength" in value && value.minLength
-							? {
-									minLength: value.minLength as number,
-								}
-							: {}),
-						description: value.description,
-					},
-				});
-			}
+
+	// Path parameters, derived from the route pattern (`/x/:id` -> `id`).
+	for (const match of path.matchAll(PATH_PARAM_REGEX)) {
+		parameters.push({
+			name: match[1],
+			in: "path",
+			required: true,
+			schema: { type: "string" },
 		});
 	}
+
+	// Query parameters, one per top-level field of the query schema.
+	const query = toJsonSchema(options.query, "input");
+	if (query?.properties && typeof query.properties === "object") {
+		const required = new Set<string>(
+			Array.isArray(query.required) ? query.required : [],
+		);
+		for (const [name, prop] of Object.entries(
+			query.properties as Record<string, any>,
+		)) {
+			parameters.push({
+				name,
+				in: "query",
+				required: required.has(name),
+				description: prop?.description,
+				schema: prop,
+			});
+		}
+	}
+
+	// Author-supplied parameters are appended, never replaced.
+	if (options.metadata?.openapi?.parameters) {
+		parameters.push(...options.metadata.openapi.parameters);
+	}
+
 	return parameters;
 }
 
-function getRequestBody(options: EndpointRuntimeOptions): any {
+function getRequestBody(
+	options: EndpointRuntimeOptions,
+): Operation["requestBody"] | undefined {
 	if (options.metadata?.openapi?.requestBody) {
 		return options.metadata.openapi.requestBody;
 	}
 	if (!options.body) return undefined;
-	if (
-		options.body instanceof ZodObject ||
-		options.body instanceof ZodOptional
-	) {
-		// @ts-expect-error
-		const shape = options.body.shape;
-		if (!shape) return undefined;
-		const properties: Record<string, any> = {};
-		const required: string[] = [];
-		Object.entries(shape).forEach(([key, value]) => {
-			if (value instanceof ZodObject) {
-				properties[key] = {
-					type: getTypeFromZodType(value),
-					description: value.description,
-				};
-				if (!(value instanceof ZodOptional)) {
-					required.push(key);
-				}
-			}
-		});
-		return {
-			required:
-				options.body instanceof ZodOptional
-					? false
-					: options.body
-						? true
-						: false,
-			content: {
-				"application/json": {
-					schema: {
-						type: "object",
-						properties,
-						required,
-					},
-				},
+	const schema = toJsonSchema(options.body, "input");
+	if (!schema) return undefined;
+	return {
+		required: true,
+		content: {
+			"application/json": {
+				schema,
 			},
-		};
-	}
-	return undefined;
+		},
+	};
 }
+
+const EMPTY_REQUEST_BODY = {
+	content: {
+		"application/json": {
+			schema: {
+				type: "object" as const,
+				properties: {},
+			},
+		},
+	},
+};
 
 function getResponse(responses?: Record<string, any>) {
 	return {
@@ -278,96 +320,97 @@ function getResponse(responses?: Record<string, any>) {
 				"Internal Server Error. This is a problem with the server that you cannot fix.",
 		},
 		...responses,
-	} as any;
+	} as Record<string, any>;
+}
+
+function buildOperation(
+	options: EndpointRuntimeOptions,
+	method: string,
+	routePath: string,
+): Operation {
+	const openapi = options.metadata?.openapi;
+	const operation: Operation = {
+		tags: ["Default", ...(openapi?.tags || [])],
+	};
+
+	if (openapi?.summary) operation.summary = openapi.summary;
+	if (openapi?.description) operation.description = openapi.description;
+	if (openapi?.operationId) operation.operationId = openapi.operationId;
+	// Only assert security when the endpoint explicitly declares it. Otherwise
+	// the operation inherits the document-level `security` (if any).
+	if (openapi?.security) operation.security = openapi.security;
+
+	const parameters = getParameters(options, routePath);
+	if (parameters.length) operation.parameters = parameters;
+
+	if (BODY_METHODS.has(method)) {
+		operation.requestBody = getRequestBody(options) ?? EMPTY_REQUEST_BODY;
+	}
+
+	operation.responses = getResponse(openapi?.responses);
+	return operation;
 }
 
 export async function generator(
 	endpoints: Record<string, Endpoint>,
-	config?: {
-		url: string;
-	},
+	config?: OpenAPIGeneratorConfig,
 ) {
-	const components = {
-		schemas: {},
-	};
+	// `paths` is local: a fresh document is produced per call, with no state
+	// leaking across invocations.
+	const paths: Record<string, Path> = {};
 
 	Object.entries(endpoints).forEach(([_, value]) => {
 		const options = value.options as EndpointRuntimeOptions;
 		if (!value.path || options.metadata?.SERVER_ONLY) return;
-		if (options.method === "GET") {
-			paths[value.path] = {
-				get: {
-					tags: ["Default", ...(options.metadata?.openapi?.tags || [])],
-					description: options.metadata?.openapi?.description,
-					operationId: options.metadata?.openapi?.operationId,
-					security: [
-						{
-							bearerAuth: [],
-						},
-					],
-					parameters: getParameters(options),
-					responses: getResponse(options.metadata?.openapi?.responses),
-				},
-			};
-		}
 
-		if (options.method === "POST") {
-			const body = getRequestBody(options);
-			paths[value.path] = {
-				post: {
-					tags: ["Default", ...(options.metadata?.openapi?.tags || [])],
-					description: options.metadata?.openapi?.description,
-					operationId: options.metadata?.openapi?.operationId,
-					security: [
-						{
-							bearerAuth: [],
-						},
-					],
-					parameters: getParameters(options),
-					...(body
-						? { requestBody: body }
-						: {
-								requestBody: {
-									//set body none
-									content: {
-										"application/json": {
-											schema: {
-												type: "object",
-												properties: {},
-											},
-										},
-									},
-								},
-							}),
-					responses: getResponse(options.metadata?.openapi?.responses),
-				},
-			};
+		const methods = (
+			Array.isArray(options.method) ? options.method : [options.method]
+		)
+			.map((m) => String(m).toUpperCase())
+			.filter((m) => DOCUMENTED_METHODS.has(m));
+		if (!methods.length) return;
+
+		// Rewrite rou3-style `:param` segments to OpenAPI `{param}` templates.
+		const openapiPath = value.path.replace(PATH_PARAM_REGEX, "{$1}");
+		const pathItem = (paths[openapiPath] ??= {});
+
+		for (const method of methods) {
+			// Merge onto the path item instead of overwriting it, so a path with
+			// multiple methods keeps every operation.
+			pathItem[method.toLowerCase() as Lowercase<HTTPVerb>] = buildOperation(
+				options,
+				method,
+				value.path,
+			);
 		}
 	});
+
+	const components: {
+		schemas: Record<string, any>;
+		securitySchemes?: Record<string, OpenAPISecurityScheme>;
+	} = {
+		schemas: {},
+	};
+	if (config?.securitySchemes) {
+		components.securitySchemes = config.securitySchemes;
+	}
+
+	const servers = config?.servers ?? (config?.url ? [{ url: config.url }] : []);
 
 	const res = {
 		openapi: "3.1.1",
 		info: {
-			title: "Better Auth",
-			description: "API Reference for your Better Auth Instance",
-			version: "1.1.0",
+			title: "API Reference",
+			version: "1.0.0",
+			...config?.info,
 		},
 		components,
-		security: [
-			{
-				apiKeyCookie: [],
-			},
-		],
-		servers: [
-			{
-				url: config?.url,
-			},
-		],
+		...(config?.security ? { security: config.security } : {}),
+		servers,
 		tags: [
 			{
 				name: "Default",
-				description:
-					"Default endpoints that are included with Better Auth by default. These endpoints are not part of any plugin.",
+				description: "Endpoints that are not tagged with a specific tag.",
 			},
 		],
 		paths,
@@ -383,7 +426,21 @@ export const getHTML = (
 		title?: string;
 		description?: string;
 	},
-) => `<!doctype html>
+) => {
+	const configuration = {
+		...(config?.logo
+			? {
+					favicon: `data:image/svg+xml;utf8,${encodeURIComponent(config.logo)}`,
+				}
+			: {}),
+		theme: config?.theme || "saturn",
+		metaData: {
+			title: config?.title || "Open API Reference",
+			description: config?.description || "Better Call Open API",
+		},
+	};
+
+	return `<!doctype html>
 <html>
   <head>
     <title>Scalar API Reference</title>
@@ -399,17 +456,11 @@ export const getHTML = (
     ${JSON.stringify(apiReference)}
     </script>
 	 <script>
-      var configuration = {
-	  	favicon: ${config?.logo ? `data:image/svg+xml;utf8,${encodeURIComponent(config.logo)}` : undefined} ,
-	   	theme: ${config?.theme || "saturn"},
-        metaData: {
-			title: ${config?.title || "Open API Reference"},
-			description: ${config?.description || "Better Call Open API"},
-		}
-      }
+      var configuration = ${JSON.stringify(configuration)}
       document.getElementById('api-reference').dataset.configuration =
         JSON.stringify(configuration)
     </script>
 	  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>`;
+};

@@ -776,7 +776,9 @@ const createItem = create("/item", {
 
 ### Open API
 
-Better Call by default generate open api schema for the endpoints and exposes it on `/api/reference` path using scalar. By default, if you're using `zod` it'll be able to generate `body` and `query` schema.
+Better Call by default generates an OpenAPI schema for the endpoints and exposes it on the `/api/reference` path using scalar. `body` and `query` schemas are generated automatically for any schema library that implements the [Standard JSON Schema](https://standardschema.dev/json-schema) interface (Zod `>= 4.2`, ArkType `>= 2.1.28`, and others); libraries without it fall back to a generic object schema and can be described explicitly via `metadata.openapi` (see below).
+
+Every method of an endpoint — including `PUT`, `PATCH`, and `DELETE`, and multiple methods on the same path — is documented, and `:param` route segments are rendered as OpenAPI `{param}` path parameters.
 
 ```ts
 import { createEndpoint, createRouter } from "better-call"
@@ -837,9 +839,32 @@ const createItem = createEndpoint("/item/:id", {
 })
 ```
 
+#### Authentication
+
+Better Call is auth-agnostic and does **not** assert any security scheme by default. To document authentication in an OpenAPI-standard way, declare your security schemes and a document-level requirement on the router. Per-endpoint requirements can be set via `metadata.openapi.security` and override the document-level default for that operation.
+
+```ts
+const router = createRouter({
+    createItem
+}, {
+    openapi: {
+        // Exposed under components.securitySchemes
+        securitySchemes: {
+            sessionCookie: {
+                type: "apiKey",
+                in: "cookie",
+                name: "better-auth.session_token"
+            }
+        },
+        // Applied to every operation unless overridden per-endpoint
+        security: [{ sessionCookie: [] }]
+    }
+})
+```
+
 #### Configuration
 
-You can configure the open api schema by passing the `openapi` option to the router.
+You can configure the OpenAPI schema by passing the `openapi` option to the router.
 
 ```ts
 const router = createRouter({
@@ -848,9 +873,21 @@ const router = createRouter({
     openapi: {
         disabled: false, //default false
         path: "/api/reference", //default /api/reference
-        scalar: {
+        // OpenAPI Info Object (defaults to { title: "API Reference", version: "1.0.0" })
+        info: {
             title: "My API",
             version: "1.0.0",
+            description: "My API Description"
+        },
+        // OpenAPI Server Objects
+        servers: [{ url: "https://api.example.com" }],
+        // See "Authentication" above
+        security: [{ sessionCookie: [] }],
+        securitySchemes: {
+            sessionCookie: { type: "apiKey", in: "cookie", name: "better-auth.session_token" }
+        },
+        scalar: {
+            title: "My API",
             description: "My API Description",
             theme: "dark" //default saturn
         }
