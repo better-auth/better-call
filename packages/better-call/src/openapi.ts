@@ -205,9 +205,24 @@ function getParameters(
 	return parameters;
 }
 
-function getRequestBody(
+/**
+ * A body is required unless the schema itself accepts a missing (`undefined`)
+ * body — the exact condition the runtime validator enforces. Top-level
+ * optionality isn't representable in JSON Schema (Zod drops it), so we probe the
+ * schema directly. Defaults to `true` if validation is inconclusive.
+ */
+async function isBodyRequired(body: StandardSchemaV1): Promise<boolean> {
+	try {
+		const result = await body["~standard"].validate(undefined);
+		return result.issues !== undefined;
+	} catch {
+		return true;
+	}
+}
+
+async function getRequestBody(
 	options: EndpointRuntimeOptions,
-): Operation["requestBody"] | undefined {
+): Promise<Operation["requestBody"] | undefined> {
 	if (options.metadata?.openapi?.requestBody) {
 		return options.metadata.openapi.requestBody;
 	}
@@ -215,7 +230,7 @@ function getRequestBody(
 	const schema = toJsonSchema(options.body, "input");
 	if (!schema) return undefined;
 	return {
-		required: true,
+		required: await isBodyRequired(options.body),
 		content: {
 			"application/json": {
 				schema,
@@ -326,11 +341,11 @@ function getResponse(responses?: Record<string, any>) {
 	} as Record<string, any>;
 }
 
-function buildOperation(
+async function buildOperation(
 	options: EndpointRuntimeOptions,
 	method: string,
 	routePath: string,
-): Operation {
+): Promise<Operation> {
 	const openapi = options.metadata?.openapi;
 	const operation: Operation = {
 		tags: ["Default", ...(openapi?.tags || [])],
@@ -347,7 +362,7 @@ function buildOperation(
 	if (parameters.length) operation.parameters = parameters;
 
 	if (BODY_METHODS.has(method)) {
-		const requestBody = getRequestBody(options);
+		const requestBody = await getRequestBody(options);
 		if (requestBody) operation.requestBody = requestBody;
 	}
 
@@ -363,16 +378,16 @@ export async function generator(
 	// leaking across invocations.
 	const paths: Record<string, Path> = {};
 
-	Object.entries(endpoints).forEach(([_, value]) => {
+	for (const value of Object.values(endpoints)) {
 		const options = value.options as EndpointRuntimeOptions;
-		if (!value.path || options.metadata?.SERVER_ONLY) return;
+		if (!value.path || options.metadata?.SERVER_ONLY) continue;
 
 		const methods = (
 			Array.isArray(options.method) ? options.method : [options.method]
 		)
 			.map((m) => String(m).toUpperCase())
 			.filter((m) => DOCUMENTED_METHODS.has(m));
-		if (!methods.length) return;
+		if (!methods.length) continue;
 
 		// Rewrite rou3-style `:param` segments to OpenAPI `{param}` templates.
 		const openapiPath = value.path.replace(PATH_PARAM_REGEX, "{$1}");
@@ -381,13 +396,10 @@ export async function generator(
 		for (const method of methods) {
 			// Merge onto the path item instead of overwriting it, so a path with
 			// multiple methods keeps every operation.
-			pathItem[method.toLowerCase() as Lowercase<HTTPVerb>] = buildOperation(
-				options,
-				method,
-				value.path,
-			);
+			pathItem[method.toLowerCase() as Lowercase<HTTPVerb>] =
+				await buildOperation(options, method, value.path);
 		}
-	});
+	}
 
 	const components: {
 		schemas: Record<string, any>;

@@ -76,6 +76,32 @@ describe("openapi generator", () => {
 		expect(doc.paths["/tickets/{id}"]?.delete?.requestBody).toBeUndefined();
 	});
 
+	it("marks the request body required for a non-optional body schema", async () => {
+		const createTicket = createEndpoint(
+			"/tickets",
+			{ method: "POST", body: z.object({ subject: z.string() }) },
+			async () => ({}),
+		);
+
+		const doc = await generator(asEndpoints({ createTicket }));
+		expect(doc.paths["/tickets"]?.post?.requestBody?.required).toBe(true);
+	});
+
+	it("marks the request body optional for a top-level optional body schema", async () => {
+		const createTicket = createEndpoint(
+			"/tickets",
+			{ method: "POST", body: z.object({ subject: z.string() }).optional() },
+			async () => ({}),
+		);
+
+		const doc = await generator(asEndpoints({ createTicket }));
+		const requestBody = doc.paths["/tickets"]?.post?.requestBody;
+		expect(requestBody?.required).toBe(false);
+		expect(
+			requestBody?.content["application/json"].schema?.properties,
+		).toHaveProperty("subject");
+	});
+
 	it("emits PATCH and DELETE operations", async () => {
 		const updateTicket = createEndpoint(
 			"/tickets/:id",
