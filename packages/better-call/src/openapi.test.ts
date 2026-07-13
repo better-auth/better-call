@@ -102,6 +102,32 @@ describe("openapi generator", () => {
 		).toHaveProperty("subject");
 	});
 
+	it("keeps the request body (empty-schema fallback) when the library lacks ~standard.jsonSchema", async () => {
+		// A Standard Schema that validates but exposes no `~standard.jsonSchema`
+		// converter (e.g. Valibot without its adapter, or an older Zod).
+		const body = {
+			"~standard": {
+				version: 1,
+				vendor: "test",
+				validate: (value: unknown) =>
+					value === undefined
+						? { issues: [{ message: "Body is required" }] }
+						: { value },
+			},
+		} as any;
+		const createThing = createEndpoint(
+			"/things",
+			{ method: "POST", body },
+			async () => ({}),
+		);
+
+		const doc = await generator(asEndpoints({ createThing }));
+		const requestBody = doc.paths["/things"]?.post?.requestBody;
+		expect(requestBody).toBeDefined();
+		expect(requestBody?.content["application/json"].schema).toEqual({});
+		expect(requestBody?.required).toBe(true);
+	});
+
 	it("emits PATCH and DELETE operations", async () => {
 		const updateTicket = createEndpoint(
 			"/tickets/:id",

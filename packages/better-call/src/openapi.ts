@@ -227,8 +227,10 @@ async function getRequestBody(
 		return options.metadata.openapi.requestBody;
 	}
 	if (!options.body) return undefined;
-	const schema = toJsonSchema(options.body, "input");
-	if (!schema) return undefined;
+	// A declared body is always documented. Only the schema *shape* falls back:
+	// when the library doesn't expose `~standard.jsonSchema` we emit an empty
+	// schema (accepts any JSON) rather than dropping the request body entirely.
+	const schema = toJsonSchema(options.body, "input") ?? {};
 	return {
 		required: await isBodyRequired(options.body),
 		content: {
