@@ -27,8 +27,8 @@
 		"knip": "^5.85.0",
 		"publint": "^0.3.18",
 		"tinyglobby": "^0.2.15",
-		"tsdown": "0.21.0-beta.2",
-		"typescript": "^5.9.3",
+		"tsdown": "0.22.9",
+		"typescript": "^6.0.3",
 		"valibot": "1.2.0",
 		"vitest": "^4.0.18"
 	}
