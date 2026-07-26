@@ -6,6 +6,7 @@ blockExoticSubdeps: true
 
 allowBuilds:
   esbuild: true
+  lefthook: true
 
 trustPolicy: no-downgrade
 
