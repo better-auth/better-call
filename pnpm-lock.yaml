@@ -58,7 +58,7 @@ importers:
         version: 2.1.29
       better-call:
         specifier: workspace:*
-        version: link:../packages/better-call
+        version: link:../packages/experimental
       effect:
         specifier: ^3.19.19
         version: 3.19.19
@@ -74,6 +74,46 @@ importers:
         version: 6.0.3
 
   packages/better-call:
+    dependencies:
+      '@better-auth/utils':
+        specifier: ^0.4.0
+        version: 0.4.0
+      '@better-fetch/fetch':
+        specifier: ^1.1.21
+        version: 1.1.21
+      rou3:
+        specifier: ^0.7.12
+        version: 0.7.12
+      set-cookie-parser:
+        specifier: ^3.0.1
+        version: 3.0.1
+      zod:
+        specifier: ^4.0.0
+        version: 4.3.6
+    devDependencies:
+      '@types/body-parser':
+        specifier: ^1.19.6
+        version: 1.19.6
+      '@types/express':
+        specifier: ^5.0.3
+        version: 5.0.6
+      '@types/set-cookie-parser':
+        specifier: ^2.4.10
+        version: 2.4.10
+      '@types/supertest':
+        specifier: ^7.2.0
+        version: 7.2.0
+      body-parser:
+        specifier: ^2.2.0
+        version: 2.2.2
+      express:
+        specifier: ^5.1.0
+        version: 5.2.1
+      supertest:
+        specifier: ^7.1.4
+        version: 7.2.2
+
+  packages/experimental:
     dependencies:
       '@better-auth/utils':
         specifier: ^0.4.0

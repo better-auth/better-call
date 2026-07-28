@@ -1,0 +1,161 @@
+# Better Call v3 (Expt)
+
+An experimental rewrite of better-call around three primitives: **fns**, **vars**, and **modules**. Everything else — plugins, HTTP, capability security — is a usage of those three, not a new concept.
+
+## Core
+
+### fns
+
+A fn is a typed, keyed, callable unit. The key is what interceptors target; the input is validated at the door.
+
+```ts
+import { v } from "better-call";
+
+const signIn = v.fn(
+  "sign_in.email",
+  { input: { email: v.string(), password: v.string() } },
+  async (c) => {
+    // c.input is validated and typed
+    return { user: { id: "user:1" } };
+  },
+);
+
+await signIn({ email: "b@acme.com", password: "pw" });
+```
+
+Called without a key or options, `v.fn` becomes a builder: keys concatenate, options merge, and the first handler terminates the chain.
+
+```ts
+const auth = v.fn({ use: [{ session, user }] });
+const createSession = auth.fn("create_session", { ... }, async (c) => { ... });
+```
+
+### vars
+
+A var is named, scoped state that travels down the call tree — no threading through arguments. Fns declare their contract against vars: `provides` (checked on exit), `requires` (checked on entry), `readonly` (the whole subtree's store locks).
+
+```ts
+const session = v.var("session", {
+  default: null,
+  schema: v.object({ userId: v.string() }),
+});
+
+const createSession = v.fn(
+  "create_session",
+  { input: { userId: v.string() }, provides: ["session"], use: [{ session }] },
+  async (c) => {
+    c.var.session = { userId: c.input.userId };
+    return { created: true };
+  },
+);
+```
+
+There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
+
+### modules
+
+A module is the unit of composition: a plain record of members — fns, vars, `on` entries — usually just what a file exports. "Plugin" is not a concept, only a usage: mounting someone else's module with `use`.
+
+```ts
+const coreSession = { createUser, createSession, session, user };
+
+const app = v.fn({ use: [coreSession] });
+```
+
+`v.on` mounts onto another fn by name (or reference): the handler replaces the target's body and receives `next` — call it to delegate, or don't. Targets take exact keys, `*` wildcards, RegExps, and `var.set.<name>` events for intercepting writes.
+
+## Capability-based security
+
+`test/capability.ts` and `test/capability-demo.ts` explore what security looks like when it is built out of the primitives above. The model in one sentence:
+
+> A fn may be called exactly by whoever **holds a reference** to it, and every fn validates that about its caller before doing anything.
+
+### The reference is the capability
+
+How the reference arrives is the whole story — there are only two ways:
+
+**Direct (in-process).** The caller is another fn whose body holds this fn in memory — through `use`, an import, a closure. Possession IS authorization: some scope that held the reference chose to hand it over. There is nothing to verify, so fn-to-fn calls inside a process carry no token and check nothing.
+
+```ts
+const updateProfile = v.fn(
+  "profile.update",
+  { input: { name: v.string() }, use: [{ capability, audit }] },
+  async (c) => {
+    // fn to fn: no token, no ceremony. `use` handed this body a
+    // REFERENCE to audit, and in-process possession IS authorization.
+    await c.use.audit({ event: `renamed to "${c.input.name}"` });
+  },
+);
+```
+
+**Reified (across a boundary).** No memory reference can travel over a wire, so the reference becomes data: a signed **delegation** naming the fn (optionally pinned to input), exercised one call at a time by a signed **invocation**. Same model, two encodings.
+
+A capability is never created or registered — it is inferred from the fn it names, and answers exactly one question: may the holder call THAT fn, with THAT input?
+
+```ts
+"profile.update"                                    // any input
+{ fn: "profile.update", input: { name: "X" } }      // only this input
+```
+
+### The rule
+
+Every served fn runs one check before its body: *was my caller authorized to make this call with this input?* (`validateCaller` in `test/capability.ts`):
+
+- No boundary above this call → the caller reached this fn through a memory reference. Possession is the capability; nothing to verify.
+- This fn is the wire entry → the caller holds no memory reference, only the reified one. It must cover this fn AND this input, or the fn refuses.
+- Called from inside by a fn that already passed the boundary check → its body holds this fn by reference. Implied.
+
+Once the entry frame passes, the wire hop is spent: everything below runs on direct references again.
+
+The boundary (`serve`/`exec`) only proves the token is *genuinely held* — every link signed, attenuating, unexpired, rooted at this server, and the spend signed by the chain's audience (a stolen delegation is inert). Whether the chain covers a given call is deliberately not its question: each fn asks that itself.
+
+### Authority
+
+Authority never checks a call — the rule above owns that. It answers the questions that come *before* any call:
+
+```ts
+const server = await serve(modules, {
+  // what references does a caller start with, given who was proven?
+  // `null` IS an answer: nobody's defaults are just enough to go
+  // earn attestation (here: sign in).
+  defaults: (subject) => (subject ? ["profile.read"] : ["sign_in.email"]),
+
+  // what proves WHO? reads a proven subject out of ANY fn's result;
+  // attested proof rides back alongside it.
+  identify: (result) => result?.user?.id ?? null,
+
+  // how are requests for more references settled?
+  decide: ({ caps }) => (dangerous(caps) ? "deny" : "challenge"),
+});
+```
+
+`attest`/`verify` default to a token the server signs itself, and can be swapped together to lean on an external IDP instead.
+
+### Delegation attenuates
+
+A held reference can be re-minted for another key — fewer fns, or the same fn pinned to narrower input — and only ever narrows. Escalation anywhere in the chain fails verification.
+
+```ts
+// hand a slice: readProfile only
+second.hold(await agent.delegate(second.id, ["profile.read"]));
+
+// or the same fn, pinned: "may set the name to exactly this"
+renamer.hold(
+  await agent.delegate(renamer.id, [
+    { fn: "profile.update", input: { name: "Bekacru II" } },
+  ]),
+);
+```
+
+### Run the demo
+
+```sh
+npx tsx test/capability-demo.ts
+```
+
+The arc it walks: in-process calls need no token → an agent is born asking and gets only the sign-in bootstrap → nothing is public → signing in attests WHO and trades for the defaults → a fn calls a fn the remote caller was never granted (implied reference) while the same fn refuses the wire → widening is challenged and user-approved → stolen delegations are inert → attenuation and input-pinning hold → attestation outlives the agent.
+
+## Other explorations
+
+- `test/http-demo.ts` — serving fns over HTTP via `src/plugins/http.ts`
+- `test/better-auth.ts`, `test/email-password.ts`, `test/session.ts`, `test/birthday.ts` — module composition sketches
