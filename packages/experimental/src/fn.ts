@@ -1,14 +1,17 @@
 import { ValidationError } from "./error";
 import {
 	type ApplyOns,
+	type AsyncPersisted,
 	collectFns,
 	isOn,
 	isVarExtension,
+	isVarPersist,
+	type Module,
+	type ModuleFns,
 	matchesTarget,
 	type OnEntry,
 	on as onImpl,
-	type ModuleFns,
-	type Module,
+	type PersistBinding,
 	resolveModules,
 	type TargetMatches,
 	type VarExtension,
@@ -23,9 +26,17 @@ import {
 	validate,
 	vTypes,
 } from "./schema";
-import type { ResolvedVars, ScopeOf, VarName, VarScope } from "./scope";
+import type { HandleScope, ResolvedVars, ScopeOf, VarName } from "./scope";
 import type { LiteralString, Prettify } from "./types";
-import { seedVars } from "./var";
+import {
+	type Cell,
+	type Cells,
+	createVarScope,
+	type Frame,
+	readVar,
+	triggerLoad,
+	writeVar,
+} from "./var";
 
 export type ParentContext = { var: any };
 
@@ -37,9 +48,15 @@ export interface FnDefination<
 	P extends readonly string[] = readonly string[],
 > {
 	(
-		...args: [A] extends [void]
-			? [input?: undefined, parent?: ParentContext]
-			: [input: A, parent?: ParentContext]
+		// A TUPLE input spreads: one parameter per position, the parent
+		// context last. Everything else takes (input?, parent?).
+		...args: I extends readonly unknown[]
+			? A extends readonly unknown[]
+				? [...A] | [...A, ParentContext]
+				: never
+			: [A] extends [void]
+				? [input?: undefined, parent?: ParentContext]
+				: [input: A, parent?: ParentContext]
 	): R;
 	/** Brand, so a plugin module can be scanned for its fns. */
 	readonly $fn: true;
@@ -53,13 +70,17 @@ export interface FnDefination<
 	readonly $input?: I;
 }
 
-export type ArgsOf<I> = unknown extends I ? void : InferArgs<I>;
+export type ArgsOf<I> = I extends readonly unknown[]
+	? { -readonly [K in keyof I]: InferArgs<I[K]> }
+	: unknown extends I
+		? void
+		: InferArgs<I>;
 
 export type OptionType<I, O, P, Q, PL, RO extends boolean = boolean> = {
 	/**
 	 * A readonly fn cannot write vars - not in its handler, not in
 	 * anything it calls, not from interceptors mounted on it. Enforced at
-	 * the type level (readonly `c.var`, providers stripped from `c.use`)
+	 * the type level (`set`-less handles, providers stripped from `c.use`)
 	 * and at runtime (the whole subtree's store locks).
 	 */
 	readonly?: RO;
@@ -67,7 +88,9 @@ export type OptionType<I, O, P, Q, PL, RO extends boolean = boolean> = {
 	output?: O;
 	/** Vars this fn guarantees to set. Checked on exit. */
 	provides?: P;
-	/** Vars that must already be set. Checked on entry, before the body. */
+	/** Vars that must already be set. Checked on entry, before the body.
+	 * A persisted var listed here loads EAGERLY - the body sees it as a
+	 * plain sync, non-null value. */
 	requires?: Q;
 	/**
 	 * Module namespaces to pull in. Their vars come into scope, their fns
@@ -77,12 +100,17 @@ export type OptionType<I, O, P, Q, PL, RO extends boolean = boolean> = {
 	use?: PL;
 };
 
-/** A used fn, with the parent context already applied. */
+/** A used fn, with the parent context already applied. A tuple-input fn
+ * keeps its positional signature. */
 type BoundFn<F> =
-	F extends FnDefination<infer A, infer R, string>
-		? [A] extends [void]
-			? () => R
-			: (input: A) => R
+	F extends FnDefination<infer A, infer R, string, infer I, any>
+		? I extends readonly unknown[]
+			? A extends readonly unknown[]
+				? (...args: [...A]) => R
+				: never
+			: [A] extends [void]
+				? () => R
+				: (input: A) => R
 		: never;
 
 export type UseApi<U> = Prettify<{ [K in keyof U]: BoundFn<U[K]> }>;
@@ -104,11 +132,14 @@ export type Context<
 	U = unknown,
 	FnApi = Fn,
 	RO extends boolean = false,
+	AsyncVars = never,
 > = {
 	input: InferInput<I>;
-	var: RO extends true
-		? Readonly<VarScope<RV, Required>>
-		: VarScope<RV, Required>;
+	/** Every var in scope, as a HANDLE: `.get()` / `.set()` and nothing
+	 * else - the value is only ever behind `get()`. `get` is a promise only
+	 * for persisted vars this fn did not `require`; `set` is absent
+	 * entirely on a readonly fn. */
+	var: HandleScope<RV, Required, AsyncVars, RO>;
 	/** Fns from `use`, each already threaded with this context. */
 	use: RO extends true ? ReadUseApi<U> : UseApi<U>;
 	/** Define fns from inside: this fn's scope and key carry over, so
@@ -134,7 +165,9 @@ export interface Fn<
 				ScopeOf<[], Base>,
 				never,
 				BaseFns,
-				Fn<Base, BaseFns, BasePL, Prefix>
+				Fn<Base, BaseFns, BasePL, Prefix>,
+				false,
+				AsyncPersisted<BasePL>
 			>,
 		) => R,
 	): FnDefination<void, R, Prefix extends "" ? string : Prefix>;
@@ -146,10 +179,73 @@ export interface Fn<
 				ScopeOf<[], Base>,
 				never,
 				BaseFns,
-				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
+				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>,
+				false,
+				AsyncPersisted<BasePL>
 			>,
 		) => R,
 	): FnDefination<void, R, `${Prefix}${K}`>;
+
+	/* ---- a TUPLE input declares POSITIONAL args: `input: [a, b]` makes
+	   the fn callable as `f(a, b)`. Must come before the general options
+	   overloads so the array literal infers as a tuple, not an array. ---- */
+	<
+		const I extends readonly unknown[],
+		O,
+		R extends InferReturn<O> | Promise<InferReturn<O>>,
+		const PL extends readonly Module[] = [],
+		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		RO extends boolean = false,
+	>(
+		options: OptionType<I, O, P, Q, PL, RO>,
+		fn: (
+			ctx: Context<
+				I,
+				ScopeOf<PL, Base>,
+				WithDerived<PL, BasePL, Q[number]>,
+				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+				Fn<
+					Base & ResolvedVars<PL>,
+					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+					readonly [...BasePL, ...PL],
+					Prefix
+				>,
+				RO,
+				AsyncPersisted<readonly [...BasePL, ...PL]>
+			>,
+		) => R,
+	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P>;
+	<
+		K extends LiteralString,
+		const I extends readonly unknown[],
+		O,
+		R extends InferReturn<O> | Promise<InferReturn<O>>,
+		const PL extends readonly Module[] = [],
+		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		RO extends boolean = false,
+	>(
+		key: K,
+		options: OptionType<I, O, P, Q, PL, RO>,
+		fn: (
+			ctx: Context<
+				I,
+				ScopeOf<PL, Base>,
+				WithDerived<PL, BasePL, Q[number]>,
+				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+				Fn<
+					Base & ResolvedVars<PL>,
+					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+					readonly [...BasePL, ...PL],
+					`${Prefix}${K}`
+				>,
+				RO,
+				AsyncPersisted<readonly [...BasePL, ...PL]>
+			>,
+		) => R,
+	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P>;
+
 	<
 		I,
 		O,
@@ -172,7 +268,8 @@ export interface Fn<
 					readonly [...BasePL, ...PL],
 					Prefix
 				>,
-				RO
+				RO,
+				AsyncPersisted<readonly [...BasePL, ...PL]>
 			>,
 		) => R,
 	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P>;
@@ -200,7 +297,8 @@ export interface Fn<
 					readonly [...BasePL, ...PL],
 					`${Prefix}${K}`
 				>,
-				RO
+				RO,
+				AsyncPersisted<readonly [...BasePL, ...PL]>
 			>,
 		) => R,
 	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P>;
@@ -222,7 +320,9 @@ export interface Fn<
 		Base & ResolvedVars<PL>,
 		BaseFns & ApplyOns<ModuleFns<PL>, PL>,
 		readonly [...BasePL, ...PL],
-		Prefix
+		Prefix,
+		I,
+		O
 	>;
 	<
 		K extends LiteralString,
@@ -238,7 +338,9 @@ export interface Fn<
 		Base & ResolvedVars<PL>,
 		BaseFns & ApplyOns<ModuleFns<PL>, PL>,
 		readonly [...BasePL, ...PL],
-		`${Prefix}${K}`
+		`${Prefix}${K}`,
+		I,
+		O
 	>;
 }
 
@@ -249,79 +351,60 @@ const STORE = Symbol("var-store");
 const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
 const READONLY = Symbol("readonly-lock");
+const BINDINGS = Symbol("active-persist-bindings");
+const SCOPE_META = Symbol("scope-meta");
 
 /**
- * Var writes are events: setting `c.var.x` dispatches through the active
- * `on` entries matching `var.set.x` BEFORE the write lands. Handlers run
- * SYNCHRONOUSLY (assignment cannot await): call `next()` to let the write
- * proceed, skip it to cancel, throw to abort. The bare "*" target is
- * excluded - it means "every fn", not "every var write"; listen with
- * "var.set.*" (or a narrower pattern) instead.
+ * Scope-level registry, kept on the root store: every persist binding and
+ * `on` entry that was EVER active anywhere in this scope's call tree. The
+ * root frame flushes from here - a binding mounted three frames deep still
+ * writes back when the ROOT returns.
  */
-const dispatchVars = (
-	base: Record<string, unknown>,
-	entries: OnEntry<string>[],
-	frame: string,
-) =>
-	new Proxy(base, {
-		set(target, prop, value) {
-			if (typeof prop !== "string") return Reflect.set(target, prop, value);
-			const eventKey = `var.set.${prop}`;
-			const hooks = entries.filter(
-				(e) => e.target !== "*" && matchesTarget(e.target, eventKey),
-			);
-			if (hooks.length === 0) return Reflect.set(target, prop, value);
-			const apply = () => {
-				Reflect.set(target, prop, value);
-				return Promise.resolve();
-			};
-			const chain = hooks.reduceRight<() => Promise<void>>(
-				(next, entry) => () => {
-					const result = entry.handler(
-						{ name: prop, value, fn: frame, var: target } as any,
-						next as any,
-					);
-					if (typeof (result as { then?: unknown })?.then === "function") {
-						throw new ValidationError(
-							`${frame}.var.set`,
-							`var-set handlers must be synchronous - "${String(entry.target)}" returned a promise`,
-						);
-					}
-					return Promise.resolve();
-				},
-				apply,
-			);
-			chain();
-			return true;
-		},
-	});
+type ScopeMeta = {
+	bindings: Map<string, PersistBinding>;
+	entries: OnEntry<string>[];
+};
 
-/** A view of the store that refuses every mutation, naming the locker. */
-const lockVars = (
-	store: Record<string, unknown>,
-	lockedBy: string,
-	frame: string,
-) =>
-	new Proxy(store, {
-		set(_t, prop) {
-			throw new ValidationError(
-				`${frame}.readonly`,
-				`"${lockedBy}" is readonly: attempted to write var "${String(prop)}"`,
-			);
-		},
-		deleteProperty(_t, prop) {
-			throw new ValidationError(
-				`${frame}.readonly`,
-				`"${lockedBy}" is readonly: attempted to delete var "${String(prop)}"`,
-			);
-		},
-		defineProperty(_t, prop) {
-			throw new ValidationError(
-				`${frame}.readonly`,
-				`"${lockedBy}" is readonly: attempted to define var "${String(prop)}"`,
-			);
-		},
-	});
+const scopeMeta = (cells: Cells): ScopeMeta => {
+	const holder = cells as unknown as Record<symbol, ScopeMeta | undefined>;
+	let meta = holder[SCOPE_META];
+	if (!meta) {
+		meta = { bindings: new Map(), entries: [] };
+		holder[SCOPE_META] = meta;
+	}
+	return meta;
+};
+
+/**
+ * Write every dirty persisted var back to its store, exactly once, inside
+ * whatever `scope.flush` entries the scope mounted (a transaction plugin
+ * is just `v.on("scope.flush", (c, next) => db.transaction(next))`). Runs
+ * only when the root frame returns cleanly - a throw above discards all
+ * of it, so unflushed writes simply evaporate.
+ */
+const flushScope = async (
+	dirty: Array<[string, PersistBinding]>,
+	cells: Cells,
+	entries: OnEntry<string>[],
+	ctx: unknown,
+) => {
+	const saves = async () => {
+		for (const [name, binding] of dirty) {
+			const cell = cells[name] as Cell;
+			await binding.save(cell.value, cell.loadedValue ?? null, ctx as never, {
+				fields: cell.dirtyFields ? [...cell.dirtyFields] : null,
+			});
+		}
+	};
+	const hooks = entries.filter(
+		(e) => e.target !== "*" && matchesTarget(e.target, "scope.flush"),
+	);
+	const chain = hooks.reduceRight<() => Promise<unknown>>(
+		(next, entry) => () => Promise.resolve(entry.handler(ctx, next as never)),
+		saves,
+	);
+	await chain();
+};
 
 const defineFn = (
 	key: string,
@@ -330,20 +413,29 @@ const defineFn = (
 ) => {
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
-	// Interceptors and var extensions this fn brings, from its modules.
+	// Interceptors, var extensions and persist bindings this fn brings.
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
+	const ownPersists: PersistBinding[] = [];
 	for (const mod of modules) {
 		for (const value of Object.values(mod)) {
 			if (isOn(value)) own.push(value);
 			if (isVarExtension(value)) ownExts.push(value);
+			if (isVarPersist(value)) ownPersists.push(value);
 		}
 	}
 
 	const usable = collectFns(modules);
 
+	// A tuple input means POSITIONAL args: the callable takes one arg per
+	// declared position, then the parent context.
+	const tupleInput = Array.isArray(options.input)
+		? (options.input as unknown[])
+		: undefined;
+
 	// Input that references vars: a var FIELD sets that var from the field
 	// value; a whole-var input (`input: user`) sets it from the whole args.
+	// For a tuple the "fields" are the positions ("0", "1", ...).
 	const inputVars: Array<[field: string, name: string]> = [];
 	const declaredInput = options.input as Record<string, any> | undefined;
 	const wholeVar: string | undefined =
@@ -373,8 +465,12 @@ const defineFn = (
 		}
 	}
 
-	const callable = (input?: unknown, parent?: any) => {
-		const raw: Record<string, unknown> = parent?.[STORE] ?? seedVars();
+	const callable = (...callArgs: any[]) => {
+		const input: unknown = tupleInput
+			? callArgs.slice(0, tupleInput.length)
+			: callArgs[0];
+		const parent: any = tupleInput ? callArgs[tupleInput.length] : callArgs[1];
+		const cells: Cells = parent?.[STORE] ?? {};
 		// The lock travels the whole subtree: once any frame above is
 		// readonly, every write below throws - handlers, nested fns,
 		// interceptors, input-var seeding, all of it.
@@ -393,16 +489,24 @@ const defineFn = (
 				: [...inherited, ...own.filter((e) => !inherited.includes(e))];
 		const chain = active.filter((entry) => matchesTarget(entry.target, key));
 
-		// Store view for this frame: locked beats dispatching beats raw.
-		// (A locked frame never reaches var-set hooks - nothing to observe.)
-		const hasVarHooks = active.some((e) =>
-			e.target instanceof RegExp ? true : e.target.startsWith("var."),
-		);
-		const store = lockedBy
-			? lockVars(raw, lockedBy, key)
-			: hasVarHooks
-				? dispatchVars(raw, active, key)
-				: raw;
+		// Persist bindings travel the same way, keyed by var name - a
+		// deeper mount overrides an inherited one for everything below.
+		const inheritedBindings: Map<string, PersistBinding> =
+			parent?.[BINDINGS] ?? new Map();
+		const bindings =
+			ownPersists.length === 0
+				? inheritedBindings
+				: new Map([
+						...inheritedBindings,
+						...ownPersists.map((b) => [b.name, b] as const),
+					]);
+
+		// And register scope-wide, for the root flush.
+		const meta = scopeMeta(cells);
+		for (const binding of ownPersists) meta.bindings.set(binding.name, binding);
+		for (const entry of own) {
+			if (!meta.entries.includes(entry)) meta.entries.push(entry);
+		}
 
 		const inheritedExts: VarExtension<string, any>[] = parent?.[EXTS] ?? [];
 		const exts =
@@ -412,6 +516,16 @@ const defineFn = (
 						...inheritedExts,
 						...ownExts.filter((e) => !inheritedExts.includes(e)),
 					];
+
+		let ctx: any;
+		const frame: Frame = {
+			cells,
+			key,
+			lockedBy,
+			entries: active,
+			bindings,
+			ctx: () => ctx,
+		};
 
 		// Widen a var-referencing input with the mounted extensions of that
 		// var: their fields validate off the same raw value and merge in.
@@ -425,15 +539,24 @@ const defineFn = (
 			return merged;
 		};
 
-		let parsed =
-			options.input === undefined
+		let parsed = tupleInput
+			? tupleInput.map((def, index) =>
+					validate(
+						asType(def),
+						(input as unknown[])[index],
+						`${key}[${index}]`,
+					),
+				)
+			: options.input === undefined
 				? input
 				: validate(asType(options.input), input, key);
 
 		// Mounted extensions widen the accepted input: each validates its
 		// own fields off the same raw input and merges onto `parsed`.
+		// Extensions extend RECORD inputs - positional args have no field
+		// to merge into, so a tuple fn skips them.
 		for (const entry of chain) {
-			if (!entry.extend?.input) continue;
+			if (!entry.extend?.input || tupleInput) continue;
 			const extra = validate(asType(entry.extend.input), input, `${key}.on`);
 			parsed = { ...((parsed as Record<string, unknown>) ?? {}), ...extra };
 		}
@@ -442,7 +565,7 @@ const defineFn = (
 		// parsed input and the var for the rest of the call tree.
 		if (wholeVar !== undefined && parsed !== undefined) {
 			parsed = extendValue(wholeVar, input, parsed);
-			store[wholeVar] = parsed;
+			writeVar(frame, wholeVar, parsed);
 		}
 
 		// An absent field leaves the var alone, so its default (or whatever
@@ -454,15 +577,61 @@ const defineFn = (
 			if (value === undefined) continue;
 			const merged = extendValue(name, raw, value);
 			(parsed as Record<string, unknown>)[field] = merged;
-			store[name] = merged;
+			writeVar(frame, name, merged);
 		}
 
+		ctx = {
+			input: parsed,
+			var: createVarScope(frame),
+			[STORE]: cells,
+			[ACTIVE]: active,
+			[EXTS]: exts,
+			[READONLY]: lockedBy,
+			[BINDINGS]: bindings,
+			use: {},
+			fn: builderFn(key === "anonymous" ? "" : key, {
+				use: options.use ?? [],
+			}),
+			types: vTypes,
+		};
+		// Bound to `ctx`, so a used fn shares this store and active set
+		// without the caller having to thread `c` by hand. A tuple-input fn
+		// gets its args padded to full arity so the context always lands in
+		// the parent slot, however many args the caller actually passed.
+		for (const [name, used] of Object.entries(usable)) {
+			const usedArity = (used as { $arity?: number }).$arity;
+			ctx.use[name] =
+				usedArity === undefined
+					? (i?: unknown) => (used as any)(i, ctx)
+					: (...args: unknown[]) => {
+							const padded = args.slice(0, usedArity);
+							while (padded.length < usedArity) padded.push(undefined);
+							return (used as any)(...padded, ctx);
+						};
+		}
+
+		const missing = (name: string) => {
+			const value = readVar(cells, name);
+			return value === undefined || value === null;
+		};
+		const checkRequires = () => {
+			for (const name of options.requires ?? []) {
+				if (missing(name)) {
+					throw new ValidationError(
+						`${key}.requires.${name}`,
+						`required var "${name}" is not set${parent === undefined ? " - called without a parent context" : ""}`,
+					);
+				}
+			}
+		};
+
+		// A persisted var in `requires` loads EAGERLY - awaited before the
+		// requires check, so the body sees a plain sync value.
+		const pending: Promise<unknown>[] = [];
 		for (const name of options.requires ?? []) {
-			if (store[name] === undefined || store[name] === null) {
-				throw new ValidationError(
-					`${key}.requires.${name}`,
-					`required var "${name}" is not set${parent === undefined ? " - called without a parent context" : ""}`,
-				);
+			if (missing(name)) {
+				const load = triggerLoad(frame, name);
+				if (load) pending.push(load);
 			}
 		}
 
@@ -488,7 +657,7 @@ const defineFn = (
 			}
 			if (bodyRan) {
 				for (const name of options.provides ?? []) {
-					if (store[name] === undefined || store[name] === null) {
+					if (missing(name)) {
 						throw new ValidationError(
 							`${key}.provides.${name}`,
 							`declared to provide "${name}" but it was left unset`,
@@ -496,38 +665,36 @@ const defineFn = (
 					}
 				}
 			}
+			// The ROOT frame owns the flush: every dirty persisted var in
+			// the scope writes back exactly once, then the result passes
+			// through. Never reached on a throw - nothing stores.
+			if (parent === undefined) {
+				const dirty = [...meta.bindings].filter(
+					([name]) => (cells[name] as Cell | undefined)?.dirty,
+				);
+				if (dirty.length > 0) {
+					return flushScope(dirty, cells, meta.entries, ctx).then(() => result);
+				}
+			}
 			return result;
 		};
 
-		const ctx: any = {
-			input: parsed,
-			var: store,
-			[STORE]: raw,
-			[ACTIVE]: active,
-			[EXTS]: exts,
-			[READONLY]: lockedBy,
-			use: {},
-			fn: builderFn(key === "anonymous" ? "" : key, {
-				use: options.use ?? [],
-			}),
-			types: vTypes,
+		const run = () => {
+			checkRequires();
+			const result = body(ctx);
+			// A sync handler stays sync: only chain when something is thenable.
+			return isThenable(result) ? result.then(finish) : finish(result);
 		};
-		// Bound to `ctx`, so a used fn shares this store and active set
-		// without the caller having to thread `c` by hand.
-		for (const [name, used] of Object.entries(usable)) {
-			ctx.use[name] = (i?: unknown) => (used as any)(i, ctx);
-		}
 
-		const result = body(ctx);
-
-		// A sync handler stays sync: only chain when the body is thenable.
-		return isThenable(result) ? result.then(finish) : finish(result);
+		return pending.length > 0 ? Promise.all(pending).then(run) : run();
 	};
 
 	return Object.assign(callable, {
 		$fn: true as const,
 		key,
 		provides: (options.provides ?? []) as readonly string[],
+		// Positional arg count, so `c.use` bindings know where ctx goes.
+		...(tupleInput ? { $arity: tupleInput.length } : {}),
 	});
 };
 
@@ -535,12 +702,13 @@ const defineFn = (
 
 /** Every target worth suggesting on a builder's `on`: the mounted fns'
  * keys (prefix-stripped, so they are valid RELATIVE targets), the scope's
- * var-write events by name, and the two wildcards. Arbitrary strings stay
- * legal - these only feed completion. */
+ * var-write events by name, the scope flush, and the two wildcards.
+ * Arbitrary strings stay legal - these only feed completion. */
 type OnTargetSuggest<Base, BaseFns, Prefix extends string> =
 	| FnTargetSuggest<BaseFns, Prefix>
 	| `var.set.${keyof ScopeOf<[], Base> & string}`
 	| "var.set.*"
+	| "scope.flush"
 	| "*";
 
 type FnTargetSuggest<Fns, Prefix extends string> = {
@@ -581,11 +749,11 @@ type MatchedResult<F> = [F] extends [never]
 		? Awaited<R>
 		: never;
 
-/** What a builder-scoped `on` handler sees: vars, `use` and `types` from
- * the builder, `input` from the TARGET fn when the builder knows it. */
-type OnContext<Base, BaseFns, F, Ext = unknown> = {
+/** What a builder-scoped `on` handler sees: vars (as handles), `use` and
+ * `types` from the builder, `input` from the TARGET fn when known. */
+type OnContext<Base, BaseFns, F, Ext = unknown, AsyncVars = never> = {
 	input: MatchedInput<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
-	var: VarScope<ScopeOf<[], Base>, never>;
+	var: HandleScope<ScopeOf<[], Base>, never, AsyncVars>;
 	use: UseApi<BaseFns>;
 	types: typeof vTypes;
 	fn: unknown;
@@ -593,13 +761,18 @@ type OnContext<Base, BaseFns, F, Ext = unknown> = {
 
 /** `v.on`, scoped: string targets get the builder's key prefix; the
  * handler's `c` and `next()` are typed against the matched target fn. */
-export interface InstanceOn<Base, BaseFns, Prefix extends string> {
+export interface InstanceOn<
+	Base,
+	BaseFns,
+	Prefix extends string,
+	PL extends readonly Module[] = [],
+> {
 	/** A fn REFERENCE targets its own key - never prefixed, fully typed
 	 * from the fn itself plus the builder's scope. */
 	<F extends FnDefination<any, any, string, any, any>>(
 		target: F,
 		handler: (
-			c: OnContext<Base, BaseFns, F>,
+			c: OnContext<Base, BaseFns, F, unknown, AsyncPersisted<PL>>,
 			next: () => Promise<MatchedResult<F>>,
 		) => any,
 	): OnEntry<F["key"]>;
@@ -624,14 +797,20 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	(
 		target: RegExp,
 		handler: (
-			c: OnContext<Base, BaseFns, never>,
+			c: OnContext<Base, BaseFns, never, unknown, AsyncPersisted<PL>>,
 			next: () => Promise<any>,
 		) => any,
 	): OnEntry<string>;
 	<N extends OnTargetSuggest<Base, BaseFns, Prefix> | LiteralString>(
 		target: N,
 		handler: (
-			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>>,
+			c: OnContext<
+				Base,
+				BaseFns,
+				MatchedFn<BaseFns, `${Prefix}${N}`>,
+				unknown,
+				AsyncPersisted<PL>
+			>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`>;
@@ -639,7 +818,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 		target: RegExp,
 		extend: { input: Ext },
 		handler: (
-			c: OnContext<Base, BaseFns, never, Ext>,
+			c: OnContext<Base, BaseFns, never, Ext, AsyncPersisted<PL>>,
 			next: () => Promise<any>,
 		) => any,
 	): OnEntry<string, Ext>;
@@ -647,7 +826,13 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 		target: N,
 		extend: { input: Ext },
 		handler: (
-			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>, Ext>,
+			c: OnContext<
+				Base,
+				BaseFns,
+				MatchedFn<BaseFns, `${Prefix}${N}`>,
+				Ext,
+				AsyncPersisted<PL>
+			>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`, Ext>;
@@ -658,12 +843,21 @@ export type Instance<
 	BaseFns,
 	PL extends readonly Module[] = [],
 	Prefix extends string = "",
+	I = unknown,
+	O = unknown,
 > = {
 	/** Same as `v.fn`, with this builder's key prefix and options baked in. */
 	fn: Fn<Base, BaseFns, PL, Prefix>;
+	/**
+	 * A handler-less builder doubles as an input SCHEMA: used as `input`
+	 * (or an input field) it declares "a FN from `input` to `output`" -
+	 * the value crossing is the fn itself. Carries the declared schemas
+	 * for inference here and validation at runtime (see `isFnSchema`).
+	 */
+	readonly $fnSchema: { input?: I; output?: O };
 	/** Same as `v.on`, with the prefix on string targets and the handler
 	 * typed against the matched target fn. */
-	on: InstanceOn<Base, BaseFns, Prefix>;
+	on: InstanceOn<Base, BaseFns, Prefix, PL>;
 	/**
 	 * The context a handler on this builder receives - a TYPE carrier for
 	 * `typeof f.ctx` (helper signatures, plugin contracts). Every handler
@@ -671,7 +865,15 @@ export type Instance<
 	 * loosened since they vary per fn. A real context only exists per
 	 * invocation, so this is `undefined` at runtime.
 	 */
-	readonly ctx: Context<unknown, ScopeOf<[], Base>, never, BaseFns, unknown>;
+	readonly ctx: Context<
+		unknown,
+		ScopeOf<[], Base>,
+		never,
+		BaseFns,
+		unknown,
+		false,
+		AsyncPersisted<PL>
+	>;
 };
 
 /**
@@ -706,10 +908,18 @@ const builderFn =
 		if (typeof handler !== "function") {
 			return {
 				fn: builderFn(key, options),
+				// A handler-less builder doubles as an input schema: "a fn
+				// from `input` to `output`" (see `isFnSchema`).
+				$fnSchema: {
+					input: (options as OptionType<any, any, any, any, any>).input,
+					output: (options as OptionType<any, any, any, any, any>).output,
+				},
 				on: (target: any, a?: any, b?: any) =>
 					(onImpl as any)(
-						// var events live in a global namespace - no prefix.
-						typeof target === "string" && !target.startsWith("var.")
+						// var and scope events live in a global namespace - no prefix.
+						typeof target === "string" &&
+							!target.startsWith("var.") &&
+							!target.startsWith("scope.")
 							? key + target
 							: target,
 						a,

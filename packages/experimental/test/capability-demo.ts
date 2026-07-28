@@ -18,14 +18,10 @@ const trail: string[] = [];
 /** Nobody is ever GRANTED this fn: no default pays it out, and the
  * authority below denies every request naming it. It is still reachable -
  * by any fn whose body holds a reference to it. */
-const audit = v.fn(
-	"audit.log",
-	{ input: { event: v.string() } },
-	async (c) => {
-		trail.push(c.input.event);
-		return { ok: true };
-	},
-);
+const audit = v.fn("audit.log", { input: { event: v.string() } }, async (c) => {
+	trail.push(c.input.event);
+	return { ok: true };
+});
 
 /** Guarded like everything else - this IS the attestation challenge. Its
  * result carries who was proven; authority attests it into an id token. */
@@ -41,14 +37,14 @@ const signIn = v.fn(
 const readProfile = v.fn(
 	"profile.read",
 	{ use: [{ capability }] },
-	async (c) => profiles[c.var.capability?.subject ?? ""] ?? null,
+	async (c) => profiles[c.var.capability.get()?.subject ?? ""] ?? null,
 );
 
 const updateProfile = v.fn(
 	"profile.update",
 	{ input: { name: v.string() }, use: [{ capability, audit }] },
 	async (c) => {
-		const subject = c.var.capability?.subject ?? "";
+		const subject = c.var.capability.get()?.subject ?? "";
 		const existing = profiles[subject];
 		if (!existing) throw new Error("no profile");
 		existing.name = c.input.name;

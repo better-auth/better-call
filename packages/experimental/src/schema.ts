@@ -1,4 +1,4 @@
-import { ValidationError } from "./error";
+import { type Issue, ValidationError } from "./error";
 import type { LiteralString, Prettify } from "./types";
 
 /** Constraints carried on a type and checked by `validate`. */
@@ -27,6 +27,9 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	type?: T;
 	output?: O;
 	shape?: unknown;
+	/** `function` types only: the declared input of the expected fn -
+	 * plain closures get it validated at their door on every call. */
+	fnInput?: unknown;
 	/** Used when the incoming value is `undefined`. */
 	default?: D;
 	/** When true, `undefined` passes straight through unvalidated. */
@@ -93,28 +96,54 @@ export type DefineOutput<O> = Prettify<{
 }>;
 
 /**
- * One input field, in three flavours:
+ * A handler-less `v.fn({ input, output })` used as a schema describes
+ * "a fn from `input` to `output`" - the VALUE is the fn itself. Two
+ * views of the same signature:
+ *
+ * `SchemaFnIn` is the PROVIDER's side - what a caller must hand over.
+ * Like any handler, their fn receives the PARSED input (validation runs
+ * at its door) and returns the declared output, sync or async.
+ *
+ * `SchemaFnOut` is the CONSUMER's side (`c.input.x`) - the handler calls
+ * it with RAW args, exactly like calling the fn it stands in for.
+ */
+type SchemaFnIn<FI, FO> = (
+	...args: unknown extends FI ? [] : [input: InferInput<FI>]
+) => unknown extends FO ? any : InferInput<FO> | Promise<InferInput<FO>>;
+
+type SchemaFnOut<FI, FO> = (
+	...args: unknown extends FI ? [] : [input: InferArgs<FI>]
+) => unknown extends FO ? any : InferInput<FO> | Promise<InferInput<FO>>;
+
+/**
+ * One input field, in four flavours:
  *  - a `v.var()`, whose shape comes from the var's own `schema`
+ *  - a handler-less `v.fn(...)` builder, which types the field as a FN
  *  - a type from `v.string()` / `v.object()` / ...
  *  - a bare nested record, which recurses
  *
- * The record case has to come last: a TypeDefination is itself a record.
+ * The record case has to come last: a TypeDefination is itself a record,
+ * and so is a builder.
  */
 type FieldOut<F> = F extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
-	: F extends TypeDefination<any, infer O, any>
-		? O
-		: F extends Record<string, unknown>
-			? Prettify<{ [K in keyof F]: FieldOut<F[K]> }>
-			: never;
+	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
+		? SchemaFnOut<FI, FO>
+		: F extends TypeDefination<any, infer O, any>
+			? O
+			: F extends Record<string, unknown>
+				? Prettify<{ [K in keyof F]: FieldOut<F[K]> }>
+				: never;
 
 type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
-	: F extends TypeDefination<infer T, any, any>
-		? T
-		: F extends Record<string, unknown>
-			? ArgsShape<F>
-			: never;
+	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
+		? SchemaFnIn<FI, FO>
+		: F extends TypeDefination<infer T, any, any>
+			? T
+			: F extends Record<string, unknown>
+				? ArgsShape<F>
+				: never;
 
 /**
  * A field's declared default, looked through a var to its schema. Only a
@@ -143,31 +172,50 @@ type ArgsShape<I> = Prettify<
 /**
  * Post-transform shape - what a handler sees. The `$var` branch must come
  * first: a var's `name` property duck-matches TypeDefination, and falling
- * into that branch reads the var's VALUE type instead of its schema.
+ * into that branch reads the var's VALUE type instead of its schema. A
+ * TUPLE input maps position by position - the fn takes that many args.
  */
 export type InferInput<I> = I extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
-	: I extends TypeDefination<any, infer O, any>
-		? O
-		: Prettify<{ [K in keyof I]: FieldOut<I[K]> }>;
+	: I extends { $fnSchema: { input?: infer FI; output?: infer FO } }
+		? SchemaFnOut<FI, FO>
+		: I extends readonly unknown[]
+			? { -readonly [K in keyof I]: InferInput<I[K]> }
+			: I extends TypeDefination<any, infer O, any>
+				? O
+				: Prettify<{ [K in keyof I]: FieldOut<I[K]> }>;
 
-/** Pre-transform shape - what a caller sends. Same `$var`-first rule. */
+/** Pre-transform shape - what a caller sends. Same branch order. */
 export type InferArgs<I> = I extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
-	: I extends TypeDefination<infer T, any, any>
-		? T
-		: ArgsShape<I>;
+	: I extends { $fnSchema: { input?: infer FI; output?: infer FO } }
+		? SchemaFnIn<FI, FO>
+		: I extends readonly unknown[]
+			? { -readonly [K in keyof I]: InferArgs<I[K]> }
+			: I extends TypeDefination<infer T, any, any>
+				? T
+				: ArgsShape<I>;
 
 export const isType = (value: any): value is TypeDefination<any, any> =>
 	typeof value?.name === "string";
 
+/** A handler-less `v.fn(...)` builder doubles as a schema: the value it
+ * describes is a FN with the declared signature. */
+export const isFnSchema = (
+	value: any,
+): value is { $fnSchema: { input?: unknown; output?: unknown } } =>
+	typeof value?.$fnSchema === "object" && value.$fnSchema !== null;
+
 export const asType = (value: any): TypeDefination<any, any> =>
-	// A var's own `name` ("user") would duck-match isType, so unwrap first.
+	// A var's own `name` ("user") would duck-match isType, so unwrap first -
+	// and a builder is a record, so it must be caught before the fallback.
 	isVar(value)
 		? asType(value.schema ?? {})
-		: isType(value)
-			? value
-			: { name: "object", shape: value };
+		: isFnSchema(value)
+			? { name: "function", fnInput: value.$fnSchema.input }
+			: isType(value)
+				? value
+				: { name: "object", shape: value };
 
 export const typeOf = (value: unknown) =>
 	value === null
@@ -266,6 +314,26 @@ export const validate = (
 	if (def.name === "any") {
 		return def.transform ? def.transform(value) : value;
 	}
+	if (def.name === "function") {
+		if (typeof value !== "function") {
+			throw new ValidationError(
+				path,
+				`expected function, received ${typeOf(value)}`,
+			);
+		}
+		// A branded fn (`$fn`) validates its own declared input at its own
+		// door; a plain closure gets THIS schema's input validated for it.
+		const inner = def.fnInput;
+		if (inner === undefined || (value as { $fn?: boolean }).$fn === true) {
+			return value;
+		}
+		const innerType = asType(inner);
+		return (input?: unknown, parent?: unknown) =>
+			(value as (i: unknown, p: unknown) => unknown)(
+				validate(innerType, input, `${path}()`),
+				parent,
+			);
+	}
 	if (def.name === "object") {
 		if (typeOf(value) !== "object") {
 			throw new ValidationError(
@@ -273,13 +341,24 @@ export const validate = (
 				`expected object, received ${typeOf(value)}`,
 			);
 		}
+		// Every field validates - ALL failures report together, not just
+		// the first. Three bad fields is one error with three issues.
 		const parsed: Record<string, unknown> = {};
+		const issues: Issue[] = [];
 		for (const [field, child] of Object.entries(def.shape ?? {})) {
-			parsed[field] = validate(
-				asType(child),
-				(value as Record<string, unknown>)[field],
-				`${path}.${field}`,
-			);
+			try {
+				parsed[field] = validate(
+					asType(child),
+					(value as Record<string, unknown>)[field],
+					`${path}.${field}`,
+				);
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				issues.push(...thrown.issues);
+			}
+		}
+		if (issues.length > 0) {
+			throw new ValidationError(issues[0].path, issues[0].message, issues);
 		}
 		return def.transform ? def.transform(parsed) : parsed;
 	}

@@ -1,7 +1,7 @@
 // Core
 
-// Cookies
 export type { CookieOptions, CookiePrefixOptions } from "./cookies";
+// Cookies
 export { serializeSignedCookie } from "./cookies";
 export type {
 	Endpoint,
@@ -33,6 +33,11 @@ export {
 export type { Router, RouterConfig } from "./router";
 // Router
 export { createRouter } from "./router";
+// Schema
+export type { StandardSchemaV1 } from "./standard-schema";
+export type { JSONResponse } from "./to-response";
+// Response
+export { toResponse } from "./to-response";
 // Types
 export type {
 	HTTPMethod,
@@ -42,8 +47,3 @@ export type {
 	ResolveMetaInput,
 	ResolveQueryInput,
 } from "./types";
-// Schema
-export type { StandardSchemaV1 } from "./standard-schema";
-export type { JSONResponse } from "./to-response";
-// Response
-export { toResponse } from "./to-response";

@@ -4,6 +4,10 @@
 	"words": [
 		// misspelled
 		"clazz",
+		// misspelled, but it IS the exported type name (FnDefination)
+		"Defination",
+		// a deliberate typo example in a doc comment ("c.tpyo does not")
+		"tpyo",
 
 		// third party libraries
 		"attw",
@@ -13,10 +17,28 @@
 		// auth words
 		"scim",
 		"OpenAPIHTML",
+		"Keypair",
+		"keypair",
+
+		// experimental package vocabulary
+		"Customizer",
+		"deriveds",
+		"omittable",
+		"renamer",
+		"uncallable",
+		"unflushed",
+		"unvalidated",
+		"licence",
+		"sess",
+		"chal",
+		"notx",
+		"httpt",
+		"Expt",
 
 		// proper names
 		"Bereket",
-		"Engida"
+		"Engida",
+		"Bekacru"
 	],
 	"ignorePaths": [
 		"patches",

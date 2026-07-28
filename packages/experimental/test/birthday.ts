@@ -9,7 +9,7 @@ export const onSignUpBirthday = v.on(
 	{ input: { birthday: v.string() } },
 	async (c, next) => {
 		const result = await next();
-		c.var.user = { ...c.var.user, birthday: c.input.birthday };
+		c.var.user.set({ ...c.var.user.get(), birthday: c.input.birthday });
 		return result;
 	},
 );

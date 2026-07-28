@@ -65,23 +65,27 @@ export const fromRequest = h.fn(
 	{ input: { request: v.any<Request>() }, provides: ["request"] },
 	async (c) => {
 		const raw = c.input.request;
-		c.var.request = raw;
-		c.var.responseHeaders = new Headers();
+		c.var.request.set(raw);
+		c.var.responseHeaders.set(new Headers());
 		if (raw.method !== "GET" && raw.method !== "HEAD") {
 			const contentType = raw.headers.get("content-type") ?? "";
 			if (contentType.includes("json")) {
-				c.var.body = await raw
-					.clone()
-					.json()
-					.catch(() => undefined);
+				c.var.body.set(
+					await raw
+						.clone()
+						.json()
+						.catch(() => undefined),
+				);
 			} else if (contentType.includes("text")) {
-				c.var.body = await raw
-					.clone()
-					.text()
-					.catch(() => undefined);
+				c.var.body.set(
+					await raw
+						.clone()
+						.text()
+						.catch(() => undefined),
+				);
 			}
 		}
-		return { method: c.var.method, path: c.var.path };
+		return { method: c.var.method.get(), path: c.var.path.get() };
 	},
 );
 

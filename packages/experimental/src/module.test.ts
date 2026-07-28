@@ -9,19 +9,19 @@ describe("on matching", () => {
 	it("exact, wildcard, path and regex targets fire; others do not", async () => {
 		const log: string[] = [];
 		const hooks = {
-			exact: v.on("plt.one", async (c, next) => {
+			exact: v.on("plt.one", async (_c, next) => {
 				log.push("exact");
 				return next();
 			}),
-			wild: v.on("plt.*", async (c, next) => {
+			wild: v.on("plt.*", async (_c, next) => {
 				log.push("wild");
 				return next();
 			}),
-			path: v.on("/plt/*", async (c, next) => {
+			path: v.on("/plt/*", async (_c, next) => {
 				log.push("path");
 				return next();
 			}),
-			rx: v.on(/two$/, async (c, next) => {
+			rx: v.on(/two$/, async (_c, next) => {
 				log.push("rx");
 				return next();
 			}),
@@ -36,13 +36,13 @@ describe("on matching", () => {
 	it("interceptors nest in mount order - first is outermost", async () => {
 		const log: string[] = [];
 		const hooks = {
-			a: v.on("plt.order", async (c, next) => {
+			a: v.on("plt.order", async (_c, next) => {
 				log.push("a:in");
 				const r = await next();
 				log.push("a:out");
 				return r;
 			}),
-			b: v.on("plt.order", async (c, next) => {
+			b: v.on("plt.order", async (_c, next) => {
 				log.push("b:in");
 				const r = await next();
 				log.push("b:out");
@@ -98,8 +98,8 @@ describe("var.set events", () => {
 			next();
 		});
 		const f = v.fn("plt.writer", { use: [core, { watch }] }, (c) => {
-			c.var.plt_flag = 7;
-			return c.var.plt_flag;
+			c.var.plt_flag.set(7);
+			return c.var.plt_flag.get();
 		});
 		expect(f()).toBe(7);
 		expect(seen).toEqual(["plt_flag=7@plt.writer"]);
@@ -108,8 +108,8 @@ describe("var.set events", () => {
 	it("skipping next() cancels the write", () => {
 		const veto = v.on("var.set.plt_flag", () => {});
 		const f = v.fn({ use: [core, { veto }] }, (c) => {
-			c.var.plt_flag = 9;
-			return c.var.plt_flag;
+			c.var.plt_flag.set(9);
+			return c.var.plt_flag.get();
 		});
 		expect(f()).toBe(0);
 	});
@@ -118,19 +118,19 @@ describe("var.set events", () => {
 		const lazy = v.on("var.set.*", (async (_c: unknown, next: () => void) =>
 			next()) as never);
 		const f = v.fn({ use: [core, { lazy }] }, (c) => {
-			c.var.plt_flag = 1;
+			c.var.plt_flag.set(1);
 		});
 		expect(() => f()).toThrow(/must be synchronous/);
 	});
 
 	it('the bare "*" fn wildcard does not fire on var writes', () => {
 		const calls: string[] = [];
-		const all = v.on("*", async (c, next) => {
+		const all = v.on("*", async (_c, next) => {
 			calls.push("fn");
 			return next();
 		});
 		const f = v.fn({ use: [core, { all }] }, (c) => {
-			c.var.plt_flag = 3;
+			c.var.plt_flag.set(3);
 		});
 		f();
 		expect(calls).toEqual(["fn"]);
@@ -140,7 +140,7 @@ describe("var.set events", () => {
 describe("read-only plugin", () => {
 	it("blocks the whole subtree from writing vars", async () => {
 		const deep = v.fn("plt.deepWrite", { use: [core] }, (c) => {
-			c.var.plt_flag = 1;
+			c.var.plt_flag.set(1);
 		});
 		const guarded = v.fn(
 			"plt.view",
@@ -153,7 +153,7 @@ describe("read-only plugin", () => {
 	});
 
 	it("reading stays allowed", () => {
-		const f = v.fn({ use: [core, readOnly] }, (c) => c.var.plt_flag);
+		const f = v.fn({ use: [core, readOnly] }, (c) => c.var.plt_flag.get());
 		expect(f()).toBe(0);
 	});
 });

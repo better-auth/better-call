@@ -30,6 +30,27 @@ const auth = v.fn({ use: [{ session, user }] });
 const createSession = auth.fn("create_session", { ... }, async (c) => { ... });
 ```
 
+A **tuple input** declares positional args — one schema per position, each validated at its index, and `c.input` is the parsed tuple:
+
+```ts
+const add = v.fn({ input: [v.number(), v.number()] }, (c) => c.input[0] + c.input[1]);
+add(2, 3); // 5
+```
+
+A handler-less builder doubles as an **input schema for a fn**: the value crossing is a fn with that signature. A plain closure passed there gets the declared input validated at its door on every call; a real `v.fn` passes through untouched and validates itself. Both compose (see `test/tools.ts`):
+
+```ts
+const createTool = v.fn("create_tool", {
+  input: [
+    v.string(),
+    v.object({ description: v.string() }),
+    v.fn({ input: { location: v.string() } }), // "a fn taking { location }"
+  ],
+}, (c) => { const [name, , execute] = c.input; ... });
+
+createTool("get_weather", { description: "..." }, async ({ location }) => ({ ... }));
+```
+
 ### vars
 
 A var is named, scoped state that travels down the call tree — no threading through arguments. Fns declare their contract against vars: `provides` (checked on exit), `requires` (checked on entry), `readonly` (the whole subtree's store locks).

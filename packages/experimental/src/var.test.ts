@@ -6,11 +6,18 @@ describe("vars", () => {
 
 	it("seed from defaults, write per scope", () => {
 		const f = v.fn({ use: [{ note }] }, (c) => {
-			const before = c.var.vt_note;
-			c.var.vt_note = "x";
-			return [before, c.var.vt_note];
+			const before = c.var.vt_note.get();
+			c.var.vt_note.set("x");
+			return [before, c.var.vt_note.get()];
 		});
 		expect(f()).toEqual(["", "x"]);
+	});
+
+	it("assignment is rejected loudly - handles only", () => {
+		const f = v.fn({ use: [{ note }] }, (c) => {
+			(c.var as { vt_note: unknown }).vt_note = "x";
+		});
+		expect(() => f()).toThrow(/use c\.var\.vt_note\.set/);
 	});
 });
 
@@ -21,18 +28,18 @@ describe("derived vars", () => {
 
 	it("computes lazily from the current source, null when unset", () => {
 		const f = v.fn({ use: [mods] }, (c) => {
-			const before = c.var.vt_dbl;
-			c.var.vt_src = { n: 21 };
-			return [before, c.var.vt_dbl];
+			const before = c.var.vt_dbl.get();
+			c.var.vt_src.set({ n: 21 });
+			return [before, c.var.vt_dbl.get()];
 		});
 		expect(f()).toEqual([null, 42]);
 	});
 
 	it("a direct write shadows the computation for that scope", () => {
 		const f = v.fn({ use: [mods] }, (c) => {
-			c.var.vt_src = { n: 1 };
-			c.var.vt_dbl = 999;
-			return c.var.vt_dbl;
+			c.var.vt_src.set({ n: 1 });
+			c.var.vt_dbl.set(999);
+			return c.var.vt_dbl.get();
 		});
 		expect(f()).toBe(999);
 	});
@@ -45,15 +52,16 @@ describe("var-bound input", () => {
 	});
 
 	it("whole-var input validates and sets the var", () => {
-		const f = v.fn({ input: profile, use: [{ profile }] }, (c) => c.var.vt_profile);
+		const f = v.fn({ input: profile, use: [{ profile }] }, (c) =>
+			c.var.vt_profile.get(),
+		);
 		expect(f({ id: "p1" })).toEqual({ id: "p1" });
 		expect(() => f({ id: 5 } as never)).toThrow(/expected string/);
 	});
 
 	it("a var used as a FIELD sets the var from that field", () => {
-		const f = v.fn(
-			{ input: { who: profile }, use: [{ profile }] },
-			(c) => c.var.vt_profile,
+		const f = v.fn({ input: { who: profile }, use: [{ profile }] }, (c) =>
+			c.var.vt_profile.get(),
 		);
 		expect(f({ who: { id: "p2" } })).toEqual({ id: "p2" });
 	});
@@ -67,9 +75,8 @@ describe("var extensions", () => {
 	const withTag = v.extend(account, { tag: v.string() });
 
 	it("mounted extensions widen a var-bound input at runtime", () => {
-		const f = v.fn(
-			{ input: account, use: [{ account, withTag }] },
-			(c) => c.var.vt_account,
+		const f = v.fn({ input: account, use: [{ account, withTag }] }, (c) =>
+			c.var.vt_account.get(),
 		);
 		expect(f({ id: "a", tag: "vip" } as never)).toEqual({
 			id: "a",
@@ -79,7 +86,9 @@ describe("var extensions", () => {
 	});
 
 	it("unmounted, nothing changes", () => {
-		const f = v.fn({ input: account, use: [{ account }] }, (c) => c.var.vt_account);
+		const f = v.fn({ input: account, use: [{ account }] }, (c) =>
+			c.var.vt_account.get(),
+		);
 		expect(f({ id: "a" })).toEqual({ id: "a" });
 	});
 });

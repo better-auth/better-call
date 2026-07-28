@@ -11,6 +11,29 @@
 	"assist": {
 		"enabled": true
 	},
+	"overrides": [
+		{
+			"includes": ["packages/experimental/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "off",
+						"noConfusingVoidType": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["packages/experimental/test/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "off"
+					}
+				}
+			}
+		}
+	],
 	"files": {
 		"includes": [
 			"**",

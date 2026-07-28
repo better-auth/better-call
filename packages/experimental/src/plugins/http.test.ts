@@ -5,12 +5,12 @@ import * as http from "./http";
 const app = v.fn({ use: [http] });
 
 const whoami = app.fn("httpt.whoami", { requires: ["request"] }, (c) => ({
-	method: c.var.method,
-	path: c.var.path,
-	ua: c.var.headers.get("user-agent"),
-	q: c.var.query,
-	cookie: c.var.cookies.theme ?? null,
-	body: c.var.body ?? null,
+	method: c.var.method.get(),
+	path: c.var.path.get(),
+	ua: c.var.headers.get().get("user-agent"),
+	q: c.var.query.get(),
+	cookie: c.var.cookies.get().theme ?? null,
+	body: c.var.body.get() ?? null,
 }));
 
 describe("fromRequest (web adapter)", () => {

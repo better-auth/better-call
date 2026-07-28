@@ -40,3 +40,41 @@ export type VarScope<RV, Required> = Prettify<{
 }>;
 
 export type VarName<RV> = keyof RV & string;
+
+/* --------------------------------- handles --------------------------------- */
+
+type MaybeAsync<V, Async extends boolean> = Async extends true ? Promise<V> : V;
+
+/**
+ * What `c.var.<name>` is: a handle, and NOTHING else - `.get()` and
+ * `.set()` are the whole surface, so a property read can never be
+ * mistaken for the value (`c.var.session.userId` is a type error; it is
+ * `c.var.session.get().userId`). `get` is a promise when the var has an
+ * ASYNC persist binding mounted and nothing loaded it yet; `set` is
+ * always synchronous, and absent entirely on a readonly frame.
+ */
+export type VarHandle<
+	T,
+	Async extends boolean = false,
+	RO extends boolean = false,
+> = Prettify<
+	{ get(): MaybeAsync<T, Async> } & (RO extends true
+		? unknown
+		: { set(value: T): void })
+>;
+
+/**
+ * The scope as handles. `requires` does double duty: a required var is
+ * loaded eagerly before the body runs, so its handle is SYNC and non-null
+ * even when the var is persisted.
+ */
+export type HandleScope<
+	RV,
+	Required,
+	AsyncNames = never,
+	RO extends boolean = false,
+> = {
+	[K in keyof RV]: K extends Required
+		? VarHandle<NonNullable<RV[K]>, false, RO>
+		: VarHandle<RV[K], K extends AsyncNames ? true : false, RO>;
+};

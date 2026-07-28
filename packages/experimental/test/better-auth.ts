@@ -4,15 +4,15 @@ import { emailAndPassword } from "./email-password";
 import { coreSession } from "./session";
 import { twoFactor } from "./two-factor";
 
-const openAPI = v.fn(async (c) => {
+const _openAPI = v.fn(async (_c) => {
 	//if an endpoint uses http -> parse the validator to openAPI spec
 });
 
-const createEndpoint = v.fn(
+const _createEndpoint = v.fn(
 	{
 		input: { path: v.string(), method: v.string(), fn: v.any() },
 	},
-	async (c) => {},
+	async (_c) => {},
 );
 
 const betterAuth = v.fn(
@@ -26,12 +26,12 @@ const betterAuth = v.fn(
 		],
 	},
 	(c) => {
-		c.var.user?.birthday;
+		c.var.user.get()?.birthday;
 		return c.use;
 	},
 );
 
-v.on(emailAndPassword.updateUser, async (c, next) => {
+v.on(emailAndPassword.updateUser, async (_c, next) => {
 	return next();
 });
 
@@ -41,18 +41,16 @@ v.fn(
 		use: [http],
 	},
 	async (c) => {
-		c.var.path;
+		c.var.path.get();
 	},
 );
 
-const auth = betterAuth();
-
-console.log("created user:", res);
+const _auth = betterAuth();
 
 /// first call (sign/in) - id_token ... fetch("/update-user", { header: { cookie: idToken, Capability: JSON.stringify({ name: "/update-user", constraints: { userId: "<user-id>" } }) } })
 
-//createClient(...) //idenitty ({ name: "my-app", keys }) // sign-in ... authority token _ id token...
+//createClient(...) //identity ({ name: "my-app", keys }) // sign-in ... authority token _ id token...
 
 //server (/...) authorize
 
-//store("...") /// capabilty don't accept it...
+//store("...") /// capability don't accept it...
