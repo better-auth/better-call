@@ -6,7 +6,7 @@ import type {
 	Prettify,
 	UnionToIntersection,
 } from "./types";
-import type { NameOfVar, ValueOfVar, VarDefination } from "./var";
+import type { VarDefination } from "./var";
 
 export type Interceptor = (c: any, next: () => Promise<any>) => any;
 
@@ -81,7 +81,6 @@ export type TargetMatches<N, K extends string> = N extends "*"
 export type Module = Record<string, unknown> & {
 	$var?: never;
 	$varExtend?: never;
-	$varPersist?: never;
 	$on?: never;
 	$fn?: never;
 };
@@ -132,13 +131,7 @@ export const resolveModules = (
 	modules: readonly Module[],
 ): Record<string, unknown>[] =>
 	modules.map((mod) => {
-		if (
-			isFn(mod) ||
-			isVar(mod) ||
-			isVarExtension(mod) ||
-			isOn(mod) ||
-			isVarPersist(mod)
-		) {
+		if (isFn(mod) || isVar(mod) || isVarExtension(mod) || isOn(mod)) {
 			const bare = mod as { key?: string; name?: string; target?: unknown };
 			const name =
 				bare.key ??
@@ -317,104 +310,6 @@ export function extendVar(
 		? { $varExtend: true, name: target, schema }
 		: { $varExtend: true, name: target.name, schema, base: target };
 }
-
-/* ------------------------------- persistence ------------------------------- */
-
-/** The loosely-typed context a `load`/`save` receives: the scope's var
- * handles. Typed structurally so bindings never depend on a builder. */
-export type PersistContext = {
-	var: Record<string, { get(): any; set(value: any): void }>;
-};
-
-/**
- * A var bound to a store: mountable like a var extension, so the var
- * itself stays storage-agnostic and each scope decides where it lives.
- * `load` runs once per scope - eagerly when a fn `requires` the var,
- * lazily on first `.get()` otherwise. `save` runs at ROOT-frame exit for
- * vars that were written, wrapped by any mounted `scope.flush` entries;
- * a throw anywhere in the scope means it never runs at all.
- */
-export type PersistBinding<N extends string = string, R = unknown> = {
-	$varPersist: true;
-	name: N;
-	load: (c: PersistContext) => R;
-	save: (
-		value: any,
-		prev: any,
-		c: PersistContext,
-		info: { fields: string[] | null },
-	) => unknown;
-};
-
-export const isVarPersist = (value: any): value is PersistBinding =>
-	value?.$varPersist === true;
-
-export function persistVar<
-	SV extends VarDefination<any, any, any, any>,
-	R extends ValueOfVar<SV> | null | Promise<ValueOfVar<SV> | null>,
->(
-	target: SV,
-	options: {
-		load: (c: PersistContext) => R;
-		save: (
-			value: NonNullable<ValueOfVar<SV>>,
-			prev: ValueOfVar<SV> | null,
-			c: PersistContext,
-			info: { fields: string[] | null },
-		) => unknown;
-	},
-): PersistBinding<NameOfVar<SV>, R>;
-export function persistVar<N extends LiteralString, R>(
-	target: N,
-	options: {
-		load: (c: PersistContext) => R;
-		save: (
-			value: any,
-			prev: any,
-			c: PersistContext,
-			info: { fields: string[] | null },
-		) => unknown;
-	},
-): PersistBinding<N, R>;
-export function persistVar(
-	target: VarDefination<string, any, any, any> | string,
-	options: {
-		load: (c: PersistContext) => unknown;
-		save: (
-			value: any,
-			prev: any,
-			c: PersistContext,
-			info: { fields: string[] | null },
-		) => unknown;
-	},
-): PersistBinding<string, unknown> {
-	return {
-		$varPersist: true,
-		name: typeof target === "string" ? target : target.name,
-		load: options.load,
-		save: options.save,
-	};
-}
-
-type AsyncPersistEntry<M> = M extends unknown
-	? {
-			[K in keyof M]: M[K] extends PersistBinding<
-				infer N extends string,
-				infer R
-			>
-				? [Extract<R, Promise<any>>] extends [never]
-					? never
-					: N
-				: never;
-		}[keyof M]
-	: never;
-
-/**
- * Names of vars whose mounted persist binding loads ASYNCHRONOUSLY: their
- * handles' `get()` returns a promise - unless a fn `requires` them, which
- * loads eagerly and hands the body a plain sync value.
- */
-export type AsyncPersisted<PL> = AsyncPersistEntry<Members<PL>>;
 
 type VarExtEntry<M, K extends string> = M extends unknown
 	? {

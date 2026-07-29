@@ -1,5 +1,6 @@
 import { type Fn, fnImpl } from "./fn";
-import { extendVar, on, persistVar } from "./module";
+import { extendVar, on } from "./module";
+
 import { type InferInput, vTypes } from "./schema";
 import type { LiteralString } from "./types";
 import {
@@ -16,8 +17,7 @@ interface V {
 		name: N,
 		options?: { default?: D; schema?: S },
 	) => VarDefination<N, [S] extends [undefined] ? D : InferInput<S> | D, S>;
-	/** A var you accumulate into: `set()` merges instead of replacing, and
-	 * each patch's keys count as dirty FIELDS for persistence. */
+	/** A var you accumulate into: `set()` merges instead of replacing. */
 	record: <N extends LiteralString, S = undefined>(
 		name: N,
 		options?: { schema?: S },
@@ -44,16 +44,6 @@ interface V {
 		unknown,
 		NameOfVar<SV>
 	>;
-	/**
-	 * Bind a var to a store - a MOUNTABLE member, like `v.extend`, so the
-	 * var stays storage-agnostic and each scope picks where it lives.
-	 * `load` runs once per scope: eagerly when a fn `requires` the var
-	 * (sync, non-null in the body), lazily on first `.get()` otherwise
-	 * (the handle's get is a promise then). Written vars flush through
-	 * `save` exactly once when the ROOT fn returns - wrapped by any
-	 * `scope.flush` interceptors - and a throw anywhere means no flush.
-	 */
-	persist: typeof persistVar;
 	on: typeof on;
 	extend: typeof extendVar;
 	string: (typeof vTypes)["string"];
@@ -69,17 +59,22 @@ export const v: V = {
 	record: ((name: string, options: any = {}) =>
 		makeVar(name, { ...options, accessor: true })) as V["record"],
 	derive: deriveVar as V["derive"],
-	persist: persistVar,
 	on,
 	extend: extendVar,
 	...vTypes,
 };
 
-export { ValidationError } from "./error";
+export {
+	FnError,
+	type Issue,
+	UnexpectedError,
+	ValidationError,
+} from "./error";
 export type {
 	Context,
 	Fn,
 	FnDefination,
+	FnErrors,
 	Instance,
 	OptionType,
 	ParentContext,
@@ -88,22 +83,17 @@ export type {
 export {
 	type ApplyOn,
 	type ApplyOns,
-	type AsyncPersisted,
 	collectFns,
 	type ExtendedArgs,
 	type Interceptor,
 	isFn,
 	isOn,
 	isVarExtension,
-	isVarPersist,
 	type Module,
 	type ModuleFns,
 	type ModuleVars,
 	type OnDefaultContext,
 	type OnEntry,
-	type PersistBinding,
-	type PersistContext,
-	persistVar,
 	type VarExtension,
 	type VarExtensionsFor,
 	type VarsFrom,

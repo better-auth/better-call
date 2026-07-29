@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { ValidationError, v } from "./index";
+import { FnError, UnexpectedError, ValidationError, v } from "./index";
 
 const session = v.var("fnt_session", {
 	default: null as { userId: string } | null,
@@ -275,5 +275,191 @@ describe("fn as input schema", () => {
 			(c) => `${c.input[0]}:${c.input[1]({ n: 2 })}`,
 		);
 		expect(call("out", (i) => i.n * 3)).toBe("out:6");
+	});
+});
+
+describe("declared errors", () => {
+	const guard = v.fn(
+		"fnt.guard",
+		{
+			input: { n: v.number() },
+			errors: { too_big: { max: v.number() }, denied: {} },
+		},
+		(c) => {
+			if (c.input.n > 10) throw c.error("too_big", { max: 10 });
+			if (c.input.n < 0) throw c.error("denied");
+			return c.input.n * 2;
+		},
+	);
+
+	it("throws a tagged FnError with validated payload and trail", () => {
+		try {
+			guard({ n: 99 });
+			expect.unreachable();
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(FnError);
+			const err = thrown as FnError;
+			expect(err.tag).toBe("too_big");
+			expect(err.data).toEqual({ max: 10 });
+			expect(err.trail).toEqual(["fnt.guard"]);
+		}
+	});
+
+	it("an empty payload schema makes data optional", () => {
+		expect(() => guard({ n: -1 })).toThrow(/fnt\.guard: denied/);
+	});
+
+	it("the payload is a contract - a bad one fails at mint", () => {
+		const liar = v.fn(
+			"fnt.liar",
+			{ errors: { oops: { code: v.number() } } },
+			(c) => {
+				throw c.error("oops", { code: "not-a-number" } as never);
+			},
+		);
+		expect(() => liar()).toThrow(/fnt\.liar\.errors\.oops\.code/);
+	});
+
+	it("an undeclared tag is refused at mint", () => {
+		const rogue = v.fn("fnt.rogue", { errors: { known: {} } }, (c) => {
+			throw (c.error as (tag: string) => Error)("unknown_tag");
+		});
+		expect(() => rogue()).toThrow(/not a declared error/);
+	});
+
+	it("untagged throws become UnexpectedError once errors are declared", () => {
+		const buggy = v.fn("fnt.buggy", { errors: { nope: {} } }, () => {
+			throw new TypeError("boom");
+		});
+		try {
+			buggy();
+			expect.unreachable();
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(UnexpectedError);
+			expect((thrown as UnexpectedError).cause).toBeInstanceOf(TypeError);
+			expect((thrown as Error).message).toMatch(/fnt\.buggy: unexpected/);
+		}
+	});
+
+	it("no declared errors = raw throws pass untouched", () => {
+		const plain = v.fn(() => {
+			throw new TypeError("raw");
+		});
+		expect(() => plain()).toThrow(TypeError);
+	});
+
+	it("the trail collects every frame an error crosses", async () => {
+		const inner = v.fn("fnt.trailInner", { errors: { denied: {} } }, (c) => {
+			throw c.error("denied");
+		});
+		const outer = v.fn("fnt.trailOuter", { use: [{ inner }] }, (c) =>
+			c.use.inner(),
+		);
+		try {
+			outer();
+			expect.unreachable();
+		} catch (thrown) {
+			expect((thrown as FnError).trail).toEqual([
+				"fnt.trailInner",
+				"fnt.trailOuter",
+			]);
+		}
+	});
+
+	it("tagged errors serialize as data - they survive a wire", () => {
+		try {
+			guard({ n: 99 });
+			expect.unreachable();
+		} catch (thrown) {
+			expect(JSON.parse(JSON.stringify(thrown))).toEqual({
+				name: "FnError",
+				tag: "too_big",
+				data: { max: 10 },
+				trail: ["fnt.guard"],
+			});
+		}
+	});
+});
+
+describe(".try", () => {
+	const guard = v.fn(
+		"fnt.tryGuard",
+		{
+			input: { n: v.number() },
+			errors: { too_big: { max: v.number() } },
+		},
+		(c) => {
+			if (c.input.n > 10) throw c.error("too_big", { max: 10 });
+			return c.input.n * 2;
+		},
+	);
+
+	it("success and declared failure as a narrowable result", () => {
+		const ok = guard.try({ n: 2 });
+		expect(ok).toEqual({ ok: true, value: 4 });
+
+		const bad = guard.try({ n: 99 });
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) {
+			expect(bad.error.tag).toBe("too_big");
+			expect(bad.error.data).toEqual({ max: 10 });
+			expectTypeOf(bad.error.data).toEqualTypeOf<{ max: number }>();
+		}
+	});
+
+	it("async fns resolve to the same result shape", async () => {
+		const af = v.fn({ errors: { nope: {} } }, async (c) => {
+			throw c.error("nope");
+		});
+		const result = await af.try();
+		expect(result.ok).toBe(false);
+	});
+
+	it("defects still throw - only declared errors become results", () => {
+		const buggy = v.fn({ errors: { nope: {} } }, () => {
+			throw new Error("bug");
+		});
+		expect(() => buggy.try()).toThrow(UnexpectedError);
+	});
+
+	it("contract violations still throw too", () => {
+		expect(() => guard.try({ n: "x" } as never)).toThrow(ValidationError);
+	});
+});
+
+describe("multi-issue validation", () => {
+	it("every bad field reports together", () => {
+		const f = v.fn(
+			"fnt.multi",
+			{ input: { a: v.string(), b: v.number(), c: v.boolean() } },
+			(c) => c.input,
+		);
+		try {
+			f({ a: 1, b: "x", c: true } as never);
+			expect.unreachable();
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(ValidationError);
+			const err = thrown as ValidationError;
+			expect(err.issues).toHaveLength(2);
+			expect(err.message).toMatch(/fnt\.multi\.a.*fnt\.multi\.b/s);
+		}
+	});
+
+	it("every bad tuple position reports together", () => {
+		const f = v.fn(
+			"fnt.multiPos",
+			{ input: [v.string(), v.number()] },
+			(c) => c.input,
+		);
+		try {
+			f(1 as never, "x" as never);
+			expect.unreachable();
+		} catch (thrown) {
+			const err = thrown as ValidationError;
+			expect(err.issues.map((issue) => issue.path)).toEqual([
+				"fnt.multiPos[0]",
+				"fnt.multiPos[1]",
+			]);
+		}
 	});
 });

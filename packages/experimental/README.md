@@ -51,9 +51,29 @@ const createTool = v.fn("create_tool", {
 createTool("get_weather", { description: "..." }, async ({ location }) => ({ ... }));
 ```
 
+### errors
+
+Errors are the third contract door: input validates on entry, output on exit, errors at throw. A fn declares its failures as `tag -> payload schema`; `c.error` only accepts declared tags and validates the payload at mint:
+
+```ts
+const signIn = v.fn("sign_in.email", {
+  input: { email: v.string(), password: v.string() },
+  errors: { invalid_credentials: { attempts: v.number() } },
+}, async (c) => {
+  if (bad) throw c.error("invalid_credentials", { attempts: 3 });
+});
+```
+
+What this buys, all Effect-inspired but with plain functions:
+
+- **Failure vs defect.** A thrown `c.error(...)` is a `FnError` - a domain outcome, tagged, serializable (`{ tag, data, trail }` survives a wire). Once a fn declares `errors`, any *untagged* throw escaping its body is a bug and comes out as `UnexpectedError` with the original on `cause`. Callers never string-match to tell the two apart.
+- **Typed recovery.** `fn.try(input)` returns `{ ok: true, value } | { ok: false, error }` where `error` is the union of declared errors - TS narrows on `error.tag`. Defects and contract violations still throw. `FnErrors<typeof fn>` gives the union for catch sites.
+- **The trail.** As an error crosses fn frames it collects their keys - `["audit.log", "profile.update", "capability.exec"]` - origin first, so nothing about where a failure started is ever lost.
+- **All issues, not the first.** Validation collects every bad field / tuple position in one `ValidationError.issues` list.
+
 ### vars
 
-A var is named, scoped state that travels down the call tree — no threading through arguments. Fns declare their contract against vars: `provides` (checked on exit), `requires` (checked on entry), `readonly` (the whole subtree's store locks).
+A var is named, scoped state that travels down the call tree — no threading through arguments. Fns declare their contract against vars: `provides` (checked on exit), `requires` (checked on entry), `readonly` (the whole subtree's scope locks).
 
 ```ts
 const session = v.var("session", {

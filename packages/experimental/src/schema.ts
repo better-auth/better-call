@@ -341,11 +341,18 @@ export const validate = (
 				`expected object, received ${typeOf(value)}`,
 			);
 		}
+		// No declared shape (`v.object()`): ANY object - passed through
+		// as-is, nothing stripped.
+		if (def.shape === undefined) {
+			return def.transform ? def.transform(value) : value;
+		}
 		// Every field validates - ALL failures report together, not just
 		// the first. Three bad fields is one error with three issues.
 		const parsed: Record<string, unknown> = {};
 		const issues: Issue[] = [];
-		for (const [field, child] of Object.entries(def.shape ?? {})) {
+		for (const [field, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
 			try {
 				parsed[field] = validate(
 					asType(child),
@@ -357,8 +364,9 @@ export const validate = (
 				issues.push(...thrown.issues);
 			}
 		}
-		if (issues.length > 0) {
-			throw new ValidationError(issues[0].path, issues[0].message, issues);
+		const firstIssue = issues[0];
+		if (firstIssue) {
+			throw new ValidationError(firstIssue.path, firstIssue.message, issues);
 		}
 		return def.transform ? def.transform(parsed) : parsed;
 	}
@@ -397,13 +405,22 @@ export const vTypes = {
 		options?: TypeOptions<T, T> & WithDefault<D> & WithOptional<Opt>,
 	): TypeDefination<T, OutOf<T, D, Opt>, DefOf<D, Opt>> =>
 		build("any", options),
-	object: <S, O = DefineOutput<S>, D = never, Opt extends boolean = false>(
-		shape: S,
+	/** With a SHAPE every field validates; with NO shape (`v.object()`)
+	 * any object passes, as-is. */
+	object: <
+		S = undefined,
+		O = DefineOutput<S>,
+		D = never,
+		Opt extends boolean = false,
+	>(
+		shape?: S,
 		options?: TypeOptions<DefineOutput<S>, O> &
 			WithDefault<D> &
 			WithOptional<Opt>,
 		// Args use ArgsShape, not DefineInput, so a defaulted field inside
 		// an object is optional to send there too.
-	): TypeDefination<ArgsShape<S>, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("object", options, { shape }),
+	): [S] extends [undefined]
+		? TypeDefination<Record<string, any>, Record<string, any>>
+		: TypeDefination<ArgsShape<S>, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+		build("object", options, shape === undefined ? {} : { shape }),
 } satisfies Record<string, (...args: any[]) => TypeDefination<any, any>>;

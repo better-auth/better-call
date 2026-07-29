@@ -4,17 +4,6 @@ import { emailAndPassword } from "./email-password";
 import { coreSession } from "./session";
 import { twoFactor } from "./two-factor";
 
-const _openAPI = v.fn(async (_c) => {
-	//if an endpoint uses http -> parse the validator to openAPI spec
-});
-
-const _createEndpoint = v.fn(
-	{
-		input: { path: v.string(), method: v.string(), fn: v.any() },
-	},
-	async (_c) => {},
-);
-
 const betterAuth = v.fn(
 	{
 		use: [

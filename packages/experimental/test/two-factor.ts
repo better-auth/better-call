@@ -28,7 +28,7 @@ const sendTwoFactorCode = t.fn(
 );
 
 export const middleware = t.on(coreSession.createSession, async (c, next) => {
-	const user = c.var.user.get();
+	const user = await c.var.user.get();
 	if (!user?.twoFactorEnabled) {
 		return await next();
 	}

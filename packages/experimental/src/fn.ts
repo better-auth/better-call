@@ -1,17 +1,14 @@
-import { ValidationError } from "./error";
+import { FnError, type Issue, UnexpectedError, ValidationError } from "./error";
 import {
 	type ApplyOns,
-	type AsyncPersisted,
 	collectFns,
 	isOn,
 	isVarExtension,
-	isVarPersist,
 	type Module,
 	type ModuleFns,
 	matchesTarget,
 	type OnEntry,
 	on as onImpl,
-	type PersistBinding,
 	resolveModules,
 	type TargetMatches,
 	type VarExtension,
@@ -29,16 +26,43 @@ import {
 import type { HandleScope, ResolvedVars, ScopeOf, VarName } from "./scope";
 import type { LiteralString, Prettify } from "./types";
 import {
-	type Cell,
 	type Cells,
 	createVarScope,
 	type Frame,
 	readVar,
-	triggerLoad,
 	writeVar,
 } from "./var";
 
 export type ParentContext = { var: any };
+
+/** The call shape: a TUPLE input spreads - one parameter per position,
+ * the parent context last. Everything else takes (input?, parent?). */
+type CallArgs<A, I> = I extends readonly unknown[]
+	? A extends readonly unknown[]
+		? [...A] | [...A, ParentContext]
+		: never
+	: [A] extends [void]
+		? [input?: undefined, parent?: ParentContext]
+		: [input: A, parent?: ParentContext];
+
+/** The union of a fn's DECLARED errors, as thrown values. */
+export type FnErrorsOf<Er> = {
+	[T in keyof Er & string]: FnError<T, InferInput<Er[T]>>;
+}[keyof Er & string];
+
+/** The declared-error union of a fn - for typing catch sites. */
+export type FnErrors<F> =
+	F extends FnDefination<any, any, any, any, any, infer Er>
+		? FnErrorsOf<Er>
+		: never;
+
+type TryResult<R, Er> =
+	R extends Promise<infer V>
+		? Promise<{ ok: true; value: V } | { ok: false; error: FnErrorsOf<Er> }>
+		: { ok: true; value: R } | { ok: false; error: FnErrorsOf<Er> };
+
+/** No declared errors - the default error channel. */
+type NoErrors = Record<never, never>;
 
 export interface FnDefination<
 	A,
@@ -46,18 +70,16 @@ export interface FnDefination<
 	K extends string = string,
 	I = unknown,
 	P extends readonly string[] = readonly string[],
+	Er = NoErrors,
 > {
-	(
-		// A TUPLE input spreads: one parameter per position, the parent
-		// context last. Everything else takes (input?, parent?).
-		...args: I extends readonly unknown[]
-			? A extends readonly unknown[]
-				? [...A] | [...A, ParentContext]
-				: never
-			: [A] extends [void]
-				? [input?: undefined, parent?: ParentContext]
-				: [input: A, parent?: ParentContext]
-	): R;
+	(...args: CallArgs<A, I>): R;
+	/**
+	 * Call with DECLARED errors caught as a value: `{ ok: true, value }`
+	 * or `{ ok: false, error }`, narrowed by `error.tag`. Only tagged,
+	 * expected errors become results - defects and contract violations
+	 * still throw, exactly as they should.
+	 */
+	try(...args: CallArgs<A, I>): TryResult<R, Er>;
 	/** Brand, so a plugin module can be scanned for its fns. */
 	readonly $fn: true;
 	/** The name interceptors target - literal, so `ApplyOn` can match it. */
@@ -68,6 +90,8 @@ export interface FnDefination<
 	/** Phantom: the raw declared input, so extensions of the vars it
 	 * references can widen `c.use` call sites. Never set at runtime. */
 	readonly $input?: I;
+	/** Phantom: declared error tags -> payload schemas. */
+	readonly $errors?: Er;
 }
 
 export type ArgsOf<I> = I extends readonly unknown[]
@@ -76,7 +100,24 @@ export type ArgsOf<I> = I extends readonly unknown[]
 		? void
 		: InferArgs<I>;
 
-export type OptionType<I, O, P, Q, PL, RO extends boolean = boolean> = {
+export type OptionType<
+	I,
+	O,
+	P,
+	Q,
+	PL,
+	RO extends boolean = boolean,
+	Er = any,
+> = {
+	/**
+	 * The fn's DECLARED failures: tag -> payload schema. The THIRD
+	 * contract door - input validates on entry, output on exit, errors at
+	 * `throw c.error(tag, data)`. Once declared, any UNTAGGED throw
+	 * escaping the body is a defect and comes out as `UnexpectedError` -
+	 * callers can tell a domain refusal from a bug without string
+	 * matching.
+	 */
+	errors?: Er;
 	/**
 	 * A readonly fn cannot write vars - not in its handler, not in
 	 * anything it calls, not from interceptors mounted on it. Enforced at
@@ -88,9 +129,7 @@ export type OptionType<I, O, P, Q, PL, RO extends boolean = boolean> = {
 	output?: O;
 	/** Vars this fn guarantees to set. Checked on exit. */
 	provides?: P;
-	/** Vars that must already be set. Checked on entry, before the body.
-	 * A persisted var listed here loads EAGERLY - the body sees it as a
-	 * plain sync, non-null value. */
+	/** Vars that must already be set. Checked on entry, before the body. */
 	requires?: Q;
 	/**
 	 * Module namespaces to pull in. Their vars come into scope, their fns
@@ -132,14 +171,24 @@ export type Context<
 	U = unknown,
 	FnApi = Fn,
 	RO extends boolean = false,
-	AsyncVars = never,
+	Errs = NoErrors,
 > = {
 	input: InferInput<I>;
+	/**
+	 * Mint a DECLARED error - tag-checked, payload validated at creation:
+	 * `throw c.error("invalid_credentials", { attempts: 3 })`. Only tags
+	 * from this fn's `errors` exist; the payload validates like input.
+	 */
+	error: <T extends keyof Errs & string>(
+		tag: T,
+		...data: Record<never, never> extends InferArgs<Errs[T]>
+			? [data?: InferArgs<Errs[T]>]
+			: [data: InferArgs<Errs[T]>]
+	) => FnError<T, InferInput<Errs[T]>>;
 	/** Every var in scope, as a HANDLE: `.get()` / `.set()` and nothing
-	 * else - the value is only ever behind `get()`. `get` is a promise only
-	 * for persisted vars this fn did not `require`; `set` is absent
+	 * else - the value is only ever behind `get()`. `set` is absent
 	 * entirely on a readonly fn. */
-	var: HandleScope<RV, Required, AsyncVars, RO>;
+	var: HandleScope<RV, Required, RO>;
 	/** Fns from `use`, each already threaded with this context. */
 	use: RO extends true ? ReadUseApi<U> : UseApi<U>;
 	/** Define fns from inside: this fn's scope and key carry over, so
@@ -165,9 +214,7 @@ export interface Fn<
 				ScopeOf<[], Base>,
 				never,
 				BaseFns,
-				Fn<Base, BaseFns, BasePL, Prefix>,
-				false,
-				AsyncPersisted<BasePL>
+				Fn<Base, BaseFns, BasePL, Prefix>
 			>,
 		) => R,
 	): FnDefination<void, R, Prefix extends "" ? string : Prefix>;
@@ -179,26 +226,22 @@ export interface Fn<
 				ScopeOf<[], Base>,
 				never,
 				BaseFns,
-				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>,
-				false,
-				AsyncPersisted<BasePL>
+				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
 			>,
 		) => R,
 	): FnDefination<void, R, `${Prefix}${K}`>;
 
-	/* ---- a TUPLE input declares POSITIONAL args: `input: [a, b]` makes
-	   the fn callable as `f(a, b)`. Must come before the general options
-	   overloads so the array literal infers as a tuple, not an array. ---- */
 	<
-		const I extends readonly unknown[],
+		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
 		const PL extends readonly Module[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
+		Er extends Record<string, unknown> = NoErrors,
 	>(
-		options: OptionType<I, O, P, Q, PL, RO>,
+		options: OptionType<I, O, P, Q, PL, RO, Er>,
 		fn: (
 			ctx: Context<
 				I,
@@ -212,22 +255,23 @@ export interface Fn<
 					Prefix
 				>,
 				RO,
-				AsyncPersisted<readonly [...BasePL, ...PL]>
+				Er
 			>,
 		) => R,
-	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P>;
+	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P, Er>;
 	<
 		K extends LiteralString,
-		const I extends readonly unknown[],
+		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
 		const PL extends readonly Module[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
+		Er extends Record<string, unknown> = NoErrors,
 	>(
 		key: K,
-		options: OptionType<I, O, P, Q, PL, RO>,
+		options: OptionType<I, O, P, Q, PL, RO, Er>,
 		fn: (
 			ctx: Context<
 				I,
@@ -241,67 +285,10 @@ export interface Fn<
 					`${Prefix}${K}`
 				>,
 				RO,
-				AsyncPersisted<readonly [...BasePL, ...PL]>
+				Er
 			>,
 		) => R,
-	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P>;
-
-	<
-		I,
-		O,
-		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
-		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
-		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
-		RO extends boolean = false,
-	>(
-		options: OptionType<I, O, P, Q, PL, RO>,
-		fn: (
-			ctx: Context<
-				I,
-				ScopeOf<PL, Base>,
-				WithDerived<PL, BasePL, Q[number]>,
-				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-				Fn<
-					Base & ResolvedVars<PL>,
-					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-					readonly [...BasePL, ...PL],
-					Prefix
-				>,
-				RO,
-				AsyncPersisted<readonly [...BasePL, ...PL]>
-			>,
-		) => R,
-	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P>;
-	<
-		K extends LiteralString,
-		I,
-		O,
-		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
-		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
-		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
-		RO extends boolean = false,
-	>(
-		key: K,
-		options: OptionType<I, O, P, Q, PL, RO>,
-		fn: (
-			ctx: Context<
-				I,
-				ScopeOf<PL, Base>,
-				WithDerived<PL, BasePL, Q[number]>,
-				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-				Fn<
-					Base & ResolvedVars<PL>,
-					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-					readonly [...BasePL, ...PL],
-					`${Prefix}${K}`
-				>,
-				RO,
-				AsyncPersisted<readonly [...BasePL, ...PL]>
-			>,
-		) => R,
-	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P>;
+	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P, Er>;
 
 	/* ---- NO handler: a builder. Keys concatenate, `use` accumulates,
 	   and its `.fn` follows the same rule recursively. ---- */
@@ -351,60 +338,6 @@ const STORE = Symbol("var-store");
 const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
 const READONLY = Symbol("readonly-lock");
-const BINDINGS = Symbol("active-persist-bindings");
-const SCOPE_META = Symbol("scope-meta");
-
-/**
- * Scope-level registry, kept on the root store: every persist binding and
- * `on` entry that was EVER active anywhere in this scope's call tree. The
- * root frame flushes from here - a binding mounted three frames deep still
- * writes back when the ROOT returns.
- */
-type ScopeMeta = {
-	bindings: Map<string, PersistBinding>;
-	entries: OnEntry<string>[];
-};
-
-const scopeMeta = (cells: Cells): ScopeMeta => {
-	const holder = cells as unknown as Record<symbol, ScopeMeta | undefined>;
-	let meta = holder[SCOPE_META];
-	if (!meta) {
-		meta = { bindings: new Map(), entries: [] };
-		holder[SCOPE_META] = meta;
-	}
-	return meta;
-};
-
-/**
- * Write every dirty persisted var back to its store, exactly once, inside
- * whatever `scope.flush` entries the scope mounted (a transaction plugin
- * is just `v.on("scope.flush", (c, next) => db.transaction(next))`). Runs
- * only when the root frame returns cleanly - a throw above discards all
- * of it, so unflushed writes simply evaporate.
- */
-const flushScope = async (
-	dirty: Array<[string, PersistBinding]>,
-	cells: Cells,
-	entries: OnEntry<string>[],
-	ctx: unknown,
-) => {
-	const saves = async () => {
-		for (const [name, binding] of dirty) {
-			const cell = cells[name] as Cell;
-			await binding.save(cell.value, cell.loadedValue ?? null, ctx as never, {
-				fields: cell.dirtyFields ? [...cell.dirtyFields] : null,
-			});
-		}
-	};
-	const hooks = entries.filter(
-		(e) => e.target !== "*" && matchesTarget(e.target, "scope.flush"),
-	);
-	const chain = hooks.reduceRight<() => Promise<unknown>>(
-		(next, entry) => () => Promise.resolve(entry.handler(ctx, next as never)),
-		saves,
-	);
-	await chain();
-};
 
 const defineFn = (
 	key: string,
@@ -413,15 +346,13 @@ const defineFn = (
 ) => {
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
-	// Interceptors, var extensions and persist bindings this fn brings.
+	// Interceptors and var extensions this fn brings, from its modules.
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
-	const ownPersists: PersistBinding[] = [];
 	for (const mod of modules) {
 		for (const value of Object.values(mod)) {
 			if (isOn(value)) own.push(value);
 			if (isVarExtension(value)) ownExts.push(value);
-			if (isVarPersist(value)) ownPersists.push(value);
 		}
 	}
 
@@ -431,6 +362,19 @@ const defineFn = (
 	// declared position, then the parent context.
 	const tupleInput = Array.isArray(options.input)
 		? (options.input as unknown[])
+		: undefined;
+
+	// Declared errors: tag -> payload schema, the THIRD contract door
+	// (input on entry, output on exit, errors at throw). Declaring any
+	// also flips the defect rule on: untagged throws come out wrapped.
+	const declaredErrors = options.errors as Record<string, unknown> | undefined;
+	const errorTypes = declaredErrors
+		? Object.fromEntries(
+				Object.entries(declaredErrors).map(([tag, schema]) => [
+					tag,
+					asType(schema),
+				]),
+			)
 		: undefined;
 
 	// Input that references vars: a var FIELD sets that var from the field
@@ -489,25 +433,6 @@ const defineFn = (
 				: [...inherited, ...own.filter((e) => !inherited.includes(e))];
 		const chain = active.filter((entry) => matchesTarget(entry.target, key));
 
-		// Persist bindings travel the same way, keyed by var name - a
-		// deeper mount overrides an inherited one for everything below.
-		const inheritedBindings: Map<string, PersistBinding> =
-			parent?.[BINDINGS] ?? new Map();
-		const bindings =
-			ownPersists.length === 0
-				? inheritedBindings
-				: new Map([
-						...inheritedBindings,
-						...ownPersists.map((b) => [b.name, b] as const),
-					]);
-
-		// And register scope-wide, for the root flush.
-		const meta = scopeMeta(cells);
-		for (const binding of ownPersists) meta.bindings.set(binding.name, binding);
-		for (const entry of own) {
-			if (!meta.entries.includes(entry)) meta.entries.push(entry);
-		}
-
 		const inheritedExts: VarExtension<string, any>[] = parent?.[EXTS] ?? [];
 		const exts =
 			ownExts.length === 0
@@ -523,8 +448,6 @@ const defineFn = (
 			key,
 			lockedBy,
 			entries: active,
-			bindings,
-			ctx: () => ctx,
 		};
 
 		// Widen a var-referencing input with the mounted extensions of that
@@ -539,17 +462,34 @@ const defineFn = (
 			return merged;
 		};
 
-		let parsed = tupleInput
-			? tupleInput.map((def, index) =>
-					validate(
+		// Tuple positions validate like object fields: every bad position
+		// reports, together, in one error.
+		let parsed: any;
+		if (tupleInput) {
+			const issues: Issue[] = [];
+			parsed = tupleInput.map((def, index) => {
+				try {
+					return validate(
 						asType(def),
 						(input as unknown[])[index],
 						`${key}[${index}]`,
-					),
-				)
-			: options.input === undefined
-				? input
-				: validate(asType(options.input), input, key);
+					);
+				} catch (thrown) {
+					if (!(thrown instanceof ValidationError)) throw thrown;
+					issues.push(...thrown.issues);
+					return undefined;
+				}
+			});
+			const firstIssue = issues[0];
+			if (firstIssue) {
+				throw new ValidationError(firstIssue.path, firstIssue.message, issues);
+			}
+		} else {
+			parsed =
+				options.input === undefined
+					? input
+					: validate(asType(options.input), input, key);
+		}
 
 		// Mounted extensions widen the accepted input: each validates its
 		// own fields off the same raw input and merges onto `parsed`.
@@ -582,12 +522,29 @@ const defineFn = (
 
 		ctx = {
 			input: parsed,
+			// Mint a declared error: tag must be declared, payload validates
+			// at creation - an error is a contract too.
+			error: (tag: string, data?: unknown) => {
+				const schema = errorTypes?.[tag];
+				if (!schema) {
+					throw new ValidationError(
+						`${key}.errors.${tag}`,
+						errorTypes
+							? `"${tag}" is not a declared error of "${key}"`
+							: `"${key}" declares no errors`,
+					);
+				}
+				return new FnError(
+					tag,
+					validate(schema, data ?? {}, `${key}.errors.${tag}`),
+					key,
+				);
+			},
 			var: createVarScope(frame),
 			[STORE]: cells,
 			[ACTIVE]: active,
 			[EXTS]: exts,
 			[READONLY]: lockedBy,
-			[BINDINGS]: bindings,
 			use: {},
 			fn: builderFn(key === "anonymous" ? "" : key, {
 				use: options.use ?? [],
@@ -625,16 +582,6 @@ const defineFn = (
 			}
 		};
 
-		// A persisted var in `requires` loads EAGERLY - awaited before the
-		// requires check, so the body sees a plain sync value.
-		const pending: Promise<unknown>[] = [];
-		for (const name of options.requires ?? []) {
-			if (missing(name)) {
-				const load = triggerLoad(frame, name);
-				if (load) pending.push(load);
-			}
-		}
-
 		// Interceptors replace the BODY. `provides` is only enforced when
 		// the DECLARED body actually ran: an interceptor that returns
 		// without `next()` visibly takes the contract over - that is a
@@ -665,34 +612,66 @@ const defineFn = (
 					}
 				}
 			}
-			// The ROOT frame owns the flush: every dirty persisted var in
-			// the scope writes back exactly once, then the result passes
-			// through. Never reached on a throw - nothing stores.
-			if (parent === undefined) {
-				const dirty = [...meta.bindings].filter(
-					([name]) => (cells[name] as Cell | undefined)?.dirty,
-				);
-				if (dirty.length > 0) {
-					return flushScope(dirty, cells, meta.entries, ctx).then(() => result);
-				}
-			}
 			return result;
+		};
+
+		// Errors crossing this frame: tagged errors and defects collect the
+		// TRAIL (origin fn first, then every frame outward). Once a fn
+		// declares `errors`, anything untagged escaping its body is a
+		// DEFECT - wrapped with the cause kept - so a domain refusal and a
+		// bug are never the same shape.
+		const decorate = (thrown: unknown): unknown => {
+			if (thrown instanceof FnError || thrown instanceof UnexpectedError) {
+				if (thrown.trail[thrown.trail.length - 1] !== key) {
+					thrown.trail.push(key);
+				}
+				return thrown;
+			}
+			return errorTypes ? new UnexpectedError(thrown, key) : thrown;
 		};
 
 		const run = () => {
 			checkRequires();
-			const result = body(ctx);
+			let result: unknown;
+			try {
+				result = body(ctx);
+			} catch (thrown) {
+				throw decorate(thrown);
+			}
 			// A sync handler stays sync: only chain when something is thenable.
-			return isThenable(result) ? result.then(finish) : finish(result);
+			return isThenable(result)
+				? result.then(finish, (thrown) => {
+						throw decorate(thrown);
+					})
+				: finish(result);
 		};
 
-		return pending.length > 0 ? Promise.all(pending).then(run) : run();
+		return run();
+	};
+
+	/** `.try`: declared errors as a value, everything else still throws. */
+	const tryCall = (...callArgs: any[]) => {
+		const settle = (thrown: unknown) => {
+			if (thrown instanceof FnError) {
+				return { ok: false as const, error: thrown };
+			}
+			throw thrown;
+		};
+		try {
+			const result = callable(...callArgs);
+			return isThenable(result)
+				? result.then((value) => ({ ok: true as const, value }), settle)
+				: { ok: true as const, value: result };
+		} catch (thrown) {
+			return settle(thrown);
+		}
 	};
 
 	return Object.assign(callable, {
 		$fn: true as const,
 		key,
 		provides: (options.provides ?? []) as readonly string[],
+		try: tryCall,
 		// Positional arg count, so `c.use` bindings know where ctx goes.
 		...(tupleInput ? { $arity: tupleInput.length } : {}),
 	});
@@ -702,13 +681,12 @@ const defineFn = (
 
 /** Every target worth suggesting on a builder's `on`: the mounted fns'
  * keys (prefix-stripped, so they are valid RELATIVE targets), the scope's
- * var-write events by name, the scope flush, and the two wildcards.
- * Arbitrary strings stay legal - these only feed completion. */
+ * var-write events by name, and the two wildcards. Arbitrary strings stay
+ * legal - these only feed completion. */
 type OnTargetSuggest<Base, BaseFns, Prefix extends string> =
 	| FnTargetSuggest<BaseFns, Prefix>
 	| `var.set.${keyof ScopeOf<[], Base> & string}`
 	| "var.set.*"
-	| "scope.flush"
 	| "*";
 
 type FnTargetSuggest<Fns, Prefix extends string> = {
@@ -751,9 +729,9 @@ type MatchedResult<F> = [F] extends [never]
 
 /** What a builder-scoped `on` handler sees: vars (as handles), `use` and
  * `types` from the builder, `input` from the TARGET fn when known. */
-type OnContext<Base, BaseFns, F, Ext = unknown, AsyncVars = never> = {
+type OnContext<Base, BaseFns, F, Ext = unknown> = {
 	input: MatchedInput<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
-	var: HandleScope<ScopeOf<[], Base>, never, AsyncVars>;
+	var: HandleScope<ScopeOf<[], Base>, never>;
 	use: UseApi<BaseFns>;
 	types: typeof vTypes;
 	fn: unknown;
@@ -761,18 +739,13 @@ type OnContext<Base, BaseFns, F, Ext = unknown, AsyncVars = never> = {
 
 /** `v.on`, scoped: string targets get the builder's key prefix; the
  * handler's `c` and `next()` are typed against the matched target fn. */
-export interface InstanceOn<
-	Base,
-	BaseFns,
-	Prefix extends string,
-	PL extends readonly Module[] = [],
-> {
+export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	/** A fn REFERENCE targets its own key - never prefixed, fully typed
 	 * from the fn itself plus the builder's scope. */
 	<F extends FnDefination<any, any, string, any, any>>(
 		target: F,
 		handler: (
-			c: OnContext<Base, BaseFns, F, unknown, AsyncPersisted<PL>>,
+			c: OnContext<Base, BaseFns, F>,
 			next: () => Promise<MatchedResult<F>>,
 		) => any,
 	): OnEntry<F["key"]>;
@@ -797,20 +770,14 @@ export interface InstanceOn<
 	(
 		target: RegExp,
 		handler: (
-			c: OnContext<Base, BaseFns, never, unknown, AsyncPersisted<PL>>,
+			c: OnContext<Base, BaseFns, never>,
 			next: () => Promise<any>,
 		) => any,
 	): OnEntry<string>;
 	<N extends OnTargetSuggest<Base, BaseFns, Prefix> | LiteralString>(
 		target: N,
 		handler: (
-			c: OnContext<
-				Base,
-				BaseFns,
-				MatchedFn<BaseFns, `${Prefix}${N}`>,
-				unknown,
-				AsyncPersisted<PL>
-			>,
+			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`>;
@@ -818,7 +785,7 @@ export interface InstanceOn<
 		target: RegExp,
 		extend: { input: Ext },
 		handler: (
-			c: OnContext<Base, BaseFns, never, Ext, AsyncPersisted<PL>>,
+			c: OnContext<Base, BaseFns, never, Ext>,
 			next: () => Promise<any>,
 		) => any,
 	): OnEntry<string, Ext>;
@@ -826,13 +793,7 @@ export interface InstanceOn<
 		target: N,
 		extend: { input: Ext },
 		handler: (
-			c: OnContext<
-				Base,
-				BaseFns,
-				MatchedFn<BaseFns, `${Prefix}${N}`>,
-				Ext,
-				AsyncPersisted<PL>
-			>,
+			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>, Ext>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`, Ext>;
@@ -857,7 +818,7 @@ export type Instance<
 	readonly $fnSchema: { input?: I; output?: O };
 	/** Same as `v.on`, with the prefix on string targets and the handler
 	 * typed against the matched target fn. */
-	on: InstanceOn<Base, BaseFns, Prefix, PL>;
+	on: InstanceOn<Base, BaseFns, Prefix>;
 	/**
 	 * The context a handler on this builder receives - a TYPE carrier for
 	 * `typeof f.ctx` (helper signatures, plugin contracts). Every handler
@@ -865,15 +826,7 @@ export type Instance<
 	 * loosened since they vary per fn. A real context only exists per
 	 * invocation, so this is `undefined` at runtime.
 	 */
-	readonly ctx: Context<
-		unknown,
-		ScopeOf<[], Base>,
-		never,
-		BaseFns,
-		unknown,
-		false,
-		AsyncPersisted<PL>
-	>;
+	readonly ctx: Context<unknown, ScopeOf<[], Base>, never, BaseFns, unknown>;
 };
 
 /**
@@ -892,6 +845,12 @@ const mergeOptions = (
 	use: [...(base.use ?? []), ...(child.use ?? [])],
 	requires: [...(base.requires ?? []), ...(child.requires ?? [])],
 	provides: [...(base.provides ?? []), ...(child.provides ?? [])],
+	// Error declarations accumulate tag-wise, child wins per tag. Only
+	// materialized when declared somewhere - an empty `errors` would flip
+	// the defect-wrapping rule on for every fn.
+	...(base.errors || child.errors
+		? { errors: { ...(base.errors ?? {}), ...(child.errors ?? {}) } }
+		: {}),
 });
 
 const builderFn =

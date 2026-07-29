@@ -1,26 +1,5 @@
 import { collectFns, type FnDefination, type Module, v } from "../src";
 
-/*
- * Capability security in one sentence: a fn may be called exactly by
- * whoever HOLDS A REFERENCE to it, and every fn validates that about its
- * caller before doing anything.
- *
- * How the reference arrives is the whole story. In one process it is the
- * fn object itself: if a body can name a fn (`use`, an import, a
- * closure), some scope that held the reference chose to hand it over -
- * so fn-to-fn calls carry no token and check nothing. Across a boundary
- * no memory reference can travel, so the reference is REIFIED: a signed
- * delegation naming the fn (optionally pinned to input), exercised one
- * call at a time by a signed invocation. Same model, two encodings.
- *
- * AUTHORITY is a separate, smaller concern. It never checks a call -
- * `validateCaller` owns that. It decides what references a caller STARTS
- * with, what counts as proof of WHO a caller acts for, and how requests
- * for more references are settled.
- */
-
-/* --------------------------------- crypto --------------------------------- */
-
 const subtle = globalThis.crypto.subtle;
 
 const b64 = (bytes: ArrayBuffer | Uint8Array) =>
@@ -29,7 +8,6 @@ const b64 = (bytes: ArrayBuffer | Uint8Array) =>
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
 export type Keypair = {
-	/** base64url raw public key - the agent's identity. */
 	id: string;
 	sign: (payload: string) => Promise<string>;
 };
@@ -67,16 +45,6 @@ const verifySignature = async (
 	);
 };
 
-/* -------------------------------- references ------------------------------- */
-
-/**
- * A capability is a REFERENCE to a fn, written down. It is never created
- * or registered - it is inferred from the fn it names - and it answers
- * exactly one question: may the holder call THAT fn, with THAT input?
- * `"profile.update"` says yes for any input; adding an input pin
- * (`{ fn: "profile.update", input: { name: "X" } }`) says yes only when
- * the pinned fields match. Nothing else exists to define.
- */
 export type Cap = string | { fn: string; input?: Record<string, unknown> };
 
 export const fnOf = (cap: Cap) => (typeof cap === "string" ? cap : cap.fn);
@@ -91,8 +59,6 @@ export const fmtCap = (cap: Cap) =>
 const sameJson = (a: unknown, b: unknown) =>
 	JSON.stringify(a) === JSON.stringify(b);
 
-/** Does `parent` cover `child`? Same fn, and child at least as narrow:
- * every field the parent pins, the child pins to the same value. */
 const covers = (parent: Cap, child: Cap) => {
 	if (fnOf(parent) !== fnOf(child)) return false;
 	const pin = pinOf(parent);
@@ -104,7 +70,6 @@ const covers = (parent: Cap, child: Cap) => {
 	);
 };
 
-/** Does any held reference authorize calling `fn` with `input`? */
 export const permits = (caps: Cap[], fn: string, input: unknown) =>
 	caps.some((cap) => {
 		if (fnOf(cap) !== fn) return false;
@@ -115,29 +80,17 @@ export const permits = (caps: Cap[], fn: string, input: unknown) =>
 		);
 	});
 
-/* --------------------------------- the wire -------------------------------- */
-
-/** A reference changing hands: the issuer hands the audience a slice of
- * the references it holds, signed. Chains, and only ever narrows. */
 export type Delegation = {
 	typ: "dlg";
-	/** Public key that signed this link. */
 	iss: string;
-	/** Public key allowed to spend or re-delegate it. */
 	aud: string;
-	/** Whose authority this is ("user:1"). */
 	sub: string;
-	/** The references this link hands over - each child must attenuate. */
 	caps: Cap[];
 	exp: number;
-	/** Parent link; absent means iss must be the server root key. */
 	prf?: Delegation;
 	sig: string;
 };
 
-/** One exercise of a held reference: minted fresh per call, signed by
- * the delegation's audience. The INPUT is inside the signature - the
- * token authorizes this exact call with this exact input, nothing else. */
 export type Invocation = {
 	typ: "inv";
 	iss: string;
@@ -220,13 +173,6 @@ const verifyDelegation = async (
 	return link;
 };
 
-/**
- * Proves the sender genuinely HOLDS a chain of references: every link
- * signed, attenuating, unexpired, rooted at this server, and the spend
- * itself signed by the chain's audience. Deliberately silent on whether
- * the chain covers any particular call - that is the callee's question,
- * and every fn asks it itself (see `validateCaller`).
- */
 export const verifyInvocation = async (root: string, token: Invocation) => {
 	if (token?.typ !== "inv") throw new CapabilityError("not an invocation");
 	if (token.exp < now()) throw new CapabilityError("invocation expired");
@@ -242,19 +188,9 @@ export const verifyInvocation = async (root: string, token: Invocation) => {
 	return { subject: proof.sub, caps: proof.caps, holder: token.iss };
 };
 
-/* ------------------------------- attestation ------------------------------- */
-
-/** Proof of WHO, not of what may be called: the server attesting with
- * its own signature whom an agent acts for. Not a reference - it grants
- * nothing by itself; it trades for the subject's default references at
- * `capability.request`. What passes as attestation is the authority's
- * policy, so a server may accept something else entirely (an IDP's JWT,
- * a session id). */
 export type Attestation = {
 	typ: "idt";
-	/** The server key that attested. */
 	iss: string;
-	/** The proven subject ("user:1"). */
 	sub: string;
 	exp: number;
 	sig: string;
@@ -272,11 +208,6 @@ export const verifyAttestation = async (root: string, token: Attestation) => {
 	return token.sub;
 };
 
-/* --------------------------------- the rule -------------------------------- */
-
-/** What the boundary verified about the current call tree. `entry` names
- * the one fn the wire call targeted - the single frame with no memory
- * reference behind it - and clears once that frame's check passes. */
 export const capability = v.var("capability", {
 	default: null as null | {
 		subject: string;
@@ -286,23 +217,6 @@ export const capability = v.var("capability", {
 	},
 });
 
-/**
- * The one rule of the whole model, mounted on every served fn: before
- * the body runs, WAS THE CALLER AUTHORIZED TO MAKE THIS CALL WITH THIS
- * INPUT? The authorization is a reference, and it arrives two ways:
- *
- * - Direct: the caller is another fn whose body holds this fn in memory
- *   (`use`, an import, a closure). Possession IS authorization - some
- *   scope that held the reference chose to hand it over - so there is
- *   nothing to verify. This is every in-process fn-to-fn call, and it is
- *   why those calls never see a token.
- *
- * - Reified: the call crossed a boundary, where no memory reference can
- *   travel. The reference arrived as verified data, and this fn checks
- *   that it names this fn with this input. Once the entry frame passes,
- *   execution is in-process again - everything the body calls, it calls
- *   by direct reference.
- */
 export const validateCaller = (fnKey: string) =>
 	v.on(fnKey, async (c, next) => {
 		const wire = c.var.capability.get();

@@ -10,7 +10,7 @@ export class ValidationError extends Error {
 		const all = issues?.length ? issues : [{ path, message }];
 		super(all.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
 		this.name = "ValidationError";
-		this.path = all[0].path;
+		this.path = all[0]?.path ?? path;
 		this.issues = all;
 	}
 }
