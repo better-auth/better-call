@@ -1,5 +1,12 @@
 # Better Call
 
+> [!NOTE]
+> better-call v2 introduced substantial type-level breaking changes. Adopting it required widespread changes across better-auth, the largest consumer of better-call, and the migration cost outweighed the practical benefits.
+> 
+> We therefore stopped maintaining the v2 release line and resumed active development from the v1 codebase. Any future breaking changes will be released as v3 rather than continuing v2.
+>
+> v2.0.x branch is preserved for historical reference only. For active development and supported releases, refer to the default branch of the repository.
+
 Better call is a tiny web framework for creating endpoints that can be invoked as a normal function or mounted to a router to be served by any web standard compatible server (like Bun, node, nextjs, sveltekit...) and also includes a typed RPC client for type-safe client-side invocation of these endpoints.
 
 Built for typescript and it comes with a very high performance router based on [rou3](https://github.com/unjs/rou3).
