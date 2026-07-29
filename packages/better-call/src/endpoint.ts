@@ -1,6 +1,3 @@
-import type { HasRequiredKeys, Prettify } from "./helper";
-import { toResponse } from "./to-response";
-import type { Middleware } from "./middleware";
 import {
 	createInternalContext,
 	type InferBody,
@@ -16,13 +13,16 @@ import {
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import {
 	APIError,
-	ValidationError,
-	type statusCodes,
-	type Status,
 	BetterCallError,
+	type Status,
+	type statusCodes,
+	ValidationError,
 } from "./error";
+import type { HasRequiredKeys, Prettify } from "./helper";
+import type { Middleware } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
+import { toResponse } from "./to-response";
 import { isAPIError, tryCatch } from "./utils";
 
 export interface EndpointBaseOptions {
@@ -286,9 +286,8 @@ export type EndpointContext<
 	 * Params
 	 *
 	 * If the path is `/user/:id` and the request is `/user/1` then the params will
-	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*` then the
-	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the wildcard
-	 * is named like `/user/**:name` then the params will be `{ name: string }`
+	 * be `{ id: "1" }`. Prefer a named wildcard like `/user/**:path` when accessing
+	 * wildcard values, which produces `{ path: string }`.
 	 */
 	params: InferParam<Path>;
 	/**

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createEndpoint, type Endpoint } from "./endpoint";
-import { createRouter } from "./router";
 import { z } from "zod";
-import { APIError } from "./error";
 import { getRequest } from "./adapters/node/request";
+import { createEndpoint, type Endpoint } from "./endpoint";
+import { APIError } from "./error";
+import { createMiddleware } from "./middleware";
+import { createRouter } from "./router";
 import { toResponse } from "./to-response";
 
 describe("router", () => {
@@ -382,6 +383,91 @@ describe("router", () => {
 		expect(response).toMatchObject({ id: "1" });
 	});
 
+	it("should return a numeric key for an unnamed segment wildcard", async () => {
+		const endpoint = createEndpoint(
+			"/files/*",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/files/file.txt"),
+		);
+
+		expect(await response.json()).toEqual({ "0": "file.txt" });
+	});
+
+	it("should return indexed keys for multiple unnamed wildcards", async () => {
+		const endpoint = createEndpoint(
+			"/file-*-*.png",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/file-report-final.png"),
+		);
+
+		expect(await response.json()).toEqual({ "0": "report", "1": "final" });
+	});
+
+	it("should return _ for an unnamed catch-all wildcard", async () => {
+		const endpoint = createEndpoint(
+			"/files/**",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/files/path/to/file.txt"),
+		);
+
+		expect(await response.json()).toEqual({ _: "path/to/file.txt" });
+	});
+
+	it("should return the name for a named catch-all wildcard", async () => {
+		const endpoint = createEndpoint(
+			"/files/**:path",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/files/path/to/file.txt"),
+		);
+
+		expect(await response.json()).toEqual({ path: "path/to/file.txt" });
+	});
+
+	it("should preserve an explicitly named _0 param", async () => {
+		const endpoint = createEndpoint(
+			"/files/:_0",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/files/file.txt"),
+		);
+
+		expect(await response.json()).toEqual({ _0: "file.txt" });
+	});
+
 	it("should handle API Errors", async () => {
 		const endpoint = createEndpoint(
 			"/",
@@ -462,6 +548,30 @@ describe("route middleware", () => {
 		const response = await router.handler(new Request("http://localhost"));
 		const json = await response.json();
 		expect(json).toMatchObject({ name: "hello" });
+	});
+
+	it("should pass numeric wildcard params to route middleware", async () => {
+		let middlewareParams: Record<string, unknown> | undefined;
+		const endpoint = createEndpoint(
+			"/files/*",
+			{
+				method: "GET",
+			},
+			async () => "ok",
+		);
+		const middleware = createMiddleware(async (context) => {
+			middlewareParams = context.params;
+		});
+		const router = createRouter(
+			{ endpoint },
+			{
+				routerMiddleware: [{ path: "/files/*", middleware }],
+			},
+		);
+
+		await router.handler(new Request("http://localhost/files/file.txt"));
+
+		expect(middlewareParams).toEqual({ "0": "file.txt" });
 	});
 });
 

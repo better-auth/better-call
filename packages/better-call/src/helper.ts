@@ -28,22 +28,3 @@ export type MergeObject<
 	T extends Record<string, any> | never,
 	S extends Record<string, any> | never,
 > = T extends never ? S : S extends never ? T : T & S;
-
-export type InferParamPath<Path> =
-	Path extends `${infer _Start}:${infer Param}/${infer Rest}`
-		? { [K in Param | keyof InferParamPath<Rest>]: string }
-		: Path extends `${infer _Start}:${infer Param}`
-			? { [K in Param]: string }
-			: Path extends `${infer _Start}/${infer Rest}`
-				? InferParamPath<Rest>
-				: {};
-
-export type InferParamWildCard<Path> = Path extends
-	| `${infer _Start}/*:${infer Param}/${infer Rest}`
-	| `${infer _Start}/**:${infer Param}/${infer Rest}`
-	? { [K in Param | keyof InferParamPath<Rest>]: string }
-	: Path extends `${infer _Start}/*`
-		? { [K in "_"]: string }
-		: Path extends `${infer _Start}/${infer Rest}`
-			? InferParamWildCard<Rest>
-			: {};

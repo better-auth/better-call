@@ -1,9 +1,9 @@
+import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createEndpoint } from "./endpoint";
 import { z } from "zod";
+import { createEndpoint } from "./endpoint";
 import { APIError, BetterCallError } from "./error";
 import { createMiddleware } from "./middleware";
-import * as v from "valibot";
 
 describe("validation", (it) => {
 	it("should validate body and throw validation error", async () => {
@@ -316,24 +316,29 @@ describe("types", async () => {
 		);
 	});
 
-	it("wildcard params", async () => {
+	it("infers numeric wildcard params in the endpoint context", () => {
 		createEndpoint(
 			"/api/*",
 			{
 				method: "GET",
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.params).toEqualTypeOf<{ _: string }>();
+				expectTypeOf(ctx.params).toEqualTypeOf<{ "0": string }>();
 			},
 		);
+	});
 
+	it("combines named and unnamed params in the endpoint context", () => {
 		createEndpoint(
 			"/api/:id/*",
 			{
 				method: "GET",
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.params).toEqualTypeOf<{ _: string; id: string }>();
+				expectTypeOf(ctx.params).toEqualTypeOf<{
+					"0": string;
+					id: string;
+				}>();
 			},
 		);
 	});

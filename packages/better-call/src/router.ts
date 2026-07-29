@@ -4,7 +4,7 @@ import {
 	findAllRoutes,
 	findRoute,
 } from "rou3";
-import { type Endpoint, createEndpoint } from "./endpoint";
+import { createEndpoint, type Endpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
@@ -232,9 +232,7 @@ export const createRouter = <
 				path,
 				method: request.method as "GET",
 				headers: request.headers,
-				params: route.params
-					? (JSON.parse(JSON.stringify(route.params)) as any)
-					: {},
+				params: route.params ? { ...route.params } : {},
 				request: request,
 				body: handler.options.disableBody
 					? undefined
@@ -252,7 +250,7 @@ export const createRouter = <
 				for (const { data: middleware, params } of middlewareRoutes) {
 					const res = await (middleware as Endpoint)({
 						...context,
-						params,
+						params: params ? { ...params } : {},
 						asResponse: false,
 					});
 

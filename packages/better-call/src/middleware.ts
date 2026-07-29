@@ -1,10 +1,4 @@
 import {
-	createEndpoint,
-	type Endpoint,
-	type EndpointContext,
-	type EndpointOptions,
-} from "./endpoint";
-import {
 	createInternalContext,
 	type InferBody,
 	type InferBodyInput,
@@ -19,9 +13,15 @@ import {
 	type InferUse,
 	type InputContext,
 } from "./context";
+import {
+	createEndpoint,
+	type Endpoint,
+	type EndpointContext,
+	type EndpointOptions,
+} from "./endpoint";
+import { kAPIErrorHeaderSymbol } from "./error";
 import type { Prettify } from "./helper";
 import { isAPIError } from "./utils";
-import { kAPIErrorHeaderSymbol } from "./error";
 
 export interface MiddlewareOptions extends Omit<EndpointOptions, "method"> {}
 
@@ -66,14 +66,11 @@ export type MiddlewareContext<
 	 * Params
 	 *
 	 * If the path is `/user/:id` and the request is `/user/1` then the
-	 * params will
-	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*`
-	 * then the
-	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the
-	 * wildcard
-	 * is named like `/user/**:name` then the params will be `{ name: string }`
+	 * params will be `{ id: "1" }`. Prefer a named wildcard like
+	 * `/user/**:path` when accessing wildcard values, which produces
+	 * `{ path: string }`.
 	 */
-	params: string;
+	params: Record<string, string> | undefined;
 	/**
 	 * Request object
 	 *

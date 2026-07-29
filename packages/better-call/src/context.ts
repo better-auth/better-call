@@ -1,34 +1,29 @@
+import type { InferRouteParams } from "rou3";
+import {
+	type CookieOptions,
+	type CookiePrefixOptions,
+	getCookieKey,
+	parseCookies,
+	serializeCookie,
+	serializeSignedCookie,
+} from "./cookies";
+import { getCryptoKey, verifySignature } from "./crypto";
 import type { EndpointOptions } from "./endpoint";
 import {
-	type statusCodes,
 	APIError,
-	ValidationError,
 	type Status,
+	type statusCodes,
+	ValidationError,
 } from "./error";
-import type {
-	InferParamPath,
-	InferParamWildCard,
-	IsEmptyObject,
-	Prettify,
-	UnionToIntersection,
-} from "./helper";
+import type { IsEmptyObject, Prettify, UnionToIntersection } from "./helper";
 import type {
 	Middleware,
 	MiddlewareContext,
 	MiddlewareOptions,
 } from "./middleware";
-import { runValidation } from "./validator";
-import {
-	getCookieKey,
-	parseCookies,
-	serializeCookie,
-	serializeSignedCookie,
-	type CookieOptions,
-	type CookiePrefixOptions,
-} from "./cookies";
-import { getCryptoKey, verifySignature } from "./crypto";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { isRequest } from "./utils";
+import { runValidation } from "./validator";
 
 export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 export type Method = HTTPMethod | "*";
@@ -115,21 +110,25 @@ export type InferInputMethod<
 			method: Method;
 		};
 
-export type InferParam<Path extends string> = [Path] extends [never]
+export type InferParam<Path extends string> = string extends Path
 	? Record<string, any> | undefined
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
+	: [Path] extends [never]
 		? Record<string, any> | undefined
-		: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
+		: IsEmptyObject<InferRouteParams<Path>> extends true
+			? Record<string, any> | undefined
+			: Prettify<InferRouteParams<Path>>;
 
-export type InferParamInput<Path extends string> = [Path] extends [never]
+export type InferParamInput<Path extends string> = string extends Path
 	? { params?: Record<string, any> }
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
-		? {
-				params?: Record<string, any>;
-			}
-		: {
-				params: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
-			};
+	: [Path] extends [never]
+		? { params?: Record<string, any> }
+		: IsEmptyObject<InferRouteParams<Path>> extends true
+			? {
+					params?: Record<string, any>;
+				}
+			: {
+					params: Prettify<InferRouteParams<Path>>;
+				};
 
 export type InferRequest<Option extends EndpointOptions | MiddlewareOptions> =
 	Option["requireRequest"] extends true ? Request : Request | undefined;
@@ -198,7 +197,7 @@ export const createInternalContext = async (
 	},
 ) => {
 	const headers = new Headers();
-	let responseStatus: Status | undefined = undefined;
+	let responseStatus: Status | undefined;
 
 	const { data, error } = await runValidation(options, context);
 	if (error) {
