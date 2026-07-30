@@ -25,6 +25,35 @@ export type UnionToIntersection<Union> = (
 	: never;
 
 export type MergeObject<
+	// biome-ignore lint/suspicious/noExplicitAny: Preserve the existing public type.
 	T extends Record<string, any> | never,
+	// biome-ignore lint/suspicious/noExplicitAny: Preserve the existing public type.
 	S extends Record<string, any> | never,
 > = T extends never ? S : S extends never ? T : T & S;
+
+/**
+ * @deprecated Use `InferParam` instead.
+ */
+export type InferParamPath<Path> =
+	Path extends `${infer _Start}:${infer Param}/${infer Rest}`
+		? { [K in Param | keyof InferParamPath<Rest>]: string }
+		: Path extends `${infer _Start}:${infer Param}`
+			? { [K in Param]: string }
+			: Path extends `${infer _Start}/${infer Rest}`
+				? InferParamPath<Rest>
+				: // biome-ignore lint/complexity/noBannedTypes: Preserve the deprecated public type.
+					{};
+
+/**
+ * @deprecated Use `InferParam` instead.
+ */
+export type InferParamWildCard<Path> = Path extends
+	| `${infer _Start}/*:${infer Param}/${infer Rest}`
+	| `${infer _Start}/**:${infer Param}/${infer Rest}`
+	? { [K in Param | keyof InferParamPath<Rest>]: string }
+	: Path extends `${infer _Start}/*`
+		? { [K in "_"]: string }
+		: Path extends `${infer _Start}/${infer Rest}`
+			? InferParamWildCard<Rest>
+			: // biome-ignore lint/complexity/noBannedTypes: Preserve the deprecated public type.
+				{};
