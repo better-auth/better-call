@@ -1,7 +1,11 @@
 import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { createEndpoint } from "./endpoint";
+import {
+	createEndpoint,
+	type EndpointContext,
+	type EndpointOptions,
+} from "./endpoint";
 import { APIError, BetterCallError } from "./error";
 import { createMiddleware } from "./middleware";
 
@@ -443,6 +447,7 @@ describe("virtual endpoints", () => {
 					method: "POST",
 				},
 				async (ctx) => {
+					expectTypeOf(ctx.path).toEqualTypeOf<string>();
 					expect(ctx.path).toBe("virtual:");
 					return value;
 				},
@@ -864,6 +869,16 @@ describe("response", () => {
 });
 
 describe("creator", () => {
+	it("should preserve explicit context through generic endpoint options", () => {
+		type CreatorContext = { hello: string };
+
+		const readContext = <Options extends EndpointOptions>(
+			context: EndpointContext<string, Options, CreatorContext>,
+		): CreatorContext => context.context;
+
+		expectTypeOf(readContext).returns.toEqualTypeOf<CreatorContext>();
+	});
+
 	it("should use creator context", async () => {
 		const creator = createEndpoint.create({
 			use: [
@@ -886,6 +901,36 @@ describe("creator", () => {
 		const response = await endpoint();
 		expect(response).toMatchObject({
 			hello: "world",
+		});
+	});
+
+	it("should use creator context for path-less endpoints", async () => {
+		const creator = createEndpoint.create({
+			use: [
+				createMiddleware(async () => {
+					return {
+						hello: "world",
+					};
+				}),
+			],
+		});
+		const endpoint = creator(
+			{
+				method: "POST",
+			},
+			async (context) => {
+				expectTypeOf(context.path).toEqualTypeOf<string>();
+				return {
+					context: context.context,
+					path: context.path,
+				};
+			},
+		);
+
+		expect(endpoint.path).toBeUndefined();
+		await expect(endpoint()).resolves.toEqual({
+			context: { hello: "world" },
+			path: "virtual:",
 		});
 	});
 

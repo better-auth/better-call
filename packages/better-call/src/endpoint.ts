@@ -18,7 +18,7 @@ import {
 	type statusCodes,
 	ValidationError,
 } from "./error";
-import type { HasRequiredKeys, Prettify } from "./helper";
+import type { HasRequiredKeys } from "./helper";
 import type { Middleware } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
@@ -413,7 +413,7 @@ export type EndpointContext<
 	/**
 	 * Middleware context
 	 */
-	context: Prettify<Context & InferUse<Options["use"]>>;
+	context: Context & InferUse<Options["use"]>;
 	/**
 	 * Redirect to a new URL
 	 */
@@ -504,7 +504,14 @@ export type EndpointHandler<
 	Path extends string,
 	Options extends EndpointOptions,
 	R,
-> = (context: EndpointContext<Path, Options>) => Promise<R>;
+	Context = {},
+> = (context: EndpointContext<Path, Options, Context>) => Promise<R>;
+
+type PathlessEndpointHandler<
+	Options extends EndpointOptions,
+	R,
+	Context = {},
+> = EndpointHandler<string, Options, R, Context>;
 
 export function createEndpoint<
 	Path extends string,
@@ -518,7 +525,7 @@ export function createEndpoint<
 
 export function createEndpoint<Options extends EndpointOptions, R>(
 	options: Options,
-	handler: EndpointHandler<never, Options, R>,
+	handler: PathlessEndpointHandler<Options, R>,
 ): StrictEndpoint<never, ExtractStandSchema<Options>, R>;
 
 export function createEndpoint<
@@ -666,24 +673,61 @@ export function createEndpoint<
 }
 
 createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
-	return <
+	function createConfiguredEndpoint<
 		Path extends string,
 		Opts extends EndpointOptions,
-		R extends Promise<any>,
+		R,
 	>(
 		path: Path,
 		options: Opts,
-		handler: (ctx: EndpointContext<Path, Opts, InferUse<E["use"]>>) => R,
-	) => {
+		handler: EndpointHandler<Path, Opts, R, InferUse<E["use"]>>,
+	): StrictEndpoint<Path, ExtractStandSchema<Opts & { use: Middleware[] }>, R>;
+
+	function createConfiguredEndpoint<Opts extends EndpointOptions, R>(
+		options: Opts,
+		handler: PathlessEndpointHandler<Opts, R, InferUse<E["use"]>>,
+	): StrictEndpoint<never, ExtractStandSchema<Opts & { use: Middleware[] }>, R>;
+
+	function createConfiguredEndpoint<
+		Path extends string,
+		Opts extends EndpointOptions,
+		R,
+	>(
+		...args:
+			| [
+					path: Path,
+					options: Opts,
+					handler: EndpointHandler<Path, Opts, R, InferUse<E["use"]>>,
+			  ]
+			| [
+					options: Opts,
+					handler: PathlessEndpointHandler<Opts, R, InferUse<E["use"]>>,
+			  ]
+	) {
+		const usesPathOverload = args.length === 3;
+		if (usesPathOverload) {
+			const [path, options, handler] = args;
+			return createEndpoint(
+				path,
+				{
+					...options,
+					use: [...(options.use || []), ...(opts?.use || [])],
+				},
+				handler,
+			);
+		}
+
+		const [options, handler] = args;
 		return createEndpoint(
-			path,
 			{
 				...options,
-				use: [...(options?.use || []), ...(opts?.use || [])],
+				use: [...(options.use || []), ...(opts?.use || [])],
 			},
 			handler,
 		);
-	};
+	}
+
+	return createConfiguredEndpoint;
 };
 
 export type StrictEndpoint<
