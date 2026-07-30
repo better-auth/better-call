@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createMiddleware } from "./middleware";
 import { createEndpoint } from "./endpoint";
 import { APIError, kAPIErrorHeaderSymbol } from "./error";
+import { createMiddleware } from "./middleware";
 
 describe("type", () => {
 	it("should infer middleware returned type", async () => {
@@ -96,6 +96,7 @@ describe("creator", () => {
 		});
 
 		const middleware = creator(async (c) => {
+			expectTypeOf(c.context).not.toBeAny();
 			expectTypeOf(c.context).toMatchTypeOf<{
 				hello: string;
 			}>();
@@ -110,6 +111,7 @@ describe("creator", () => {
 				method: "GET",
 			},
 			async (c) => {
+				expectTypeOf(c.context).not.toBeAny();
 				return c.context;
 			},
 		);

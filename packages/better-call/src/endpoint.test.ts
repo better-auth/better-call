@@ -895,6 +895,10 @@ describe("creator", () => {
 				method: "POST",
 			},
 			async (c) => {
+				expectTypeOf(c.context).not.toBeAny();
+				expectTypeOf(c.context).toMatchTypeOf<{
+					hello: string;
+				}>();
 				return c.context;
 			},
 		);
@@ -957,6 +961,11 @@ describe("creator", () => {
 				],
 			},
 			async (c) => {
+				expectTypeOf(c.context).not.toBeAny();
+				expectTypeOf(c.context).toMatchTypeOf<{
+					hello: string;
+					test: string;
+				}>();
 				return c.context;
 			},
 		);

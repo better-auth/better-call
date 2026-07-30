@@ -672,6 +672,23 @@ export function createEndpoint<
 	>;
 }
 
+type MiddlewareList<T extends Middleware[] | undefined> = T extends Middleware[]
+	? T
+	: [];
+
+function combineMiddleware<
+	Local extends Middleware[] | undefined,
+	Configured extends Middleware[] | undefined,
+>(
+	local: Local,
+	configured: Configured,
+): [...MiddlewareList<Local>, ...MiddlewareList<Configured>] {
+	return [...(local || []), ...(configured || [])] as [
+		...MiddlewareList<Local>,
+		...MiddlewareList<Configured>,
+	];
+}
+
 createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 	function createConfiguredEndpoint<
 		Path extends string,
@@ -711,7 +728,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 				path,
 				{
 					...options,
-					use: [...(options.use || []), ...(opts?.use || [])],
+					use: combineMiddleware(options.use, opts?.use),
 				},
 				handler,
 			);
@@ -721,7 +738,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		return createEndpoint(
 			{
 				...options,
-				use: [...(options.use || []), ...(opts?.use || [])],
+				use: combineMiddleware(options.use, opts?.use),
 			},
 			handler,
 		);

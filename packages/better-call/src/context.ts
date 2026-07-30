@@ -156,10 +156,20 @@ export type InferHeadersInput<
 			headers?: HeadersInit;
 		};
 
-export type InferUse<Opts extends EndpointOptions["use"]> =
-	Opts extends Middleware[]
-		? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
-		: {};
+type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
+	? unknown extends Awaited<Result>
+		? never
+		: Extract<Awaited<Result>, object>
+	: never;
+
+type InferMiddlewareContexts<Opts extends EndpointOptions["use"]> =
+	Opts extends Middleware[] ? InferMiddlewareContext<Opts[number]> : never;
+
+export type InferUse<Opts extends EndpointOptions["use"]> = [
+	InferMiddlewareContexts<Opts>,
+] extends [never]
+	? object
+	: UnionToIntersection<InferMiddlewareContexts<Opts>>;
 
 export type InferMiddlewareBody<Options extends MiddlewareOptions> =
 	Options["body"] extends StandardSchemaV1<infer T> ? T : any;
