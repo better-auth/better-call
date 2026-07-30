@@ -1128,3 +1128,30 @@ describe("responseHeaders", () => {
 		expect(result.count).toBe(1);
 	});
 });
+
+describe("body from request", () => {
+	it("should parse body from the request when body property is not provided", async () => {
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+				body: z.object({
+					filename: z.string(),
+				}),
+			},
+			async (ctx) => {
+				return ctx.body;
+			},
+		);
+
+		const result = await endpoint({
+			request: new Request("http://localhost/test", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ filename: "test.txt" }),
+			}),
+		} as any);
+
+		expect(result).toEqual({ filename: "test.txt" });
+	});
+});

@@ -22,7 +22,7 @@ import type {
 	ResolveMethod,
 	ResolveQuery,
 } from "./types";
-import { isRequest } from "./utils";
+import { getBody, isRequest } from "./utils";
 import { runValidation } from "./validator";
 
 export type EndpointContext<
@@ -234,6 +234,15 @@ export const createInternalContext = async (
 ) => {
 	const headers = new Headers();
 	let responseStatus: Status | undefined;
+
+	if (
+		context.body === undefined &&
+		options.body &&
+		"request" in context &&
+		isRequest(context.request)
+	) {
+		context.body = await getBody(context.request);
+	}
 
 	const { data, error } = await runValidation(options as any, context as any);
 	if (error) {

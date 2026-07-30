@@ -6,7 +6,7 @@ import {
 } from "rou3";
 import { createEndpoint, type Endpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
-import { generator, getHTML } from "./openapi";
+import { generator, getHTML, type OpenAPIGeneratorConfig } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
 
@@ -78,6 +78,25 @@ export interface RouterConfig {
 		 */
 		path?: string;
 		/**
+		 * OpenAPI Info Object. Merged over the defaults
+		 * (`{ title: "API Reference", version: "1.0.0" }`).
+		 */
+		info?: OpenAPIGeneratorConfig["info"];
+		/**
+		 * OpenAPI Server Objects.
+		 */
+		servers?: OpenAPIGeneratorConfig["servers"];
+		/**
+		 * Document-level security requirements, applied to every operation unless a
+		 * per-endpoint `metadata.openapi.security` overrides it. Omitted by
+		 * default — better-call asserts no auth scheme on its own.
+		 */
+		security?: OpenAPIGeneratorConfig["security"];
+		/**
+		 * Named security schemes exposed under `components.securitySchemes`.
+		 */
+		securitySchemes?: OpenAPIGeneratorConfig["securitySchemes"];
+		/**
 		 * Scalar Configuration
 		 */
 		scalar?: {
@@ -124,7 +143,12 @@ export const createRouter = <
 				method: "GET",
 			},
 			async (c) => {
-				const schema = await generator(endpoints as any);
+				const schema = await generator(endpoints as any, {
+					info: openapi.info,
+					servers: openapi.servers,
+					security: openapi.security,
+					securitySchemes: openapi.securitySchemes,
+				});
 				return new Response(getHTML(schema, openapi.scalar), {
 					headers: {
 						"Content-Type": "text/html",
