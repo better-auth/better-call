@@ -133,8 +133,8 @@ export const createRouter = <
 			},
 		);
 	}
-	const router = createRou3Router();
-	const middlewareRouter = createRou3Router();
+	const router = createRou3Router<Endpoint>();
+	const middlewareRouter = createRou3Router<Middleware>();
 
 	for (const endpoint of Object.values(endpoints)) {
 		if (!endpoint.options || !endpoint.path) {
@@ -191,10 +191,7 @@ export const createRouter = <
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 
-		const route = findRoute(router, request.method, path) as {
-			data: Endpoint & { path: string };
-			params: Record<string, string>;
-		};
+		const route = findRoute(router, request.method, path);
 		const hasTrailingSlash = path.endsWith("/");
 		const routeHasTrailingSlash = route?.data?.path?.endsWith("/");
 
@@ -221,7 +218,7 @@ export const createRouter = <
 			}
 		});
 
-		const handler = route.data as Endpoint;
+		const handler = route.data;
 
 		try {
 			// Determine which allowedMediaTypes to use: endpoint-level overrides router-level

@@ -70,7 +70,7 @@ export type MiddlewareContext<
 	 * `/user/**:path` when accessing wildcard values, which produces
 	 * `{ path: string }`.
 	 */
-	params: Record<string, string> | undefined;
+	params: Record<string, string | undefined> | undefined;
 	/**
 	 * Request object
 	 *

@@ -37,6 +37,7 @@ describe("route param inference", () => {
 		}>();
 	});
 
+	// TODO: Include undefined after https://github.com/h3js/rou3/pull/198 is released.
 	it("infers a numeric key for an unnamed segment wildcard", () => {
 		expectTypeOf<InferParam<"/files/*">>().toEqualTypeOf<{ "0": string }>();
 	});

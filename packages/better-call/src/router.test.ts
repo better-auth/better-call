@@ -400,6 +400,25 @@ describe("router", () => {
 		expect(await response.json()).toEqual({ "0": "file.txt" });
 	});
 
+	it("should preserve undefined for an empty trailing segment wildcard", async () => {
+		let params: Record<string, string | undefined> | undefined;
+		const endpoint = createEndpoint(
+			"/files/*",
+			{
+				method: "GET",
+			},
+			async (context) => {
+				params = context.params;
+				return "ok";
+			},
+		);
+		const router = createRouter({ endpoint });
+
+		await router.handler(new Request("http://localhost/files"));
+
+		expect(params).toEqual({ "0": undefined });
+	});
+
 	it("should return indexed keys for multiple unnamed wildcards", async () => {
 		const endpoint = createEndpoint(
 			"/file-*-*.png",
