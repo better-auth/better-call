@@ -8,6 +8,9 @@
 		// third party libraries
 		"attw",
 		"bumpp",
+		"changelogithub",
+		"elif",
+		"nvmrc",
 
 		// auth words
 		"scim",
