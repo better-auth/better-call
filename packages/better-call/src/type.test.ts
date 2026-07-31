@@ -1,6 +1,18 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { InferBody, InferParam, InferQuery } from "./context";
-import type { EndpointContext, EndpointOptions } from "./endpoint";
+import type {
+	InferBody,
+	InferParam,
+	InferQuery,
+	RuntimeInputContext,
+} from "./context";
+import {
+	createEndpoint,
+	type Endpoint,
+	type EndpointContext,
+	type EndpointOptions,
+	type OpenAPISchema,
+} from "./endpoint";
+import type { Middleware } from "./middleware";
 
 describe("route param inference", () => {
 	it("uses optional params for an empty path", () => {
@@ -91,5 +103,32 @@ describe("endpoint context compatibility", () => {
 		): EndpointContext<string, Options, Context, InferParam<string>> => context;
 
 		expectTypeOf(toRouteAgnosticContext).toBeFunction();
+	});
+
+	it("keeps route-specific endpoints assignable to the endpoint registry", () => {
+		const endpoint = createEndpoint(
+			"/users/:id",
+			{ method: "GET" },
+			async ({ params }) => params.id,
+		);
+
+		expectTypeOf(endpoint).toMatchTypeOf<Endpoint>();
+	});
+
+	it("keeps erased endpoints and middleware callable with runtime input", () => {
+		expectTypeOf<
+			Parameters<Endpoint>[0]
+		>().toEqualTypeOf<RuntimeInputContext>();
+		expectTypeOf<
+			Parameters<Middleware>[0]
+		>().toEqualTypeOf<RuntimeInputContext>();
+	});
+});
+
+describe("OpenAPI schema compatibility", () => {
+	it("supports nested property schemas", () => {
+		expectTypeOf<NonNullable<OpenAPISchema["properties"]>>().toEqualTypeOf<
+			Record<string, OpenAPISchema>
+		>();
 	});
 });

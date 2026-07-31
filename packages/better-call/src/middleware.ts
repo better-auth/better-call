@@ -1,9 +1,12 @@
 import {
 	createInternalContext,
 	type InferHeadersInput,
+	type InferMiddlewareBody,
+	type InferMiddlewareQuery,
 	type InferRequestInput,
 	type InferUse,
 	type ParsedQuery,
+	type RuntimeHandler,
 } from "./context";
 import type { EndpointContext, EndpointOptions } from "./endpoint";
 import { kAPIErrorHeaderSymbol } from "./error";
@@ -22,7 +25,10 @@ export type MiddlewareContext<
 	Options & {
 		method: "*";
 	},
-	Context
+	Context,
+	Record<string, string | undefined> | undefined,
+	InferMiddlewareBody<Options>,
+	InferMiddlewareQuery<Options>
 >;
 
 type MiddlewareHandler<
@@ -86,7 +92,9 @@ function buildMiddleware<
 		const internalContext = await createInternalContext<
 			string,
 			typeof endpointOptions,
-			Context
+			Context,
+			InferMiddlewareBody<Options>,
+			InferMiddlewareQuery<Options>
 		>(context, {
 			options: endpointOptions,
 			path: "/",
@@ -124,7 +132,7 @@ function buildMiddleware<
 type InferMiddlewareBodyInput<Options extends MiddlewareOptions> =
 	Options["body"] extends StandardSchemaV1
 		? StandardSchemaV1.InferInput<Options["body"]>
-		: unknown;
+		: Record<string, unknown>;
 
 type InferMiddlewareQueryInput<Options extends MiddlewareOptions> =
 	Options["query"] extends StandardSchemaV1
@@ -143,9 +151,7 @@ export type MiddlewareInputContext<Options extends MiddlewareOptions> = {
 
 export type Middleware<
 	Options extends MiddlewareOptions = MiddlewareOptions,
-	Handler extends (...input: never[]) => Promise<unknown> = (
-		...input: never[]
-	) => Promise<unknown>,
+	Handler extends RuntimeHandler = RuntimeHandler,
 > = Handler & {
 	options: Options;
 };

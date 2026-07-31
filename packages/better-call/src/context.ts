@@ -171,7 +171,9 @@ export type InferUse<Opts extends EndpointOptions["use"]> = [
 	: UnionToIntersection<InferMiddlewareContexts<Opts>>;
 
 export type InferMiddlewareBody<Options extends MiddlewareOptions> =
-	Options["body"] extends StandardSchemaV1<infer T> ? T : unknown;
+	Options["body"] extends StandardSchemaV1<infer T>
+		? T
+		: Record<string, unknown>;
 
 export type InferMiddlewareQuery<Options extends MiddlewareOptions> =
 	Options["query"] extends StandardSchemaV1<infer T>
@@ -210,6 +212,10 @@ export type RuntimeInputContext = {
 	context?: object;
 };
 
+export type RuntimeHandler = {
+	handle(context: RuntimeInputContext): Promise<unknown>;
+}["handle"];
+
 type RuntimeMiddlewareHandler = (
 	context: RuntimeInputContext & {
 		returnHeaders: true;
@@ -224,7 +230,9 @@ type InternalEndpointContext<
 	Path extends string,
 	Options extends EndpointOptions,
 	Context extends object,
-> = EndpointContext<Path, Options, Context> & {
+	Body = InferBody<Options>,
+	Query = InferQuery<Options>,
+> = EndpointContext<Path, Options, Context, InferParam<Path>, Body, Query> & {
 	returned?: unknown;
 	responseStatus?: Status;
 };
@@ -233,6 +241,8 @@ export const createInternalContext = async <
 	Path extends string,
 	Options extends EndpointOptions,
 	Context extends object = object,
+	Body = InferBody<Options>,
+	Query = InferQuery<Options>,
 >(
 	context: RuntimeInputContext,
 	{
@@ -242,7 +252,7 @@ export const createInternalContext = async <
 		options: Options;
 		path?: Path;
 	},
-): Promise<InternalEndpointContext<Path, Options, Context>> => {
+): Promise<InternalEndpointContext<Path, Options, Context, Body, Query>> => {
 	const headers = new Headers();
 	let responseStatus: Status | undefined;
 
@@ -406,6 +416,8 @@ export const createInternalContext = async <
 	return internalContext as unknown as InternalEndpointContext<
 		Path,
 		Options,
-		Context
+		Context,
+		Body,
+		Query
 	>;
 };

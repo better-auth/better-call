@@ -8,6 +8,7 @@ import {
 	type InferRequest,
 	type InferUse,
 	type InputContext,
+	type RuntimeHandler,
 } from "./context";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import {
@@ -23,6 +24,14 @@ import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
 import { isAPIError, tryCatch } from "./utils";
+
+export interface OpenAPISchema {
+	type?: OpenAPISchemaType;
+	properties?: Record<string, OpenAPISchema>;
+	required?: string[];
+	$ref?: string;
+	[key: string]: unknown;
+}
 
 export interface EndpointBaseOptions {
 	/**
@@ -65,12 +74,7 @@ export interface EndpointBaseOptions {
 			requestBody?: {
 				content: {
 					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, unknown>;
-							required?: string[];
-							$ref?: string;
-						};
+						schema: OpenAPISchema;
 					};
 				};
 			};
@@ -79,28 +83,13 @@ export interface EndpointBaseOptions {
 					description: string;
 					content?: {
 						"application/json"?: {
-							schema: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, unknown>;
-								required?: string[];
-								$ref?: string;
-							};
+							schema: OpenAPISchema;
 						};
 						"text/plain"?: {
-							schema?: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, unknown>;
-								required?: string[];
-								$ref?: string;
-							};
+							schema?: OpenAPISchema;
 						};
 						"text/html"?: {
-							schema?: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, unknown>;
-								required?: string[];
-								$ref?: string;
-							};
+							schema?: OpenAPISchema;
 						};
 					};
 				};
@@ -255,6 +244,8 @@ export type EndpointContext<
 	Options extends EndpointOptions,
 	Context extends object = object,
 	Params = InferParam<Path>,
+	Body = InferBody<Options>,
+	Query = InferQuery<Options>,
 > = {
 	/**
 	 * Method
@@ -274,14 +265,14 @@ export type EndpointContext<
 	 * The body object will be the parsed JSON from the request and validated
 	 * against the body schema if it exists.
 	 */
-	body: InferBody<Options>;
+	body: Body;
 	/**
 	 * Query
 	 *
 	 * The query object will be the parsed query string from the request
 	 * and validated against the query schema if it exists
 	 */
-	query: InferQuery<Options>;
+	query: Query;
 	/**
 	 * Params
 	 *
@@ -799,9 +790,7 @@ export type StrictEndpoint<
 export type Endpoint<
 	Path extends string = string,
 	Options extends EndpointOptions = EndpointOptions,
-	Handler extends (...input: never[]) => Promise<unknown> = (
-		...input: never[]
-	) => Promise<unknown>,
+	Handler extends RuntimeHandler = RuntimeHandler,
 > = Handler & {
 	options: Options;
 	path: Path;
