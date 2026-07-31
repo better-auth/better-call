@@ -1,11 +1,11 @@
-import {
-	type BetterFetchOption,
-	type BetterFetchResponse,
-	createFetch,
+import type {
+	BetterFetchOption,
+	BetterFetchResponse,
 } from "@better-fetch/fetch";
-import type { Router } from "./router";
-import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
+import { createFetch } from "@better-fetch/fetch";
 import type { Endpoint } from "./endpoint";
+import type { HasRequiredKeys, Prettify, UnionToIntersection } from "./helper";
+import type { Router } from "./router";
 
 export type HasRequired<T extends object> = T extends {}
 	? false

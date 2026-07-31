@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toResponse } from "./to-response";
 import { APIError } from "./error";
+import { toResponse } from "./to-response";
 
 describe("toResponse", () => {
 	describe("basic types", async () => {

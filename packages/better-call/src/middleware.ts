@@ -1,27 +1,20 @@
-import {
-	createEndpoint,
-	type Endpoint,
-	type EndpointContext,
-	type EndpointOptions,
-} from "./endpoint";
-import {
-	createInternalContext,
-	type InferBody,
-	type InferBodyInput,
-	type InferHeaders,
-	type InferHeadersInput,
-	type InferMiddlewareBody,
-	type InferMiddlewareQuery,
-	type InferQuery,
-	type InferQueryInput,
-	type InferRequest,
-	type InferRequestInput,
-	type InferUse,
-	type InputContext,
+import type {
+	InferBodyInput,
+	InferHeaders,
+	InferHeadersInput,
+	InferMiddlewareBody,
+	InferMiddlewareQuery,
+	InferQueryInput,
+	InferRequest,
+	InferRequestInput,
+	InferUse,
+	InputContext,
 } from "./context";
+import { createInternalContext } from "./context";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
+import { kAPIErrorHeaderSymbol } from "./error";
 import type { Prettify } from "./helper";
 import { isAPIError } from "./utils";
-import { kAPIErrorHeaderSymbol } from "./error";
 
 export interface MiddlewareOptions extends Omit<EndpointOptions, "method"> {}
 

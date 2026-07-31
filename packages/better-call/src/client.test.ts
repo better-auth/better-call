@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createClient } from "./client";
 import { z } from "zod";
+import { createClient } from "./client";
 import { createEndpoint } from "./endpoint";
-import { createRouter, type Router } from "./router";
 import { createMiddleware } from "./middleware";
+import { createRouter } from "./router";
 
 describe("client", () => {
 	const getEndpoint = createEndpoint(
@@ -101,7 +101,7 @@ describe("client", () => {
 			},
 		});
 
-		const res = await client("@post/test", {
+		await client("@post/test", {
 			body: {
 				hello: "world",
 			},
@@ -111,20 +111,20 @@ describe("client", () => {
 			"@post/test" | "/test2" | "/test3"
 		>();
 
-		client("@post/test", {
+		void client("@post/test", {
 			body: {
 				//@ts-expect-error
 				hello: 1,
 			},
 		});
 
-		client("/test2", {
+		void client("/test2", {
 			query: {
 				//@ts-expect-error
 				hello: 2,
 			},
 		});
-		client("/test3", {
+		void client("/test3", {
 			query: {},
 		});
 	});
@@ -325,8 +325,8 @@ describe("client", () => {
 		expectTypeOf<Parameters<typeof client>[0]>().toExtend<
 			"@post/test" | "/test2"
 		>();
-		client("@post/test");
-		client("/test2");
+		void client("@post/test");
+		void client("/test2");
 	});
 
 	it("should return unwrapped type T when throw: true is set", async () => {

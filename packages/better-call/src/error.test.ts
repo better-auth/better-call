@@ -1,6 +1,6 @@
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { APIError } from "./error";
-import { inspect } from "node:util";
 
 describe("APIError", () => {
 	it("should throw correct stack", () => {

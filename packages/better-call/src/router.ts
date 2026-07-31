@@ -4,7 +4,8 @@ import {
 	findAllRoutes,
 	findRoute,
 } from "rou3";
-import { type Endpoint, createEndpoint } from "./endpoint";
+import type { Endpoint } from "./endpoint";
+import { createEndpoint } from "./endpoint";
 import type { Middleware } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";

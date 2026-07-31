@@ -1,28 +1,22 @@
-import type { HasRequiredKeys, Prettify } from "./helper";
-import { toResponse } from "./to-response";
-import type { Middleware } from "./middleware";
-import {
-	createInternalContext,
-	type InferBody,
-	type InferHeaders,
-	type InferMethod,
-	type InferParam,
-	type InferQuery,
-	type InferRequest,
-	type InferUse,
-	type InputContext,
-	type Method,
+import type {
+	InferBody,
+	InferHeaders,
+	InferMethod,
+	InferParam,
+	InferQuery,
+	InferRequest,
+	InferUse,
+	InputContext,
 } from "./context";
+import { createInternalContext } from "./context";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
-import {
-	APIError,
-	ValidationError,
-	type statusCodes,
-	type Status,
-	BetterCallError,
-} from "./error";
+import type { Status, statusCodes } from "./error";
+import { APIError, BetterCallError, ValidationError } from "./error";
+import type { HasRequiredKeys, Prettify } from "./helper";
+import type { Middleware } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
+import { toResponse } from "./to-response";
 import { isAPIError, tryCatch } from "./utils";
 
 export interface EndpointBaseOptions {
