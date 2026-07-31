@@ -1,28 +1,29 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { InferParam } from "./context";
+import type { InferBody, InferParam, InferQuery } from "./context";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
 
 describe("route param inference", () => {
 	it("uses optional params for an empty path", () => {
 		expectTypeOf<InferParam<"/">>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 	});
 
 	it("uses optional params for a never path", () => {
 		expectTypeOf<InferParam<never>>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 	});
 
 	it("uses optional params for a dynamic path", () => {
 		expectTypeOf<InferParam<string>>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 	});
 
 	it("uses optional params for a static path", () => {
 		expectTypeOf<InferParam<"/static/path">>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 	});
 
@@ -64,5 +65,31 @@ describe("route param inference", () => {
 			userId: string;
 			"0": string;
 		}>();
+	});
+});
+
+describe("endpoint input inference", () => {
+	it("uses unknown for a body without a schema", () => {
+		expectTypeOf<InferBody<EndpointOptions>>().toEqualTypeOf<unknown>();
+	});
+
+	it("uses parsed query values for a query without a schema", () => {
+		expectTypeOf<InferQuery<EndpointOptions>>().toEqualTypeOf<
+			Record<string, string | string[]> | undefined
+		>();
+	});
+});
+
+describe("endpoint context compatibility", () => {
+	it("widens route-specific paths without losing their inferred params", () => {
+		const toRouteAgnosticContext = <
+			Path extends string,
+			Options extends EndpointOptions,
+			Context extends object,
+		>(
+			context: EndpointContext<Path, Options, Context>,
+		): EndpointContext<string, Options, Context, InferParam<string>> => context;
+
+		expectTypeOf(toRouteAgnosticContext).toBeFunction();
 	});
 });

@@ -8,7 +8,6 @@ import {
 	type InferRequest,
 	type InferUse,
 	type InputContext,
-	type Method,
 } from "./context";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import {
@@ -68,7 +67,7 @@ export interface EndpointBaseOptions {
 					"application/json": {
 						schema: {
 							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
+							properties?: Record<string, unknown>;
 							required?: string[];
 							$ref?: string;
 						};
@@ -82,7 +81,7 @@ export interface EndpointBaseOptions {
 						"application/json"?: {
 							schema: {
 								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
+								properties?: Record<string, unknown>;
 								required?: string[];
 								$ref?: string;
 							};
@@ -90,7 +89,7 @@ export interface EndpointBaseOptions {
 						"text/plain"?: {
 							schema?: {
 								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
+								properties?: Record<string, unknown>;
 								required?: string[];
 								$ref?: string;
 							};
@@ -98,7 +97,7 @@ export interface EndpointBaseOptions {
 						"text/html"?: {
 							schema?: {
 								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
+								properties?: Record<string, unknown>;
 								required?: string[];
 								$ref?: string;
 							};
@@ -131,11 +130,11 @@ export interface EndpointBaseOptions {
 			/**
 			 * Body
 			 */
-			body?: any;
+			body?: unknown;
 			/**
 			 * Query
 			 */
-			query?: Record<string, any>;
+			query?: Record<string, unknown>;
 		};
 		/**
 		 * If enabled, endpoint won't be exposed over a router
@@ -176,7 +175,7 @@ export interface EndpointBaseOptions {
 		/**
 		 * Extra metadata
 		 */
-		[key: string]: any;
+		[key: string]: unknown;
 	};
 	/**
 	 * List of middlewares to use
@@ -254,7 +253,8 @@ export type EndpointOptions = EndpointBaseOptions & EndpointBodyMethodOptions;
 export type EndpointContext<
 	Path extends string,
 	Options extends EndpointOptions,
-	Context = {},
+	Context extends object = object,
+	Params = InferParam<Path>,
 > = {
 	/**
 	 * Method
@@ -289,7 +289,7 @@ export type EndpointContext<
 	 * be `{ id: "1" }`. Prefer a named wildcard like `/user/**:path` when accessing
 	 * wildcard values, which produces `{ path: string }`.
 	 */
-	params: InferParam<Path>;
+	params: Params;
 	/**
 	 * Request object
 	 *
@@ -399,7 +399,7 @@ export type EndpointContext<
 	 * return if `asResponse` is
 	 * true in the context this will take precedence
 	 */
-	json: <R extends Record<string, any> | null>(
+	json: <R extends object | null>(
 		json: R,
 		routerResponse?:
 			| {
@@ -426,7 +426,7 @@ export type EndpointContext<
 		body?: {
 			message?: string;
 			code?: string;
-		} & Record<string, any>,
+		} & Record<string, unknown>,
 		headers?: HeadersInit,
 	) => APIError;
 };
@@ -478,14 +478,14 @@ type ExtractError<E extends EndpointOptions> = E extends {
 	? {
 			error: StandardSchemaV1<Err>;
 		}
-	: {};
+	: unknown;
 type ExtractQuery<E extends EndpointOptions> = E extends {
 	query?: StandardSchemaV1<infer Q>;
 }
 	? {
 			query: StandardSchemaV1<Q>;
 		}
-	: {};
+	: unknown;
 
 type ExtractOthers<E extends EndpointOptions> = Pick<
 	E,
@@ -504,13 +504,13 @@ export type EndpointHandler<
 	Path extends string,
 	Options extends EndpointOptions,
 	R,
-	Context = {},
+	Context extends object = object,
 > = (context: EndpointContext<Path, Options, Context>) => Promise<R>;
 
 type PathlessEndpointHandler<
 	Options extends EndpointOptions,
 	R,
-	Context = {},
+	Context extends object = object,
 > = EndpointHandler<string, Options, R, Context>;
 
 export function createEndpoint<
@@ -533,18 +533,16 @@ export function createEndpoint<
 	Options extends EndpointOptions,
 	R,
 >(
-	pathOrOptions: Path | Options,
-	handlerOrOptions: EndpointHandler<Path, Options, R> | Options,
-	handlerOrNever?: any,
+	...args:
+		| [path: Path, options: Options, handler: EndpointHandler<Path, Options, R>]
+		| [options: Options, handler: PathlessEndpointHandler<Options, R>]
 ): StrictEndpoint<Path, ExtractStandSchema<Options>, R> {
-	const path: string | undefined =
-		typeof pathOrOptions === "string" ? pathOrOptions : undefined;
-	const options: Options =
-		typeof handlerOrOptions === "object"
-			? handlerOrOptions
-			: (pathOrOptions as Options);
-	const handler: EndpointHandler<Path, Options, R> =
-		typeof handlerOrOptions === "function" ? handlerOrOptions : handlerOrNever;
+	const usesPathOverload = args.length === 3;
+	const path = usesPathOverload ? args[0] : undefined;
+	const options = usesPathOverload ? args[1] : args[0];
+	const handler: EndpointHandler<Path, Options, R> = usesPathOverload
+		? args[2]
+		: args[1];
 
 	if ((options.method === "GET" || options.method === "HEAD") && options.body) {
 		throw new BetterCallError("Body is not allowed with GET or HEAD methods");
@@ -600,7 +598,7 @@ export function createEndpoint<
 					})?,
 				]
 	): Promise<ResultType<AsResponse, ReturnHeaders, ReturnStatus>> => {
-		const context = (inputCtx[0] || {}) as InputContext<any, any>;
+		const context = (inputCtx[0] || {}) as Context;
 		const { data: internalContext, error: validationError } = await tryCatch(
 			createInternalContext(context, {
 				options,
@@ -626,7 +624,7 @@ export function createEndpoint<
 				code: "VALIDATION_ERROR",
 			});
 		}
-		const response = await handler(internalContext as any).catch(async (e) => {
+		const response = await handler(internalContext).catch(async (e) => {
 			if (isAPIError(e)) {
 				const onAPIError = options.onAPIError;
 				if (onAPIError) {
@@ -750,7 +748,7 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 export type StrictEndpoint<
 	Path extends string,
 	Options extends EndpointOptions,
-	R = any,
+	R = unknown,
 > = {
 	// asResponse cases
 	(
@@ -801,9 +799,9 @@ export type StrictEndpoint<
 export type Endpoint<
 	Path extends string = string,
 	Options extends EndpointOptions = EndpointOptions,
-	Handler extends (inputCtx: any) => Promise<any> = (
-		inputCtx: any,
-	) => Promise<any>,
+	Handler extends (...input: never[]) => Promise<unknown> = (
+		...input: never[]
+	) => Promise<unknown>,
 > = Handler & {
 	options: Options;
 	path: Path;

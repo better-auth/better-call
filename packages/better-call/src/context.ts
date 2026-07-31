@@ -8,7 +8,7 @@ import {
 	serializeSignedCookie,
 } from "./cookies";
 import { getCryptoKey, verifySignature } from "./crypto";
-import type { EndpointOptions } from "./endpoint";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
 import {
 	APIError,
 	type Status,
@@ -16,17 +16,15 @@ import {
 	ValidationError,
 } from "./error";
 import type { IsEmptyObject, Prettify, UnionToIntersection } from "./helper";
-import type {
-	Middleware,
-	MiddlewareContext,
-	MiddlewareOptions,
-} from "./middleware";
+import type { Middleware, MiddlewareOptions } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { isRequest } from "./utils";
 import { runValidation } from "./validator";
 
 export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 export type Method = HTTPMethod | "*";
+export type EndpointMethod = Method | "HEAD";
+export type ParsedQuery = Record<string, string | string[]>;
 
 export type InferBodyInput<
 	Options extends EndpointOptions | MiddlewareOptions,
@@ -56,7 +54,7 @@ export type InferBody<Options extends EndpointOptions | MiddlewareOptions> =
 		? Body
 		: Options["body"] extends StandardSchemaV1
 			? StandardSchemaV1.InferOutput<Options["body"]>
-			: any;
+			: unknown;
 
 export type InferQueryInput<
 	Options extends EndpointOptions | MiddlewareOptions,
@@ -68,7 +66,7 @@ export type InferQueryInput<
 		? Query
 		: Options["query"] extends StandardSchemaV1
 			? StandardSchemaV1.InferInput<Options["query"]>
-			: Record<string, any> | undefined,
+			: ParsedQuery | undefined,
 > = undefined extends Query
 	? {
 			query?: Query;
@@ -86,7 +84,7 @@ export type InferQuery<Options extends EndpointOptions | MiddlewareOptions> =
 		? Query
 		: Options["query"] extends StandardSchemaV1
 			? StandardSchemaV1.InferOutput<Options["query"]>
-			: Record<string, any> | undefined;
+			: ParsedQuery | undefined;
 
 export type InferMethod<Options extends EndpointOptions> =
 	Options["method"] extends Array<Method>
@@ -95,36 +93,39 @@ export type InferMethod<Options extends EndpointOptions> =
 			? HTTPMethod
 			: Options["method"];
 
+type InferInputMethodValue<Value extends EndpointOptions["method"]> =
+	Value extends readonly (infer Item extends EndpointMethod)[]
+		? Item | undefined
+		: Value extends "*"
+			? HTTPMethod
+			: Value | undefined;
+
 export type InferInputMethod<
 	Options extends EndpointOptions,
-	Method = Options["method"] extends Array<any>
-		? Options["method"][number] | undefined
-		: Options["method"] extends "*"
-			? HTTPMethod
-			: Options["method"] | undefined,
-> = undefined extends Method
+	InferredMethod = InferInputMethodValue<Options["method"]>,
+> = undefined extends InferredMethod
 	? {
-			method?: Method;
+			method?: InferredMethod;
 		}
 	: {
-			method: Method;
+			method: InferredMethod;
 		};
 
 export type InferParam<Path extends string> = string extends Path
-	? Record<string, any> | undefined
+	? Record<string, string | undefined> | undefined
 	: [Path] extends [never]
-		? Record<string, any> | undefined
+		? Record<string, string | undefined> | undefined
 		: IsEmptyObject<InferRouteParams<Path>> extends true
-			? Record<string, any> | undefined
+			? Record<string, string | undefined> | undefined
 			: Prettify<InferRouteParams<Path>>;
 
 export type InferParamInput<Path extends string> = string extends Path
-	? { params?: Record<string, any> }
+	? { params?: Record<string, string | undefined> }
 	: [Path] extends [never]
-		? { params?: Record<string, any> }
+		? { params?: Record<string, string | undefined> }
 		: IsEmptyObject<InferRouteParams<Path>> extends true
 			? {
-					params?: Record<string, any>;
+					params?: Record<string, string | undefined>;
 				}
 			: {
 					params: Prettify<InferRouteParams<Path>>;
@@ -157,9 +158,7 @@ export type InferHeadersInput<
 		};
 
 type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
-	? unknown extends Awaited<Result>
-		? never
-		: Extract<Awaited<Result>, object>
+	? Extract<Awaited<Result>, object>
 	: never;
 
 type InferMiddlewareContexts<Opts extends EndpointOptions["use"]> =
@@ -172,12 +171,12 @@ export type InferUse<Opts extends EndpointOptions["use"]> = [
 	: UnionToIntersection<InferMiddlewareContexts<Opts>>;
 
 export type InferMiddlewareBody<Options extends MiddlewareOptions> =
-	Options["body"] extends StandardSchemaV1<infer T> ? T : any;
+	Options["body"] extends StandardSchemaV1<infer T> ? T : unknown;
 
 export type InferMiddlewareQuery<Options extends MiddlewareOptions> =
 	Options["query"] extends StandardSchemaV1<infer T>
 		? T
-		: Record<string, any> | undefined;
+		: ParsedQuery | undefined;
 
 export type InputContext<
 	Path extends string,
@@ -193,19 +192,57 @@ export type InputContext<
 		returnStatus?: boolean;
 		use?: Middleware[];
 		path?: string;
-		context?: Record<string, any>;
+		context?: object;
 	};
 
-export const createInternalContext = async (
-	context: InputContext<any, any>,
+export type RuntimeInputContext = {
+	body?: unknown;
+	query?: unknown;
+	method?: string;
+	params?: Record<string, string | undefined>;
+	request?: Request;
+	headers?: HeadersInit;
+	asResponse?: boolean;
+	returnHeaders?: boolean;
+	returnStatus?: boolean;
+	use?: Middleware[];
+	path?: string;
+	context?: object;
+};
+
+type RuntimeMiddlewareHandler = (
+	context: RuntimeInputContext & {
+		returnHeaders: true;
+		asResponse: false;
+	},
+) => Promise<{
+	response?: unknown;
+	headers?: Headers;
+}>;
+
+type InternalEndpointContext<
+	Path extends string,
+	Options extends EndpointOptions,
+	Context extends object,
+> = EndpointContext<Path, Options, Context> & {
+	returned?: unknown;
+	responseStatus?: Status;
+};
+
+export const createInternalContext = async <
+	Path extends string,
+	Options extends EndpointOptions,
+	Context extends object = object,
+>(
+	context: RuntimeInputContext,
 	{
 		options,
 		path,
 	}: {
-		options: EndpointOptions;
-		path?: string;
+		options: Options;
+		path?: Path;
 	},
-) => {
+): Promise<InternalEndpointContext<Path, Options, Context>> => {
 	const headers = new Headers();
 	let responseStatus: Status | undefined;
 
@@ -232,7 +269,7 @@ export const createInternalContext = async (
 		query: data.query,
 		path: context.path || path || "virtual:",
 		context: "context" in context && context.context ? context.context : {},
-		returned: undefined as any,
+		returned: undefined,
 		headers: context?.headers,
 		request: context?.request,
 		params: "params" in context ? context.params : undefined,
@@ -321,14 +358,14 @@ export const createInternalContext = async (
 		setStatus: (status: Status) => {
 			responseStatus = status;
 		},
-		json: (
-			json: Record<string, any>,
+		json: async (
+			json: object,
 			routerResponse?:
 				| {
 						status?: number;
 						headers?: Record<string, string>;
 						response?: Response;
-						body?: Record<string, any>;
+						body?: object;
 				  }
 				| Response,
 		) => {
@@ -348,15 +385,13 @@ export const createInternalContext = async (
 	};
 	//if context was shimmed through the input we want to apply it
 	for (const middleware of options.use || []) {
-		const response = (await middleware({
+		const runMiddleware = middleware as unknown as RuntimeMiddlewareHandler;
+		const response = await runMiddleware({
 			...internalContext,
 			returnHeaders: true,
 			asResponse: false,
-		})) as {
-			response?: any;
-			headers?: Headers;
-		};
-		if (response.response) {
+		});
+		if (typeof response.response === "object" && response.response !== null) {
 			Object.assign(internalContext.context, response.response);
 		}
 		/**
@@ -368,5 +403,9 @@ export const createInternalContext = async (
 			});
 		}
 	}
-	return internalContext;
+	return internalContext as unknown as InternalEndpointContext<
+		Path,
+		Options,
+		Context
+	>;
 };

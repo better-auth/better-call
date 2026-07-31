@@ -4,11 +4,20 @@ import {
 	findAllRoutes,
 	findRoute,
 } from "rou3";
-import { createEndpoint, type Endpoint } from "./endpoint";
-import type { Middleware } from "./middleware";
+import type { RuntimeInputContext } from "./context";
+import {
+	createEndpoint,
+	type Endpoint,
+	type EndpointOptions,
+} from "./endpoint";
+import type { Middleware, MiddlewareOptions } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
+
+type RuntimeHandler = (context: RuntimeInputContext) => Promise<unknown>;
+type RuntimeEndpoint = Endpoint<string, EndpointOptions, RuntimeHandler>;
+type RuntimeMiddleware = Middleware<MiddlewareOptions, RuntimeHandler>;
 
 export interface RouterConfig {
 	throwError?: boolean;
@@ -22,15 +31,20 @@ export interface RouterConfig {
 	 *
 	 * this will be available on `ctx.context` on endpoints
 	 */
-	routerContext?: Record<string, any>;
+	routerContext?: object;
 	/**
 	 * A callback to run before any response
 	 */
-	onResponse?: (response: Response, request: Request) => any | Promise<any>;
+	onResponse?: (
+		response: Response,
+		request: Request,
+	) => Response | void | Promise<Response> | Promise<void>;
 	/**
 	 * A callback to run before any request
 	 */
-	onRequest?: (request: Request) => any | Promise<any>;
+	onRequest?: (
+		request: Request,
+	) => Request | Response | void | Promise<Request | Response> | Promise<void>;
 	/**
 	 * A callback to run when an error is thrown in the router or middleware.
 	 *
@@ -118,12 +132,12 @@ export const createRouter = <
 			...config?.openapi,
 		};
 		//@ts-expect-error
-		endpoints["openapi"] = createEndpoint(
+		endpoints.openapi = createEndpoint(
 			openapi.path,
 			{
 				method: "GET",
 			},
-			async (c) => {
+			async () => {
 				const schema = await generator(endpoints);
 				return new Response(getHTML(schema, openapi.scalar), {
 					headers: {
@@ -133,8 +147,8 @@ export const createRouter = <
 			},
 		);
 	}
-	const router = createRou3Router<Endpoint>();
-	const middlewareRouter = createRou3Router<Middleware>();
+	const router = createRou3Router<RuntimeEndpoint>();
+	const middlewareRouter = createRou3Router<RuntimeMiddleware>();
 
 	for (const endpoint of Object.values(endpoints)) {
 		if (!endpoint.options || !endpoint.path) {
@@ -147,13 +161,23 @@ export const createRouter = <
 			: [endpoint.options?.method];
 
 		for (const method of methods) {
-			addRoute(router, method, endpoint.path, endpoint);
+			addRoute(
+				router,
+				method,
+				endpoint.path,
+				endpoint as unknown as RuntimeEndpoint,
+			);
 		}
 	}
 
 	if (config?.routerMiddleware?.length) {
 		for (const { path, middleware } of config.routerMiddleware) {
-			addRoute(middlewareRouter, "*", path, middleware);
+			addRoute(
+				middlewareRouter,
+				"*",
+				path,
+				middleware as unknown as RuntimeMiddleware,
+			);
 		}
 	}
 
@@ -245,7 +269,7 @@ export const createRouter = <
 			const middlewareRoutes = findAllRoutes(middlewareRouter, "*", path);
 			if (middlewareRoutes?.length) {
 				for (const { data: middleware, params } of middlewareRoutes) {
-					const res = await (middleware as Endpoint)({
+					const res = await middleware({
 						...context,
 						params: params ? { ...params } : {},
 						asResponse: false,

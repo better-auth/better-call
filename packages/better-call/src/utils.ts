@@ -14,9 +14,9 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 	if (allowedMediaTypes && allowedMediaTypes.length > 0) {
 		const isAllowed = allowedMediaTypes.some((allowed) => {
 			// Normalize both content types for comparison
-			const normalizedContentTypeBase = normalizedContentType
-				.split(";")[0]!
-				.trim();
+			const normalizedContentTypeBase = (
+				normalizedContentType.split(";")[0] ?? ""
+			).trim();
 			const normalizedAllowed = allowed.toLowerCase().trim();
 			return (
 				normalizedContentTypeBase === normalizedAllowed ||
@@ -63,7 +63,7 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 
 	if (normalizedContentType.includes("multipart/form-data")) {
 		const formData = await request.formData();
-		const result: Record<string, any> = {};
+		const result: Record<string, FormDataEntryValue> = {};
 		formData.forEach((value, key) => {
 			result[key] = value;
 		});
@@ -97,8 +97,14 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 	return await request.text();
 }
 
-export function isAPIError(error: any): error is APIError {
-	return error instanceof APIError || error?.name === "APIError";
+export function isAPIError(error: unknown): error is APIError {
+	return (
+		error instanceof APIError ||
+		(typeof error === "object" &&
+			error !== null &&
+			"name" in error &&
+			error.name === "APIError")
+	);
 }
 
 export function tryDecode(str: string) {

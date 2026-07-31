@@ -1,171 +1,108 @@
 import {
 	createInternalContext,
-	type InferBody,
-	type InferBodyInput,
-	type InferHeaders,
 	type InferHeadersInput,
-	type InferMiddlewareBody,
-	type InferMiddlewareQuery,
-	type InferQuery,
-	type InferQueryInput,
-	type InferRequest,
 	type InferRequestInput,
 	type InferUse,
-	type InputContext,
+	type ParsedQuery,
 } from "./context";
-import {
-	createEndpoint,
-	type Endpoint,
-	type EndpointContext,
-	type EndpointOptions,
-} from "./endpoint";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
 import { kAPIErrorHeaderSymbol } from "./error";
-import type { Prettify } from "./helper";
+import type { StandardSchemaV1 } from "./standard-schema";
 import { isAPIError } from "./utils";
 
 export interface MiddlewareOptions extends Omit<EndpointOptions, "method"> {}
 
-export type MiddlewareResponse = null | void | undefined | Record<string, any>;
+export type MiddlewareResponse = null | undefined | Record<string, unknown>;
 
 export type MiddlewareContext<
 	Options extends MiddlewareOptions,
-	Context = {},
+	Context extends object = object,
 > = EndpointContext<
 	string,
 	Options & {
 		method: "*";
-	}
-> & {
-	/**
-	 * Method
-	 *
-	 * The request method
-	 */
-	method: string;
-	/**
-	 * Path
-	 *
-	 * The path of the endpoint
-	 */
-	path: string;
-	/**
-	 * Body
-	 *
-	 * The body object will be the parsed JSON from the request and validated
-	 * against the body schema if it exists
-	 */
-	body: InferMiddlewareBody<Options>;
-	/**
-	 * Query
-	 *
-	 * The query object will be the parsed query string from the request
-	 * and validated against the query schema if it exists
-	 */
-	query: InferMiddlewareQuery<Options>;
-	/**
-	 * Params
-	 *
-	 * If the path is `/user/:id` and the request is `/user/1` then the
-	 * params will be `{ id: "1" }`. Prefer a named wildcard like
-	 * `/user/**:path` when accessing wildcard values, which produces
-	 * `{ path: string }`.
-	 */
-	params: Record<string, string | undefined> | undefined;
-	/**
-	 * Request object
-	 *
-	 * If `requireRequest` is set to true in the endpoint options this will be
-	 * required
-	 */
-	request: InferRequest<Options>;
-	/**
-	 * Headers
-	 *
-	 * If `requireHeaders` is set to true in the endpoint options this will be
-	 * required
-	 */
-	headers: InferHeaders<Options>;
-	/**
-	 * Set header
-	 *
-	 * If it's called outside of a request it will just be ignored.
-	 */
-	setHeader: (key: string, value: string) => void;
-	/**
-	 * Get header
-	 *
-	 * If it's called outside of a request it will just return null
-	 *
-	 * @param key  - The key of the header
-	 * @returns
-	 */
-	getHeader: (key: string) => string | null;
-	/**
-	 * JSON
-	 *
-	 * a helper function to create a JSON response with
-	 * the correct headers
-	 * and status code. If `asResponse` is set to true in
-	 * the context then
-	 * it will return a Response object instead of the
-	 * JSON object.
-	 *
-	 * @param json - The JSON object to return
-	 * @param routerResponse - The response object to
-	 * return if `asResponse` is
-	 * true in the context this will take precedence
-	 */
-	json: <R extends Record<string, any> | null>(
-		json: R,
-		routerResponse?:
-			| {
-					status?: number;
-					headers?: Record<string, string>;
-					response?: Response;
-			  }
-			| Response,
-	) => Promise<R>;
-	/**
-	 * Middleware context
-	 */
-	context: Prettify<Context>;
-};
+	},
+	Context
+>;
+
+type MiddlewareHandler<
+	Options extends MiddlewareOptions,
+	Result,
+	Context extends object = object,
+> = (context: MiddlewareContext<Options, Context>) => Promise<Result>;
+
+type MiddlewareCallResult<InputContext, Result> = InputContext extends {
+	returnHeaders: true;
+}
+	? {
+			headers: Headers;
+			response: Awaited<Result>;
+		}
+	: Result;
+
+type MiddlewareFunction<Options extends MiddlewareOptions, Result> = <
+	InputContext extends MiddlewareInputContext<Options>,
+>(
+	inputContext: InputContext,
+) => Promise<MiddlewareCallResult<InputContext, Result>>;
 
 export function createMiddleware<Options extends MiddlewareOptions, R>(
 	options: Options,
-	handler: (context: MiddlewareContext<Options>) => Promise<R>,
-): <InputCtx extends MiddlewareInputContext<Options>>(
-	inputContext: InputCtx,
-) => Promise<R>;
+	handler: MiddlewareHandler<Options, R>,
+): Middleware<Options, MiddlewareFunction<Options, R>>;
+export function createMiddleware<R>(
+	handler: MiddlewareHandler<MiddlewareOptions, R>,
+): Middleware<MiddlewareOptions, MiddlewareFunction<MiddlewareOptions, R>>;
 export function createMiddleware<Options extends MiddlewareOptions, R>(
-	handler: (context: MiddlewareContext<Options>) => Promise<R>,
-): <InputCtx extends MiddlewareInputContext<Options>>(
-	inputContext: InputCtx,
-) => Promise<R>;
-export function createMiddleware(optionsOrHandler: any, handler?: any) {
-	const internalHandler = async (inputCtx: InputContext<any, any>) => {
-		const context = inputCtx as InputContext<any, any>;
-		const _handler =
-			typeof optionsOrHandler === "function" ? optionsOrHandler : handler;
-		const options =
-			typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
-		const internalContext = await createInternalContext(context, {
-			options,
+	...args:
+		| [options: Options, handler: MiddlewareHandler<Options, R>]
+		| [handler: MiddlewareHandler<MiddlewareOptions, R>]
+) {
+	if (args.length === 1) {
+		return buildMiddleware({}, args[0]);
+	}
+
+	return buildMiddleware(args[0], args[1]);
+}
+
+function buildMiddleware<
+	Options extends MiddlewareOptions,
+	Result,
+	Context extends object = object,
+>(
+	options: Options,
+	handler: MiddlewareHandler<Options, Result, Context>,
+): Middleware<Options, MiddlewareFunction<Options, Result>> {
+	const endpointOptions = {
+		...options,
+		method: "*" as const,
+	};
+
+	const internalHandler = async <
+		InputContext extends MiddlewareInputContext<Options>,
+	>(
+		context: InputContext,
+	): Promise<MiddlewareCallResult<InputContext, Result>> => {
+		const internalContext = await createInternalContext<
+			string,
+			typeof endpointOptions,
+			Context
+		>(context, {
+			options: endpointOptions,
 			path: "/",
 		});
 
-		if (!_handler) {
-			throw new Error("handler must be defined");
-		}
 		try {
-			const response = await _handler(internalContext as any);
+			const response = await handler(internalContext);
 			const headers = internalContext.responseHeaders;
-			return context.returnHeaders
-				? {
-						headers,
-						response,
-					}
-				: response;
+			return (
+				context.returnHeaders
+					? {
+							headers,
+							response,
+						}
+					: response
+			) as MiddlewareCallResult<InputContext, Result>;
 		} catch (e) {
 			// fixme(alex): this is workaround that set-cookie headers are not accessible when error is thrown from middleware
 			if (isAPIError(e)) {
@@ -180,24 +117,35 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 			throw e;
 		}
 	};
-	internalHandler.options =
-		typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
+	internalHandler.options = options;
 	return internalHandler;
 }
 
-export type MiddlewareInputContext<Options extends MiddlewareOptions> =
-	InferBodyInput<Options> &
-		InferQueryInput<Options> &
-		InferRequestInput<Options> &
-		InferHeadersInput<Options> & {
-			asResponse?: boolean;
-			returnHeaders?: boolean;
-			use?: Middleware[];
-		};
+type InferMiddlewareBodyInput<Options extends MiddlewareOptions> =
+	Options["body"] extends StandardSchemaV1
+		? StandardSchemaV1.InferInput<Options["body"]>
+		: unknown;
+
+type InferMiddlewareQueryInput<Options extends MiddlewareOptions> =
+	Options["query"] extends StandardSchemaV1
+		? StandardSchemaV1.InferInput<Options["query"]>
+		: ParsedQuery | undefined;
+
+export type MiddlewareInputContext<Options extends MiddlewareOptions> = {
+	body?: InferMiddlewareBodyInput<Options>;
+	query?: InferMiddlewareQueryInput<Options>;
+} & InferRequestInput<Options> &
+	InferHeadersInput<Options> & {
+		asResponse?: boolean;
+		returnHeaders?: boolean;
+		use?: Middleware[];
+	};
 
 export type Middleware<
 	Options extends MiddlewareOptions = MiddlewareOptions,
-	Handler extends (inputCtx: any) => Promise<any> = any,
+	Handler extends (...input: never[]) => Promise<unknown> = (
+		...input: never[]
+	) => Promise<unknown>,
 > = Handler & {
 	options: Options;
 };
@@ -212,14 +160,19 @@ createMiddleware.create = <
 	type InferredContext = InferUse<E["use"]>;
 	function fn<Options extends MiddlewareOptions, R>(
 		options: Options,
-		handler: (ctx: MiddlewareContext<Options, InferredContext>) => Promise<R>,
-	): (inputContext: MiddlewareInputContext<Options>) => Promise<R>;
+		handler: MiddlewareHandler<Options, R, InferredContext>,
+	): Middleware<Options, MiddlewareFunction<Options, R>>;
+	function fn<R>(
+		handler: MiddlewareHandler<MiddlewareOptions, R, InferredContext>,
+	): Middleware<MiddlewareOptions, MiddlewareFunction<MiddlewareOptions, R>>;
 	function fn<Options extends MiddlewareOptions, R>(
-		handler: (ctx: MiddlewareContext<Options, InferredContext>) => Promise<R>,
-	): (inputContext: MiddlewareInputContext<Options>) => Promise<R>;
-	function fn(optionsOrHandler: any, handler?: any) {
+		optionsOrHandler:
+			| Options
+			| MiddlewareHandler<MiddlewareOptions, R, InferredContext>,
+		handler?: MiddlewareHandler<Options, R, InferredContext>,
+	) {
 		if (typeof optionsOrHandler === "function") {
-			return createMiddleware(
+			return buildMiddleware(
 				{
 					use: opts?.use,
 				},
@@ -232,12 +185,11 @@ createMiddleware.create = <
 		const middleware = createMiddleware(
 			{
 				...optionsOrHandler,
-				method: "*",
 				use: [...(opts?.use || []), ...(optionsOrHandler.use || [])],
 			},
 			handler,
 		);
-		return middleware as any;
+		return middleware;
 	}
 	return fn;
 };
