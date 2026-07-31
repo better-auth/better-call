@@ -1,9 +1,9 @@
+import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createEndpoint } from "./endpoint";
 import { z } from "zod";
+import { createEndpoint } from "./endpoint";
 import { APIError, BetterCallError } from "./error";
 import { createMiddleware } from "./middleware";
-import * as v from "valibot";
 
 describe("validation", (it) => {
 	it("should validate body and throw validation error", async () => {
@@ -359,10 +359,10 @@ describe("types", async () => {
 			},
 		);
 		// method should be optional for array methods (defaults to first method)
-		endpoint({});
+		void endpoint({});
 		// but you can still explicitly specify a method
-		endpoint({ method: "POST" });
-		endpoint({ method: "GET" });
+		void endpoint({ method: "POST" });
+		void endpoint({ method: "GET" });
 		const wildCardMethodEndpoint = createEndpoint(
 			"/test",
 			{
@@ -375,7 +375,7 @@ describe("types", async () => {
 			},
 		);
 		//@ts-expect-error - wildcard method should still require explicit method
-		wildCardMethodEndpoint({});
+		void wildCardMethodEndpoint({});
 	});
 	it("response", async () => {
 		const endpoint1 = createEndpoint(
@@ -424,7 +424,7 @@ describe("types", async () => {
 					});
 				},
 			);
-		} catch (e) {
+		} catch {
 			//should throw BetterCallError
 		}
 	});

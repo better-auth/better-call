@@ -1,4 +1,5 @@
-import { ZodObject, ZodOptional, ZodType } from "zod";
+import type { ZodType } from "zod";
+import { ZodObject, ZodOptional } from "zod";
 import type { Endpoint, EndpointOptions } from "./endpoint";
 
 export type OpenAPISchemaType =
@@ -142,7 +143,7 @@ function getRequestBody(options: EndpointOptions): any {
 		options.body instanceof ZodObject ||
 		options.body instanceof ZodOptional
 	) {
-		// @ts-ignore
+		// @ts-expect-error
 		const shape = options.body.shape;
 		if (!shape) return undefined;
 		const properties: Record<string, any> = {};

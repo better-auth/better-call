@@ -5,11 +5,50 @@
 		"enabled": true,
 		"indentStyle": "tab"
 	},
-	"linter": {
-		"enabled": true
-	},
 	"assist": {
-		"enabled": true
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "none",
+			"style": {
+				"useImportType": {
+					"level": "error",
+					"options": {
+						"style": "separatedType"
+					}
+				},
+				"useNodejsImportProtocol": "error",
+				"useConst": "error"
+			},
+			"suspicious": {
+				"noImplicitAnyLet": "warn",
+				"noDuplicateObjectKeys": "warn",
+				"noTsIgnore": "error",
+				"noDebugger": "error"
+			},
+			"performance": {
+				"noDelete": "error"
+			},
+			"complexity": {
+				"useDateNow": "error",
+				"noUselessSwitchCase": "warn",
+				"noUselessTypeConstraint": "warn"
+			},
+			"correctness": {
+				"noUnusedImports": "warn",
+				"noUnusedVariables": "warn"
+			},
+			"nursery": {
+				"noMisusedPromises": "error",
+				"noFloatingPromises": "error"
+			}
+		}
 	},
 	"files": {
 		"includes": [

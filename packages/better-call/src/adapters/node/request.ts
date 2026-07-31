@@ -306,7 +306,7 @@ export async function setResponse(res: ServerResponse, response: Response) {
 	res.on("close", cancel);
 	res.on("error", cancel);
 
-	next();
+	void next();
 	async function next() {
 		try {
 			for (;;) {
