@@ -4,6 +4,7 @@ import { getRequest } from "./adapters/node/request";
 import type { Endpoint } from "./endpoint";
 import { createEndpoint } from "./endpoint";
 import { APIError } from "./error";
+import { createMiddleware } from "./middleware";
 import { createRouter } from "./router";
 import { toResponse } from "./to-response";
 
@@ -381,6 +382,96 @@ describe("router", () => {
 		});
 		const response = await router.handler(request).then((res) => res.json());
 		expect(response).toMatchObject({ id: "1" });
+	});
+
+	it("should return numeric keys for unnamed wildcards", async () => {
+		const endpoint = createEndpoint(
+			"/file-*-*.png",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ endpoint });
+
+		const response = await router.handler(
+			new Request("http://localhost/file-report-final.png"),
+		);
+
+		expect(await response.json()).toEqual({ "0": "report", "1": "final" });
+	});
+
+	it("should preserve undefined trailing wildcard params", async () => {
+		let matchedParams: Record<string, string | undefined> | undefined;
+		const endpoint = createEndpoint(
+			"/files/*",
+			{
+				method: "GET",
+			},
+			async (context) => {
+				matchedParams = context.params;
+				return "ok";
+			},
+		);
+		const router = createRouter({ endpoint });
+
+		await router.handler(new Request("http://localhost/files"));
+
+		expect(matchedParams).toEqual({ "0": undefined });
+	});
+
+	it("should provide numeric wildcard params to middleware", async () => {
+		let matchedParams: Record<string, string | undefined> | undefined;
+		const endpoint = createEndpoint(
+			"/files/*",
+			{
+				method: "GET",
+			},
+			async () => "ok",
+		);
+		const middleware = createMiddleware(async (context) => {
+			matchedParams = context.params;
+		});
+		const router = createRouter(
+			{ endpoint },
+			{
+				routerMiddleware: [{ path: "/files/*", middleware }],
+			},
+		);
+
+		await router.handler(new Request("http://localhost/files/document.txt"));
+
+		expect(matchedParams).toEqual({ "0": "document.txt" });
+	});
+
+	it("should return catch-all wildcard keys", async () => {
+		const unnamedEndpoint = createEndpoint(
+			"/unnamed/**",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const namedEndpoint = createEndpoint(
+			"/named/**:path",
+			{
+				method: "GET",
+			},
+			async (context) => context.params,
+		);
+		const router = createRouter({ unnamedEndpoint, namedEndpoint });
+
+		const unnamedResponse = await router.handler(
+			new Request("http://localhost/unnamed/path/to/file.txt"),
+		);
+		const namedResponse = await router.handler(
+			new Request("http://localhost/named/path/to/file.txt"),
+		);
+
+		expect(await unnamedResponse.json()).toEqual({ _: "path/to/file.txt" });
+		expect(await namedResponse.json()).toEqual({
+			path: "path/to/file.txt",
+		});
 	});
 
 	it("should handle API Errors", async () => {

@@ -323,7 +323,9 @@ describe("types", async () => {
 				method: "GET",
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.params).toEqualTypeOf<{ _: string }>();
+				expectTypeOf(ctx.params).toEqualTypeOf<{
+					"0": string | undefined;
+				}>();
 			},
 		);
 
@@ -333,7 +335,10 @@ describe("types", async () => {
 				method: "GET",
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.params).toEqualTypeOf<{ _: string; id: string }>();
+				expectTypeOf(ctx.params).toEqualTypeOf<{
+					"0": string | undefined;
+					id: string;
+				}>();
 			},
 		);
 	});

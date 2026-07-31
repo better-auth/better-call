@@ -56,18 +56,6 @@ export type MiddlewareContext<
 	 */
 	query: InferMiddlewareQuery<Options>;
 	/**
-	 * Params
-	 *
-	 * If the path is `/user/:id` and the request is `/user/1` then the
-	 * params will
-	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*`
-	 * then the
-	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the
-	 * wildcard
-	 * is named like `/user/**:name` then the params will be `{ name: string }`
-	 */
-	params: string;
-	/**
 	 * Request object
 	 *
 	 * If `requireRequest` is set to true in the endpoint options this will be
