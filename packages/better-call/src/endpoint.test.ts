@@ -880,11 +880,45 @@ describe("creator", () => {
 				method: "POST",
 			},
 			async (c) => {
+				expectTypeOf(c.context).not.toBeAny();
+				expectTypeOf(c.context).toMatchTypeOf<{
+					hello: string;
+				}>();
 				return c.context;
 			},
 		);
 		const response = await endpoint();
 		expect(response).toMatchObject({
+			hello: "world",
+		});
+	});
+
+	it("should use creator context for pathless endpoints", async () => {
+		const creator = createEndpoint.create({
+			use: [
+				createMiddleware(async () => {
+					return {
+						hello: "world",
+					};
+				}),
+			],
+		});
+		const endpoint = creator(
+			{
+				method: "POST",
+			},
+			async (context) => {
+				expectTypeOf(context.path).toEqualTypeOf<string>();
+				expectTypeOf(context.context).not.toBeAny();
+				expectTypeOf(context.context).toMatchTypeOf<{
+					hello: string;
+				}>();
+				return context.context;
+			},
+		);
+
+		expect(endpoint.path).toBeUndefined();
+		await expect(endpoint()).resolves.toEqual({
 			hello: "world",
 		});
 	});
@@ -912,6 +946,11 @@ describe("creator", () => {
 				],
 			},
 			async (c) => {
+				expectTypeOf(c.context).not.toBeAny();
+				expectTypeOf(c.context).toMatchTypeOf<{
+					hello: string;
+					test: string;
+				}>();
 				return c.context;
 			},
 		);

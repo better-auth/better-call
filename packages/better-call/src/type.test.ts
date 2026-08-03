@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import type { InferParam } from "./context";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
 import type { InferParamPath, InferParamWildCard } from "./helper";
 
 describe("infer param", () => {
@@ -72,5 +73,30 @@ describe("infer param", () => {
 			userId: string;
 			"0": string | undefined;
 		}>();
+	});
+});
+
+describe("endpoint context", () => {
+	it("preserves explicit context with generic endpoint options", () => {
+		type Context = EndpointContext<
+			string,
+			EndpointOptions,
+			{ adapter: object }
+		>["context"];
+
+		expectTypeOf<Context>().not.toBeAny();
+		expectTypeOf<Context>().toMatchTypeOf<{ adapter: object }>();
+	});
+
+	it("widens route-specific paths without losing inferred params", () => {
+		const widenContext = <
+			Path extends string,
+			Options extends EndpointOptions,
+			Context extends object,
+		>(
+			context: EndpointContext<Path, Options, Context>,
+		): EndpointContext<string, Options, Context, InferParam<string>> => context;
+
+		expectTypeOf(widenContext).toBeFunction();
 	});
 });
