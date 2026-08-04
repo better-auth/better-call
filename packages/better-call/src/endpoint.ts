@@ -13,7 +13,7 @@ import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import type { Status, statusCodes } from "./error";
 import { APIError, BetterCallError, ValidationError } from "./error";
 import type { HasRequiredKeys, Prettify } from "./helper";
-import type { Middleware } from "./middleware";
+import type { MiddlewareHandler } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
@@ -175,7 +175,7 @@ export interface EndpointBaseOptions {
 	/**
 	 * List of middlewares to use
 	 */
-	use?: Middleware[];
+	use?: MiddlewareHandler[];
 	/**
 	 * A callback to run before any API error is throw or returned
 	 *
@@ -670,13 +670,13 @@ export function createEndpoint<
 }
 
 function combineMiddleware(
-	local: Middleware[] | undefined,
-	configured: Middleware[] | undefined,
-): Middleware[] {
+	local: MiddlewareHandler[] | undefined,
+	configured: MiddlewareHandler[] | undefined,
+): MiddlewareHandler[] {
 	return [...(local ?? []), ...(configured ?? [])];
 }
 
-createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
+createEndpoint.create = <E extends { use?: MiddlewareHandler[] }>(opts?: E) => {
 	function createConfiguredEndpoint<
 		Path extends string,
 		Opts extends EndpointOptions,
@@ -685,12 +685,20 @@ createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
 		path: Path,
 		options: Opts,
 		handler: EndpointHandler<Path, Opts, R, InferUse<E["use"]>>,
-	): StrictEndpoint<Path, ExtractStandSchema<Opts & { use: Middleware[] }>, R>;
+	): StrictEndpoint<
+		Path,
+		ExtractStandSchema<Opts & { use: MiddlewareHandler[] }>,
+		R
+	>;
 
 	function createConfiguredEndpoint<Opts extends EndpointOptions, R>(
 		options: Opts,
 		handler: PathlessEndpointHandler<Opts, R, InferUse<E["use"]>>,
-	): StrictEndpoint<never, ExtractStandSchema<Opts & { use: Middleware[] }>, R>;
+	): StrictEndpoint<
+		never,
+		ExtractStandSchema<Opts & { use: MiddlewareHandler[] }>,
+		R
+	>;
 
 	function createConfiguredEndpoint<
 		Path extends string,

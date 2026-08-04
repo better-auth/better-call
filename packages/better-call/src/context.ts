@@ -11,7 +11,7 @@ import type { EndpointOptions } from "./endpoint";
 import type { Status, statusCodes } from "./error";
 import { APIError, ValidationError } from "./error";
 import type { IsEmptyObject, Prettify, UnionToIntersection } from "./helper";
-import type { Middleware, MiddlewareOptions } from "./middleware";
+import type { MiddlewareHandler, MiddlewareOptions } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { isRequest } from "./utils";
 import { runValidation } from "./validator";
@@ -165,7 +165,9 @@ type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
 	: never;
 
 type InferMiddlewareContexts<Opts extends EndpointOptions["use"]> =
-	Opts extends Middleware[] ? InferMiddlewareContext<Opts[number]> : never;
+	Opts extends MiddlewareHandler[]
+		? InferMiddlewareContext<Opts[number]>
+		: never;
 
 export type InferUse<Opts extends EndpointOptions["use"]> = [
 	InferMiddlewareContexts<Opts>,
@@ -193,7 +195,7 @@ export type InputContext<
 		asResponse?: boolean;
 		returnHeaders?: boolean;
 		returnStatus?: boolean;
-		use?: Middleware[];
+		use?: MiddlewareHandler[];
 		path?: string;
 		context?: Record<string, any>;
 	};

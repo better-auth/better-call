@@ -1,7 +1,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createEndpoint } from "./endpoint";
 import { APIError, kAPIErrorHeaderSymbol } from "./error";
-import type { Middleware } from "./middleware";
+import type {
+	Middleware,
+	MiddlewareHandler,
+	MiddlewareInputContext,
+	MiddlewareOptions,
+} from "./middleware";
 import { createMiddleware } from "./middleware";
 
 describe("type", () => {
@@ -39,6 +44,25 @@ describe("type", () => {
 				expectTypeOf(c.context).toMatchTypeOf<{
 					hello: string;
 					test: number;
+				}>();
+			},
+		);
+	});
+
+	it("should accept callable middleware without runtime properties", () => {
+		const middleware = (async (
+			_context: MiddlewareInputContext<MiddlewareOptions>,
+		) => ({ legacy: true })) satisfies MiddlewareHandler;
+
+		createEndpoint(
+			"/",
+			{
+				method: "GET",
+				use: [middleware],
+			},
+			async (context) => {
+				expectTypeOf(context.context).toMatchTypeOf<{
+					legacy: boolean;
 				}>();
 			},
 		);

@@ -182,24 +182,24 @@ export type MiddlewareInputContext<Options extends MiddlewareOptions> =
 		InferHeadersInput<Options> & {
 			asResponse?: boolean;
 			returnHeaders?: boolean;
-			use?: Middleware[];
+			use?: MiddlewareHandler[];
 		};
 
 type MiddlewareFunction = (...args: never[]) => Promise<unknown>;
-type RuntimeMiddleware = (
+export type MiddlewareHandler = (
 	inputContext: MiddlewareInputContext<MiddlewareOptions>,
 ) => Promise<unknown>;
 
 export type Middleware<
 	Options extends MiddlewareOptions = MiddlewareOptions,
-	Handler extends MiddlewareFunction = RuntimeMiddleware,
+	Handler extends MiddlewareFunction = MiddlewareHandler,
 > = Handler & {
 	options: Options;
 };
 
 createMiddleware.create = <
 	E extends {
-		use?: Middleware[];
+		use?: MiddlewareHandler[];
 	},
 >(
 	opts?: E,

@@ -6,7 +6,7 @@ import {
 } from "rou3";
 import type { Endpoint } from "./endpoint";
 import { createEndpoint } from "./endpoint";
-import type { Middleware } from "./middleware";
+import type { MiddlewareHandler } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
@@ -16,7 +16,7 @@ export interface RouterConfig {
 	basePath?: string;
 	routerMiddleware?: Array<{
 		path: string;
-		middleware: Middleware;
+		middleware: MiddlewareHandler;
 	}>;
 	/**
 	 * additional Context that needs to passed to endpoints
@@ -135,7 +135,7 @@ export const createRouter = <
 		);
 	}
 	const router = createRou3Router<Endpoint>();
-	const middlewareRouter = createRou3Router<Middleware>();
+	const middlewareRouter = createRou3Router<MiddlewareHandler>();
 
 	for (const endpoint of Object.values(endpoints)) {
 		if (!endpoint.options || !endpoint.path) {
