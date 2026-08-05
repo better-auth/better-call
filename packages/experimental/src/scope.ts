@@ -49,6 +49,9 @@ export type VarName<RV> = keyof RV & string;
  * mistaken for the value (`c.var.session.userId` is a type error; it is
  * `c.var.session.get().userId`). `set` is always synchronous, and absent
  * entirely on a readonly frame.
+ *
+ * For schema vars, `T` is the write/args shape (`InferArgs`) so defaulted
+ * or optional fields may be omitted in `.set(...)`.
  */
 export type VarHandle<T, RO extends boolean = false> = Prettify<
 	{ get(): T } & (RO extends true ? unknown : { set(value: T): void })

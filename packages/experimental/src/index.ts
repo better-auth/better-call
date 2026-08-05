@@ -1,7 +1,7 @@
 import { type Fn, fnImpl } from "./fn";
 import { extendVar, on } from "./module";
 
-import { type InferInput, vTypes } from "./schema";
+import { type InferArgs, type InferInput, vTypes } from "./schema";
 import type { LiteralString } from "./types";
 import {
 	deriveVar,
@@ -13,12 +13,17 @@ import {
 
 interface V {
 	fn: Fn;
+	/**
+	 * Schema vars use `InferArgs` as their handle type so `.set()` accepts
+	 * the same partial shape callers send as input (optional / defaulted
+	 * fields may be omitted). Fn input still validates to `InferInput`.
+	 */
 	var: <N extends LiteralString, S = undefined, D = undefined>(
 		name: N,
 		options?: { default?: D; schema?: S },
-	) => VarDefination<N, [S] extends [undefined] ? D : InferInput<S> | D, S>;
+	) => VarDefination<N, [S] extends [undefined] ? D : InferArgs<S> | D, S>;
 	/** A var you accumulate into: `set()` merges instead of replacing. */
-	record: <N extends LiteralString, S = undefined>(
+	merge: <N extends LiteralString, S = undefined>(
 		name: N,
 		options?: { schema?: S },
 	) => VarDefination<
@@ -50,14 +55,17 @@ interface V {
 	number: (typeof vTypes)["number"];
 	boolean: (typeof vTypes)["boolean"];
 	object: (typeof vTypes)["object"];
+	array: (typeof vTypes)["array"];
+	record: (typeof vTypes)["record"];
+	enum: (typeof vTypes)["enum"];
 	any: (typeof vTypes)["any"];
 }
 
 export const v: V = {
 	fn: fnImpl as Fn,
 	var: makeVar as V["var"],
-	record: ((name: string, options: any = {}) =>
-		makeVar(name, { ...options, accessor: true })) as V["record"],
+	merge: ((name: string, options: any = {}) =>
+		makeVar(name, { ...options, accessor: true })) as V["merge"],
 	derive: deriveVar as V["derive"],
 	on,
 	extend: extendVar,

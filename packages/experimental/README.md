@@ -91,7 +91,7 @@ const createSession = v.fn(
 );
 ```
 
-There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
+There are also accumulating vars (`v.merge`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
 
 ### modules
 

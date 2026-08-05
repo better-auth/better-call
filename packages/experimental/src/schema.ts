@@ -81,6 +81,19 @@ type NumberOptions<O> = TypeOptions<number, O> &
 		enum?: readonly number[];
 	};
 
+/** Array length constraints (same keys as string length). */
+type ArrayOptions<ItemOut, O> = TypeOptions<ItemOut[], O> &
+	Pick<Rules, "min" | "max" | "length" | "check">;
+
+/** Record entry-count constraints (same keys as array length). */
+type RecordOptions<ValueOut, O> = TypeOptions<Record<string, ValueOut>, O> &
+	Pick<Rules, "min" | "max" | "length" | "check">;
+
+type EnumValue = string | number | boolean;
+
+type EnumOptions<T extends EnumValue, O> = TypeOptions<T, O> &
+	Pick<Rules, "check">;
+
 export type InferType<T> =
 	T extends TypeDefination<infer T2, any, any> ? T2 : never;
 
@@ -370,6 +383,106 @@ export const validate = (
 		}
 		return def.transform ? def.transform(parsed) : parsed;
 	}
+	if (def.name === "array") {
+		if (!Array.isArray(value)) {
+			throw new ValidationError(
+				path,
+				`expected array, received ${typeOf(value)}`,
+			);
+		}
+		if (def.length !== undefined && value.length !== def.length) {
+			fail(path, `expected length ${def.length}, received ${value.length}`);
+		}
+		if (def.min !== undefined && value.length < def.min) {
+			fail(
+				path,
+				`expected at least ${def.min} items, received ${value.length}`,
+			);
+		}
+		if (def.max !== undefined && value.length > def.max) {
+			fail(path, `expected at most ${def.max} items, received ${value.length}`);
+		}
+		if (def.check) {
+			const result = def.check(value);
+			if (result !== true) {
+				fail(path, typeof result === "string" ? result : "failed check");
+			}
+		}
+		// No item schema (`v.array()`): ANY array - passed through as-is.
+		if (def.shape === undefined) {
+			return def.transform ? def.transform(value) : value;
+		}
+		const item = asType(def.shape);
+		const parsed: unknown[] = [];
+		const issues: Issue[] = [];
+		for (let i = 0; i < value.length; i++) {
+			try {
+				parsed.push(validate(item, value[i], `${path}[${i}]`));
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				issues.push(...thrown.issues);
+			}
+		}
+		const firstIssue = issues[0];
+		if (firstIssue) {
+			throw new ValidationError(firstIssue.path, firstIssue.message, issues);
+		}
+		return def.transform ? def.transform(parsed) : parsed;
+	}
+	if (def.name === "record") {
+		if (typeOf(value) !== "object") {
+			throw new ValidationError(
+				path,
+				`expected object, received ${typeOf(value)}`,
+			);
+		}
+		const entries = Object.entries(value as Record<string, unknown>);
+		if (def.length !== undefined && entries.length !== def.length) {
+			fail(path, `expected length ${def.length}, received ${entries.length}`);
+		}
+		if (def.min !== undefined && entries.length < def.min) {
+			fail(
+				path,
+				`expected at least ${def.min} entries, received ${entries.length}`,
+			);
+		}
+		if (def.max !== undefined && entries.length > def.max) {
+			fail(
+				path,
+				`expected at most ${def.max} entries, received ${entries.length}`,
+			);
+		}
+		if (def.check) {
+			const result = def.check(value);
+			if (result !== true) {
+				fail(path, typeof result === "string" ? result : "failed check");
+			}
+		}
+		// No value schema (`v.record()`): ANY object - passed through as-is.
+		if (def.shape === undefined) {
+			return def.transform ? def.transform(value) : value;
+		}
+		const item = asType(def.shape);
+		const parsed: Record<string, unknown> = {};
+		const issues: Issue[] = [];
+		for (const [key, child] of entries) {
+			try {
+				parsed[key] = validate(item, child, `${path}.${key}`);
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				issues.push(...thrown.issues);
+			}
+		}
+		const firstIssue = issues[0];
+		if (firstIssue) {
+			throw new ValidationError(firstIssue.path, firstIssue.message, issues);
+		}
+		return def.transform ? def.transform(parsed) : parsed;
+	}
+	if (def.name === "enum") {
+		applyRules(def, value, path);
+		return def.transform ? def.transform(value) : value;
+	}
 	if (typeOf(value) !== def.name) {
 		throw new ValidationError(
 			path,
@@ -423,4 +536,63 @@ export const vTypes = {
 		? TypeDefination<Record<string, any>, Record<string, any>>
 		: TypeDefination<ArgsShape<S>, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
 		build("object", options, shape === undefined ? {} : { shape }),
+	/** With an ITEM every element validates; with NO item (`v.array()`)
+	 * any array passes, as-is. */
+	array: <
+		I = undefined,
+		O = [I] extends [undefined] ? unknown[] : InferInput<I>[],
+		D = never,
+		Opt extends boolean = false,
+	>(
+		item?: I,
+		options?: ArrayOptions<
+			[I] extends [undefined] ? unknown : InferInput<I>,
+			O
+		> &
+			WithDefault<D> &
+			WithOptional<Opt>,
+	): [I] extends [undefined]
+		? TypeDefination<unknown[], unknown[]>
+		: TypeDefination<InferArgs<I>[], OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+		build("array", options, item === undefined ? {} : { shape: item }),
+	/**
+	 * Dynamic string keys → value schema (`Record<string, V>`). With a
+	 * VALUE every entry validates; with NO value (`v.record()`) any
+	 * object passes, as-is.
+	 */
+	record: <
+		V = undefined,
+		O = [V] extends [undefined]
+			? Record<string, unknown>
+			: Record<string, InferInput<V>>,
+		D = never,
+		Opt extends boolean = false,
+	>(
+		value?: V,
+		options?: RecordOptions<
+			[V] extends [undefined] ? unknown : InferInput<V>,
+			O
+		> &
+			WithDefault<D> &
+			WithOptional<Opt>,
+	): [V] extends [undefined]
+		? TypeDefination<Record<string, unknown>, Record<string, unknown>>
+		: TypeDefination<
+				Record<string, InferArgs<V>>,
+				OutOf<O, D, Opt>,
+				DefOf<D, Opt>
+			> =>
+		build("record", options, value === undefined ? {} : { shape: value }),
+	/** One of the listed literals. `const` on the tuple keeps the union
+	 * narrow: `v.enum(["a", "b"])` is `"a" | "b"`. */
+	enum: <
+		const T extends readonly EnumValue[],
+		O = T[number],
+		D = never,
+		Opt extends boolean = false,
+	>(
+		values: T,
+		options?: EnumOptions<T[number], O> & WithDefault<D> & WithOptional<Opt>,
+	): TypeDefination<T[number], OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+		build("enum", options, { enum: values }),
 } satisfies Record<string, (...args: any[]) => TypeDefination<any, any>>;

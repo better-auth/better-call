@@ -93,8 +93,8 @@ describe("var extensions", () => {
 	});
 });
 
-describe("record vars", () => {
-	const draft = v.record("vt_draft", {
+describe("merge vars", () => {
+	const draft = v.merge("vt_draft", {
 		schema: v.object({ title: v.string(), body: v.string() }),
 	});
 

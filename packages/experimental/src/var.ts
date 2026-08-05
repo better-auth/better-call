@@ -95,14 +95,14 @@ export const deriveVar = (name: string, source: any, get: any): any =>
 
 /**
  * One var's state within a scope: the current value, plus how reads and
- * writes behave for it (derived computation, record accumulation).
+ * writes behave for it (derived computation, merge accumulation).
  */
 export type Cell = {
 	value: unknown;
 	derive?: { source: string; get: (value: any) => any };
 	/** A direct write to a derived var shadows its computation. */
 	shadowed: boolean;
-	/** Record var: `set()` merges instead of replacing. */
+	/** Merge var: `set()` merges instead of replacing. */
 	accumulate: boolean;
 };
 
