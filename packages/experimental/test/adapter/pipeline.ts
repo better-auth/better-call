@@ -408,8 +408,16 @@ export const resolveJoin = v.fn(
 				fromLogical = foreignKey;
 				toLogical = refs.field;
 			}
-			if (select && !select.includes(requiredSelectField)) {
-				select.push(requiredSelectField);
+			// Storage rows use physical column names; push the mapped
+			// fieldName so a projected join key is not dropped as undefined.
+			const requiredPhysical =
+				baseFields[requiredSelectField]?.fieldName ?? requiredSelectField;
+			if (
+				select &&
+				!select.includes(requiredPhysical) &&
+				!select.includes(requiredSelectField)
+			) {
+				select.push(requiredPhysical);
 			}
 
 			const isUnique =

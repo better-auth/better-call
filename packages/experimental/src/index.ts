@@ -2,6 +2,7 @@ import { type Fn, fnImpl } from "./fn";
 import { extendVar, on } from "./module";
 
 import { type InferArgs, type InferInput, vTypes } from "./schema";
+import type { VarSlot } from "./scope";
 import type { LiteralString } from "./types";
 import {
 	deriveVar,
@@ -14,14 +15,19 @@ import {
 interface V {
 	fn: Fn;
 	/**
-	 * Schema vars use `InferArgs` as their handle type so `.set()` accepts
-	 * the same partial shape callers send as input (optional / defaulted
-	 * fields may be omitted). Fn input still validates to `InferInput`.
+	 * Schema vars store `InferInput` (what `.get()` returns after
+	 * validation/defaults/transforms) and accept `InferArgs` on `.set()`
+	 * (optional / defaulted fields may be omitted). Fn input still
+	 * validates to `InferInput`.
 	 */
 	var: <N extends LiteralString, S = undefined, D = undefined>(
 		name: N,
 		options?: { default?: D; schema?: S },
-	) => VarDefination<N, [S] extends [undefined] ? D : InferArgs<S> | D, S>;
+	) => VarDefination<
+		N,
+		[S] extends [undefined] ? D : VarSlot<InferInput<S> | D, InferArgs<S> | D>,
+		S
+	>;
 	/** A var you accumulate into: `set()` merges instead of replacing. */
 	merge: <N extends LiteralString, S = undefined>(
 		name: N,
@@ -110,9 +116,12 @@ export type {
 	HandleScope,
 	ResolvedVars,
 	ScopeOf,
+	VarGet,
 	VarHandle,
 	VarName,
 	VarScope,
+	VarSetVal,
+	VarSlot,
 } from "./scope";
 export type { LiteralString, Prettify } from "./types";
 export type { VarCustomizer, VarDefination, VarMap } from "./var";

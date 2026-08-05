@@ -1,14 +1,43 @@
-import type { ModuleVars, VarExtensionsFor } from "./module";
+import type {
+	ModuleVars,
+	VarExtensionArgsFor,
+	VarExtensionsFor,
+} from "./module";
 import type { Prettify } from "./types";
 import type { VarDefination } from "./var";
 
+declare const __varSet: unique symbol;
+
+/**
+ * Phantom wrapper pairing a stored/read shape (`Get`) with a write/args
+ * shape (`Set`). Only used in the type system - runtime values are plain.
+ */
+export type VarSlot<Get, Set = Get> = Get & {
+	readonly [__varSet]?: Set;
+};
+
+export type VarGet<V> = V extends VarSlot<infer G, any> ? G : V;
+export type VarSetVal<V> =
+	V extends VarSlot<any, infer S> ? ([unknown] extends [S] ? VarGet<V> : S) : V;
+
 export type VarValues<V> = {
 	[K in keyof V]: V[K] extends VarDefination<any, infer T, any, any>
-		? T
+		? VarGet<T>
 		: never;
 };
 
-type MergeExtension<T, E> = T extends object ? Prettify<T & E> : T;
+type MergeOnto<T, E> = [E] extends [never]
+	? T
+	: unknown extends E
+		? T
+		: T extends object
+			? Prettify<T & E>
+			: T;
+
+type MergeVarValue<T, GetE, SetE> =
+	T extends VarSlot<infer G, infer S>
+		? VarSlot<MergeOnto<G, GetE>, MergeOnto<S, SetE>>
+		: MergeOnto<T, GetE>;
 
 type Merged<PL, Base> = ModuleVars<PL> & Base;
 
@@ -17,9 +46,10 @@ type Merged<PL, Base> = ModuleVars<PL> & Base;
  * with mounted var extensions merged in by the var's declared name.
  */
 export type ScopeOf<PL, Base = unknown> = {
-	[K in keyof Merged<PL, Base>]: MergeExtension<
+	[K in keyof Merged<PL, Base>]: MergeVarValue<
 		Merged<PL, Base>[K],
-		VarExtensionsFor<PL, K & string>
+		VarExtensionsFor<PL, K & string>,
+		VarExtensionArgsFor<PL, K & string>
 	>;
 };
 
@@ -28,15 +58,18 @@ export type ScopeOf<PL, Base = unknown> = {
  * builder carries as its base scope.
  */
 export type ResolvedVars<PL> = {
-	[K in keyof ModuleVars<PL>]: MergeExtension<
+	[K in keyof ModuleVars<PL>]: MergeVarValue<
 		ModuleVars<PL>[K],
-		VarExtensionsFor<PL, K & string>
+		VarExtensionsFor<PL, K & string>,
+		VarExtensionArgsFor<PL, K & string>
 	>;
 };
 
 /** Names listed in `requires` become non-nullable. */
 export type VarScope<RV, Required> = Prettify<{
-	[K in keyof RV]: K extends Required ? NonNullable<RV[K]> : RV[K];
+	[K in keyof RV]: K extends Required
+		? NonNullable<VarGet<RV[K]>>
+		: VarGet<RV[K]>;
 }>;
 
 export type VarName<RV> = keyof RV & string;
@@ -50,11 +83,14 @@ export type VarName<RV> = keyof RV & string;
  * `c.var.session.get().userId`). `set` is always synchronous, and absent
  * entirely on a readonly frame.
  *
- * For schema vars, `T` is the write/args shape (`InferArgs`) so defaulted
- * or optional fields may be omitted in `.set(...)`.
+ * Schema vars wrap `VarSlot<InferInput, InferArgs>` so `.get()` sees the
+ * stored/post-validation shape while `.set()` accepts the caller args
+ * shape (optional / defaulted fields may be omitted).
  */
 export type VarHandle<T, RO extends boolean = false> = Prettify<
-	{ get(): T } & (RO extends true ? unknown : { set(value: T): void })
+	{ get(): VarGet<T> } & (RO extends true
+		? unknown
+		: { set(value: VarSetVal<T>): void })
 >;
 
 /** The scope as handles. A var listed in `requires` is non-null. */

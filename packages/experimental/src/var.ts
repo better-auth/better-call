@@ -8,6 +8,7 @@ import {
 	type TypeDefination,
 	vTypes,
 } from "./schema";
+import type { VarGet } from "./scope";
 import type { LiteralString, Prettify } from "./types";
 
 export interface VarDefination<
@@ -18,7 +19,7 @@ export interface VarDefination<
 > {
 	$var: true;
 	name: N;
-	default?: T;
+	default?: VarGet<T>;
 	/** Kept in the type so the var can also be used as an input field. */
 	schema?: Schema;
 	type?: T;
@@ -26,12 +27,12 @@ export interface VarDefination<
 	 * makes this one non-null too. */
 	$source?: Source;
 	customize: <S>(options: {
-		schema: (v: VarCustomizer<T>) => S;
+		schema: (v: VarCustomizer<VarGet<T>>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;
 }
 
 export type ValueOfVar<SV> =
-	SV extends VarDefination<any, infer T, any, any> ? T : never;
+	SV extends VarDefination<any, infer T, any, any> ? VarGet<T> : never;
 
 export type NameOfVar<SV> =
 	SV extends VarDefination<infer N, any, any, any> ? N : never;
@@ -46,7 +47,7 @@ export type VarCustomizer<T> = typeof vTypes & {
 		shape: S,
 	) => TypeDefination<
 		DefineInput<S>,
-		Prettify<NonNullable<T> & DefineOutput<S>>
+		Prettify<NonNullable<VarGet<T>> & DefineOutput<S>>
 	>;
 	replace: <S>(schema: S) => S;
 };

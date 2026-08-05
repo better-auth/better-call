@@ -463,7 +463,9 @@ export const validate = (
 			return def.transform ? def.transform(value) : value;
 		}
 		const item = asType(def.shape);
-		const parsed: Record<string, unknown> = {};
+		// null-prototype so user keys like "__proto__" become own data
+		// properties instead of mutating Object.prototype.
+		const parsed: Record<string, unknown> = Object.create(null);
 		const issues: Issue[] = [];
 		for (const [key, child] of entries) {
 			try {

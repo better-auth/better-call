@@ -337,6 +337,8 @@ export const createDbApi = (
 		"db.updateMany",
 		{ input: updateManyInput, ...withStorage },
 		withInstance(instance, async (c) => {
+			// Empty where matches every row in storage - refuse to wipe the table.
+			if (!c.input.where.length) return 0;
 			const table = c.use.getModelName({ model: c.input.model });
 			const input = c.use.transformInput({
 				model: c.input.model,
@@ -359,6 +361,7 @@ export const createDbApi = (
 		"db.delete",
 		{ input: deleteInput, ...withStorage },
 		withInstance(instance, async (c) => {
+			if (!c.input.where.length) return;
 			const table = c.use.getModelName({ model: c.input.model });
 			await c.use.storageDelete({
 				model: table,
@@ -374,6 +377,7 @@ export const createDbApi = (
 		"db.deleteMany",
 		{ input: deleteInput, ...withStorage },
 		withInstance(instance, async (c) => {
+			if (!c.input.where.length) return 0;
 			const table = c.use.getModelName({ model: c.input.model });
 			return c.use.storageDeleteMany({
 				model: table,
@@ -389,6 +393,7 @@ export const createDbApi = (
 		"db.consumeOne",
 		{ input: consumeOneInput, ...withStorage },
 		withInstance(instance, async (c) => {
+			if (!c.input.where.length) return null;
 			const table = c.use.getModelName({ model: c.input.model });
 			const where = c.use.cleanWhere({
 				model: c.input.model,
@@ -403,6 +408,7 @@ export const createDbApi = (
 		"db.incrementOne",
 		{ input: incrementOneInput, ...withStorage },
 		withInstance(instance, async (c) => {
+			if (!c.input.where.length) return null;
 			const table = c.use.getModelName({ model: c.input.model });
 			const where = c.use.cleanWhere({
 				model: c.input.model,

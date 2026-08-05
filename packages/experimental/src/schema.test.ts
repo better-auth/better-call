@@ -163,6 +163,18 @@ describe("v.record", () => {
 		expect(validate(anyRec, { a: 1, b: "x" }, "r")).toEqual({ a: 1, b: "x" });
 	});
 
+	it("keeps __proto__ as an own data key", () => {
+		const poisoned = JSON.parse('{"__proto__":1,"a":2}');
+		const parsed = validate(scores, poisoned, "scores") as Record<
+			string,
+			number
+		>;
+		expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
+		expect(parsed.__proto__).toBe(1);
+		expect(parsed.a).toBe(2);
+		expect(Object.getPrototypeOf(parsed)).toBeNull();
+	});
+
 	it("works as a fn input field", () => {
 		const f = v.fn(
 			{ input: { tags: v.record(v.string()) } },

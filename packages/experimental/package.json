@@ -56,17 +56,6 @@
 				"default": "./dist/index.cjs"
 			}
 		},
-		"./client": {
-			"dev-source": "./src/client.ts",
-			"import": {
-				"types": "./dist/client.d.mts",
-				"default": "./dist/client.mjs"
-			},
-			"require": {
-				"types": "./dist/client.d.cts",
-				"default": "./dist/client.cjs"
-			}
-		},
 		"./error": {
 			"dev-source": "./src/error.ts",
 			"import": {
@@ -76,17 +65,6 @@
 			"require": {
 				"types": "./dist/error.d.cts",
 				"default": "./dist/error.cjs"
-			}
-		},
-		"./node": {
-			"dev-source": "./src/adapters/node/index.ts",
-			"import": {
-				"types": "./dist/node.d.mts",
-				"default": "./dist/node.mjs"
-			},
-			"require": {
-				"types": "./dist/node.d.cts",
-				"default": "./dist/node.cjs"
 			}
 		}
 	},

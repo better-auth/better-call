@@ -307,6 +307,7 @@ export const createAdapterFactory = (
 			return transformOutput(updated, model, schema, config) as any;
 		},
 		updateMany: async ({ model, where, update }) => {
+			if (!where.length) return 0;
 			const table = resolveModel(model);
 			const input = transformInput(update, model, schema, config, "update");
 			return custom.updateMany({
@@ -316,6 +317,7 @@ export const createAdapterFactory = (
 			});
 		},
 		delete: async ({ model, where }) => {
+			if (!where.length) return;
 			const table = resolveModel(model);
 			await custom.delete({
 				model: table,
@@ -323,6 +325,7 @@ export const createAdapterFactory = (
 			});
 		},
 		deleteMany: async ({ model, where }) => {
+			if (!where.length) return 0;
 			const table = resolveModel(model);
 			return custom.deleteMany({
 				model: table,
@@ -330,6 +333,7 @@ export const createAdapterFactory = (
 			});
 		},
 		consumeOne: async ({ model, where }) => {
+			if (!where.length) return null;
 			if (custom.consumeOne) {
 				const table = resolveModel(model);
 				const row = await custom.consumeOne({
@@ -347,6 +351,7 @@ export const createAdapterFactory = (
 			});
 		},
 		incrementOne: async ({ model, where, increment, set }) => {
+			if (!where.length) return null;
 			if (custom.incrementOne) {
 				const table = resolveModel(model);
 				const row = await custom.incrementOne({

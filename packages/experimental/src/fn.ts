@@ -23,7 +23,13 @@ import {
 	validate,
 	vTypes,
 } from "./schema";
-import type { HandleScope, ResolvedVars, ScopeOf, VarName } from "./scope";
+import type {
+	HandleScope,
+	ResolvedVars,
+	ScopeOf,
+	VarName,
+	VarSetVal,
+} from "./scope";
 import type { LiteralString, Prettify } from "./types";
 import {
 	type Cells,
@@ -761,7 +767,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 		handler: (
 			c: VarSetContext<VarNameOfT<T>> & {
 				value: VarNameOfT<T> extends keyof ScopeOf<[], Base>
-					? ScopeOf<[], Base>[VarNameOfT<T>]
+					? VarSetVal<ScopeOf<[], Base>[VarNameOfT<T>]>
 					: unknown;
 			},
 			next: () => void,
