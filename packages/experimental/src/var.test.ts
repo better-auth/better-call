@@ -67,6 +67,40 @@ describe("var-bound input", () => {
 	});
 });
 
+describe("schema-backed set", () => {
+	const user = v.var("vt_user", {
+		default: null as { name: string; role: string } | null,
+		schema: v.object({
+			name: v.string(),
+			role: v.string({ default: "user" }),
+		}),
+	});
+
+	it("validates and applies defaults on direct set", () => {
+		const f = v.fn({ use: [{ user }] }, (c) => {
+			c.var.vt_user.set({ name: "ada" });
+			return c.var.vt_user.get();
+		});
+		expect(f()).toEqual({ name: "ada", role: "user" });
+	});
+
+	it("rejects invalid direct sets", () => {
+		const f = v.fn({ use: [{ user }] }, (c) => {
+			c.var.vt_user.set({ name: 1 } as never);
+		});
+		expect(() => f()).toThrow(/expected string/);
+	});
+
+	it("still allows clearing a nullable var with null", () => {
+		const f = v.fn({ use: [{ user }] }, (c) => {
+			c.var.vt_user.set({ name: "ada" });
+			c.var.vt_user.set(null);
+			return c.var.vt_user.get();
+		});
+		expect(f()).toBeNull();
+	});
+});
+
 describe("var extensions", () => {
 	const account = v.var("vt_account", {
 		default: null as { id: string } | null,

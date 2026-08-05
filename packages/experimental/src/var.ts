@@ -6,6 +6,7 @@ import {
 	type DefineOutput,
 	type InferInput,
 	type TypeDefination,
+	validate,
 	vTypes,
 } from "./schema";
 import type { VarGet } from "./scope";
@@ -255,5 +256,16 @@ export const createVarScope = (frame: Frame): any => {
 
 const createHandle = (frame: Frame, name: string) => ({
 	get: () => readVar(frame.cells, name),
-	set: (value: unknown) => writeVar(frame, name, value),
+	set: (value: unknown) => {
+		// Direct set accepts InferArgs; store InferInput. Fn-input writes
+		// already validate before writeVar and skip this path. Merge vars
+		// keep partial state, so they skip full-schema validation here.
+		const def = varRegistry.get(name);
+		const cell = getCell(frame.cells, name);
+		let next = value;
+		if (!cell.accumulate && def?.schema !== undefined && next != null) {
+			next = validate(def.schema, next, name);
+		}
+		writeVar(frame, name, next);
+	},
 });
