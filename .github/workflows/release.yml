@@ -48,21 +48,34 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          PACKAGE_VERSION=$(node -p "require('./packages/better-call/package.json').version")
+          TAG_VERSION="${TAG#v}"
+
+          if [[ "$PACKAGE_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Package version $PACKAGE_VERSION does not match release tag $TAG."
+            exit 1
+          fi
+
           if [[ "$TAG" =~ -(next|canary|beta|rc) ]]; then
             # Extract pre-release tag (e.g., beta, rc)
             NPM_TAG=${BASH_REMATCH[1]}
           else
-            # Check if the commit is on the main branch
-            git fetch origin main
-            if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-              NPM_TAG="latest"
-            else
-              echo "The tagged commit is not on the main branch."
-              echo "::error ::Releases with the 'latest' npm tag must be on the main branch."
+            if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
+              echo "::error::Unsupported release tag: $TAG"
               exit 1
             fi
+
+            RELEASE_LINE=${BASH_REMATCH[1]}
+            RELEASE_BRANCH="v${RELEASE_LINE}.x"
+            git fetch origin "refs/heads/$RELEASE_BRANCH:refs/remotes/origin/$RELEASE_BRANCH"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$RELEASE_BRANCH"; then
+              echo "::error::$TAG is not on $RELEASE_BRANCH."
+              exit 1
+            fi
+
+            NPM_TAG="release-$RELEASE_LINE"
           fi
-          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
+          echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
           echo "Using npm tag: $NPM_TAG"
 
       - name: Publish to npm
