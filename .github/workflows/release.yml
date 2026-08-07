@@ -120,9 +120,13 @@ jobs:
               });
             }
 
-      - run: npx changelogithub
+      - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          npx changelogithub --to "$RELEASE_TAG"
 
       - name: Publish to npm
         run: pnpm -r publish --provenance --access public --no-git-checks --tag ${{ steps.release.outputs.npm_tag }}
