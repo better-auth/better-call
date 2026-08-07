@@ -15,10 +15,7 @@ jobs:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'release/') &&
-      (github.event.pull_request.base.ref == github.event.repository.default_branch ||
-      (startsWith(github.event.pull_request.base.ref, 'v') &&
-      endsWith(github.event.pull_request.base.ref, '.x')))
+      startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -37,36 +34,38 @@ jobs:
           node-version-file: '.nvmrc'
           registry-url: 'https://registry.npmjs.org'
 
+      - run: pnpm install --frozen-lockfile
+
+      - name: Read release config
+        id: release_config
+        shell: bash
+        run: |
+          node --no-warnings --input-type=module -e '
+            import { releaseConfig } from "./bump.config.ts";
+            console.log(`branch=${releaseConfig.branch}`);
+            console.log(`npm_tag=${releaseConfig.npmTag}`);
+          ' >> "$GITHUB_OUTPUT"
+
       - name: Determine release
         id: release
         shell: bash
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CONFIGURED_RELEASE_BRANCH: ${{ steps.release_config.outputs.branch }}
           RELEASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           RELEASE_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          STABLE_NPM_TAG: ${{ steps.release_config.outputs.npm_tag }}
         run: |
           PACKAGE_VERSION=$(node -p "require('./packages/better-call/package.json').version")
           TAG="v$PACKAGE_VERSION"
 
-          if [[ "$RELEASE_PR_BRANCH" != "release/$TAG" ]]; then
-            echo "::error::Release branch $RELEASE_PR_BRANCH does not match package version $PACKAGE_VERSION."
+          if [[ "$RELEASE_BRANCH" != "$CONFIGURED_RELEASE_BRANCH" ]]; then
+            echo "::error::Release branch $RELEASE_BRANCH does not match configured branch $CONFIGURED_RELEASE_BRANCH."
             exit 1
           fi
 
-          STABLE_NPM_TAG="latest"
-          if [[ "$RELEASE_BRANCH" != "$DEFAULT_BRANCH" ]]; then
-            if [[ ! "$RELEASE_BRANCH" =~ ^v([0-9]+)\.([0-9]+)\.x$ ]]; then
-              echo "::error::Unsupported release branch: $RELEASE_BRANCH"
-              exit 1
-            fi
-
-            RELEASE_SERIES="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-            if [[ ! "$PACKAGE_VERSION" =~ ^${RELEASE_SERIES}\.[0-9]+($|-) ]]; then
-              echo "::error::Version $PACKAGE_VERSION is not valid for $RELEASE_BRANCH."
-              exit 1
-            fi
-
-            STABLE_NPM_TAG="release-$RELEASE_SERIES"
+          if [[ "$RELEASE_PR_BRANCH" != "release/$TAG" ]]; then
+            echo "::error::Release branch $RELEASE_PR_BRANCH does not match package version $PACKAGE_VERSION."
+            exit 1
           fi
 
           if [[ "$PACKAGE_VERSION" =~ -(next|canary|beta|rc) ]]; then
@@ -84,8 +83,6 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing $TAG from $RELEASE_BRANCH with npm tag $NPM_TAG"
-
-      - run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build

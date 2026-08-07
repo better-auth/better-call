@@ -1,16 +1,16 @@
-import { execFileSync } from "node:child_process";
 import { defineConfig } from "bumpp";
 import { globSync } from "tinyglobby";
 
-const currentBranch = execFileSync("git", ["branch", "--show-current"], {
-	encoding: "utf8",
-}).trim();
+export const releaseConfig = {
+	branch: "main",
+	npmTag: "latest",
+} as const;
 
 export default defineConfig({
 	commit: "chore: release {tag}",
 	files: globSync(["./packages/*/package.json"], { expandDirectories: false }),
 	pr: {
-		base: currentBranch,
+		base: releaseConfig.branch,
 		branch: "release/v{version}",
 		title: "chore: release {tag}",
 	},
