@@ -6,16 +6,15 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
   release:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'release/')
+    concurrency:
+      group: npm-release
+      queue: max
     runs-on: ubuntu-latest
     environment: release
     permissions:
