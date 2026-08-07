@@ -1,9 +1,28 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createEndpoint } from "./endpoint";
 import { APIError, kAPIErrorHeaderSymbol } from "./error";
+import type {
+	Middleware,
+	MiddlewareHandler,
+	MiddlewareInputContext,
+	MiddlewareOptions,
+} from "./middleware";
 import { createMiddleware } from "./middleware";
 
 describe("type", () => {
+	it("should preserve the middleware type", () => {
+		expectTypeOf<Middleware>().not.toBeAny();
+
+		const middleware = createMiddleware(
+			{ requireHeaders: true },
+			async () => undefined,
+		);
+		expectTypeOf(middleware).not.toBeAny();
+		expectTypeOf(middleware.options).toEqualTypeOf<{
+			requireHeaders: true;
+		}>();
+	});
+
 	it("should infer middleware returned type", async () => {
 		const middleware = createMiddleware(async (c) => {
 			return {
@@ -25,6 +44,25 @@ describe("type", () => {
 				expectTypeOf(c.context).toMatchTypeOf<{
 					hello: string;
 					test: number;
+				}>();
+			},
+		);
+	});
+
+	it("should accept callable middleware without runtime properties", () => {
+		const middleware = (async (
+			_context: MiddlewareInputContext<MiddlewareOptions>,
+		) => ({ legacy: true })) satisfies MiddlewareHandler;
+
+		createEndpoint(
+			"/",
+			{
+				method: "GET",
+				use: [middleware],
+			},
+			async (context) => {
+				expectTypeOf(context.context).toMatchTypeOf<{
+					legacy: boolean;
 				}>();
 			},
 		);

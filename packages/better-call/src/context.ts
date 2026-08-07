@@ -1,3 +1,4 @@
+import type { InferRouteParams } from "rou3";
 import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import {
 	getCookieKey,
@@ -9,14 +10,8 @@ import { getCryptoKey, verifySignature } from "./crypto";
 import type { EndpointOptions } from "./endpoint";
 import type { Status, statusCodes } from "./error";
 import { APIError, ValidationError } from "./error";
-import type {
-	InferParamPath,
-	InferParamWildCard,
-	IsEmptyObject,
-	Prettify,
-	UnionToIntersection,
-} from "./helper";
-import type { Middleware, MiddlewareOptions } from "./middleware";
+import type { IsEmptyObject, Prettify, UnionToIntersection } from "./helper";
+import type { MiddlewareHandler, MiddlewareOptions } from "./middleware";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { isRequest } from "./utils";
 import { runValidation } from "./validator";
@@ -106,21 +101,36 @@ export type InferInputMethod<
 			method: Method;
 		};
 
-export type InferParam<Path extends string> = [Path] extends [never]
-	? Record<string, any> | undefined
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
-		? Record<string, any> | undefined
-		: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
+type TrailingWildcardKey<Path extends string> =
+	Path extends `${infer Prefix}/*${"" | "/"}`
+		? Exclude<keyof InferRouteParams<Path>, keyof InferRouteParams<Prefix>>
+		: never;
 
-export type InferParamInput<Path extends string> = [Path] extends [never]
-	? { params?: Record<string, any> }
-	: IsEmptyObject<InferParamPath<Path> & InferParamWildCard<Path>> extends true
-		? {
-				params?: Record<string, any>;
-			}
-		: {
-				params: Prettify<InferParamPath<Path> & InferParamWildCard<Path>>;
-			};
+type RouteParams<Path extends string> = {
+	[Key in keyof InferRouteParams<Path>]: Key extends TrailingWildcardKey<Path>
+		? InferRouteParams<Path>[Key] | undefined
+		: InferRouteParams<Path>[Key];
+};
+
+export type InferParam<Path extends string> = string extends Path
+	? Record<string, string | undefined> | undefined
+	: [Path] extends [never]
+		? Record<string, string | undefined> | undefined
+		: IsEmptyObject<RouteParams<Path>> extends true
+			? Record<string, string | undefined> | undefined
+			: Prettify<RouteParams<Path>>;
+
+export type InferParamInput<Path extends string> = string extends Path
+	? { params?: Record<string, string | undefined> }
+	: [Path] extends [never]
+		? { params?: Record<string, string | undefined> }
+		: IsEmptyObject<RouteParams<Path>> extends true
+			? {
+					params?: Record<string, string | undefined>;
+				}
+			: {
+					params: Prettify<RouteParams<Path>>;
+				};
 
 export type InferRequest<Option extends EndpointOptions | MiddlewareOptions> =
 	Option["requireRequest"] extends true ? Request : Request | undefined;
@@ -148,10 +158,22 @@ export type InferHeadersInput<
 			headers?: HeadersInit;
 		};
 
-export type InferUse<Opts extends EndpointOptions["use"]> =
-	Opts extends Middleware[]
-		? UnionToIntersection<Awaited<ReturnType<Opts[number]>>>
-		: {};
+type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
+	? unknown extends Awaited<Result>
+		? never
+		: Extract<Awaited<Result>, object>
+	: never;
+
+type InferMiddlewareContexts<Opts extends EndpointOptions["use"]> =
+	Opts extends MiddlewareHandler[]
+		? InferMiddlewareContext<Opts[number]>
+		: never;
+
+export type InferUse<Opts extends EndpointOptions["use"]> = [
+	InferMiddlewareContexts<Opts>,
+] extends [never]
+	? object
+	: UnionToIntersection<InferMiddlewareContexts<Opts>>;
 
 export type InferMiddlewareBody<Options extends MiddlewareOptions> =
 	Options["body"] extends StandardSchemaV1<infer T> ? T : any;
@@ -173,7 +195,7 @@ export type InputContext<
 		asResponse?: boolean;
 		returnHeaders?: boolean;
 		returnStatus?: boolean;
-		use?: Middleware[];
+		use?: MiddlewareHandler[];
 		path?: string;
 		context?: Record<string, any>;
 	};

@@ -56,18 +56,6 @@ export type MiddlewareContext<
 	 */
 	query: InferMiddlewareQuery<Options>;
 	/**
-	 * Params
-	 *
-	 * If the path is `/user/:id` and the request is `/user/1` then the
-	 * params will
-	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*`
-	 * then the
-	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the
-	 * wildcard
-	 * is named like `/user/**:name` then the params will be `{ name: string }`
-	 */
-	params: string;
-	/**
 	 * Request object
 	 *
 	 * If `requireRequest` is set to true in the endpoint options this will be
@@ -130,14 +118,20 @@ export type MiddlewareContext<
 export function createMiddleware<Options extends MiddlewareOptions, R>(
 	options: Options,
 	handler: (context: MiddlewareContext<Options>) => Promise<R>,
-): <InputCtx extends MiddlewareInputContext<Options>>(
-	inputContext: InputCtx,
-) => Promise<R>;
+): Middleware<
+	Options,
+	<InputCtx extends MiddlewareInputContext<Options>>(
+		inputContext: InputCtx,
+	) => Promise<R>
+>;
 export function createMiddleware<Options extends MiddlewareOptions, R>(
 	handler: (context: MiddlewareContext<Options>) => Promise<R>,
-): <InputCtx extends MiddlewareInputContext<Options>>(
-	inputContext: InputCtx,
-) => Promise<R>;
+): Middleware<
+	Options,
+	<InputCtx extends MiddlewareInputContext<Options>>(
+		inputContext: InputCtx,
+	) => Promise<R>
+>;
 export function createMiddleware(optionsOrHandler: any, handler?: any) {
 	const internalHandler = async (inputCtx: InputContext<any, any>) => {
 		const context = inputCtx as InputContext<any, any>;
@@ -188,19 +182,24 @@ export type MiddlewareInputContext<Options extends MiddlewareOptions> =
 		InferHeadersInput<Options> & {
 			asResponse?: boolean;
 			returnHeaders?: boolean;
-			use?: Middleware[];
+			use?: MiddlewareHandler[];
 		};
+
+type MiddlewareFunction = (...args: never[]) => Promise<unknown>;
+export type MiddlewareHandler = (
+	inputContext: MiddlewareInputContext<MiddlewareOptions>,
+) => Promise<unknown>;
 
 export type Middleware<
 	Options extends MiddlewareOptions = MiddlewareOptions,
-	Handler extends (inputCtx: any) => Promise<any> = any,
+	Handler extends MiddlewareFunction = MiddlewareHandler,
 > = Handler & {
 	options: Options;
 };
 
 createMiddleware.create = <
 	E extends {
-		use?: Middleware[];
+		use?: MiddlewareHandler[];
 	},
 >(
 	opts?: E,
@@ -209,10 +208,16 @@ createMiddleware.create = <
 	function fn<Options extends MiddlewareOptions, R>(
 		options: Options,
 		handler: (ctx: MiddlewareContext<Options, InferredContext>) => Promise<R>,
-	): (inputContext: MiddlewareInputContext<Options>) => Promise<R>;
+	): Middleware<
+		Options,
+		(inputContext: MiddlewareInputContext<Options>) => Promise<R>
+	>;
 	function fn<Options extends MiddlewareOptions, R>(
 		handler: (ctx: MiddlewareContext<Options, InferredContext>) => Promise<R>,
-	): (inputContext: MiddlewareInputContext<Options>) => Promise<R>;
+	): Middleware<
+		Options,
+		(inputContext: MiddlewareInputContext<Options>) => Promise<R>
+	>;
 	function fn(optionsOrHandler: any, handler?: any) {
 		if (typeof optionsOrHandler === "function") {
 			return createMiddleware(

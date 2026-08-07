@@ -6,7 +6,7 @@ import {
 } from "rou3";
 import type { Endpoint } from "./endpoint";
 import { createEndpoint } from "./endpoint";
-import type { Middleware } from "./middleware";
+import type { MiddlewareHandler } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
 import { getBody, isAPIError, isRequest } from "./utils";
@@ -16,7 +16,7 @@ export interface RouterConfig {
 	basePath?: string;
 	routerMiddleware?: Array<{
 		path: string;
-		middleware: Middleware;
+		middleware: MiddlewareHandler;
 	}>;
 	/**
 	 * additional Context that needs to passed to endpoints
@@ -134,8 +134,8 @@ export const createRouter = <
 			},
 		);
 	}
-	const router = createRou3Router();
-	const middlewareRouter = createRou3Router();
+	const router = createRou3Router<Endpoint>();
+	const middlewareRouter = createRou3Router<MiddlewareHandler>();
 
 	for (const endpoint of Object.values(endpoints)) {
 		if (!endpoint.options || !endpoint.path) {
@@ -192,10 +192,7 @@ export const createRouter = <
 			return new Response(null, { status: 404, statusText: "Not Found" });
 		}
 
-		const route = findRoute(router, request.method, path) as {
-			data: Endpoint & { path: string };
-			params: Record<string, string>;
-		};
+		const route = findRoute(router, request.method, path);
 		const hasTrailingSlash = path.endsWith("/");
 		const routeHasTrailingSlash = route?.data?.path?.endsWith("/");
 
@@ -222,7 +219,7 @@ export const createRouter = <
 			}
 		});
 
-		const handler = route.data as Endpoint;
+		const handler = route.data;
 
 		try {
 			// Determine which allowedMediaTypes to use: endpoint-level overrides router-level
@@ -233,9 +230,7 @@ export const createRouter = <
 				path,
 				method: request.method as "GET",
 				headers: request.headers,
-				params: route.params
-					? (JSON.parse(JSON.stringify(route.params)) as any)
-					: {},
+				params: route.params ? { ...route.params } : {},
 				request: request,
 				body: handler.options.disableBody
 					? undefined
@@ -253,7 +248,7 @@ export const createRouter = <
 				for (const { data: middleware, params } of middlewareRoutes) {
 					const res = await (middleware as Endpoint)({
 						...context,
-						params,
+						params: params ? { ...params } : {},
 						asResponse: false,
 					});
 

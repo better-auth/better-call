@@ -13,7 +13,7 @@ import type { CookieOptions, CookiePrefixOptions } from "./cookies";
 import type { Status, statusCodes } from "./error";
 import { APIError, BetterCallError, ValidationError } from "./error";
 import type { HasRequiredKeys, Prettify } from "./helper";
-import type { Middleware } from "./middleware";
+import type { MiddlewareHandler } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
@@ -175,7 +175,7 @@ export interface EndpointBaseOptions {
 	/**
 	 * List of middlewares to use
 	 */
-	use?: Middleware[];
+	use?: MiddlewareHandler[];
 	/**
 	 * A callback to run before any API error is throw or returned
 	 *
@@ -245,10 +245,13 @@ export type EndpointBodyMethodOptions =
 
 export type EndpointOptions = EndpointBaseOptions & EndpointBodyMethodOptions;
 
+type EndpointParams = Record<string, string | undefined> | undefined;
+
 export type EndpointContext<
 	Path extends string,
 	Options extends EndpointOptions,
-	Context = {},
+	Context extends object = object,
+	ResolvedParams extends EndpointParams = InferParam<Path>,
 > = {
 	/**
 	 * Method
@@ -280,11 +283,10 @@ export type EndpointContext<
 	 * Params
 	 *
 	 * If the path is `/user/:id` and the request is `/user/1` then the params will
-	 * be `{ id: "1" }` and if the path includes a wildcard like `/user/*` then the
-	 * params will be `{ _: "1" }` where `_` is the wildcard key. If the wildcard
-	 * is named like `/user/**:name` then the params will be `{ name: string }`
+	 * be `{ id: "1" }`. An unnamed wildcard like `/user/*` uses a numeric key,
+	 * while a named catch-all like `/user/**:path` uses its declared name.
 	 */
-	params: InferParam<Path>;
+	params: ResolvedParams;
 	/**
 	 * Request object
 	 *
@@ -499,7 +501,14 @@ export type EndpointHandler<
 	Path extends string,
 	Options extends EndpointOptions,
 	R,
-> = (context: EndpointContext<Path, Options>) => Promise<R>;
+	Context extends object = object,
+> = (context: EndpointContext<Path, Options, Context>) => Promise<R>;
+
+type PathlessEndpointHandler<
+	Options extends EndpointOptions,
+	R,
+	Context extends object = object,
+> = EndpointHandler<string, Options, R, Context>;
 
 export function createEndpoint<
 	Path extends string,
@@ -513,7 +522,7 @@ export function createEndpoint<
 
 export function createEndpoint<Options extends EndpointOptions, R>(
 	options: Options,
-	handler: EndpointHandler<never, Options, R>,
+	handler: PathlessEndpointHandler<Options, R>,
 ): StrictEndpoint<never, ExtractStandSchema<Options>, R>;
 
 export function createEndpoint<
@@ -660,25 +669,76 @@ export function createEndpoint<
 	>;
 }
 
-createEndpoint.create = <E extends { use?: Middleware[] }>(opts?: E) => {
-	return <
+function combineMiddleware(
+	local: MiddlewareHandler[] | undefined,
+	configured: MiddlewareHandler[] | undefined,
+): MiddlewareHandler[] {
+	return [...(local ?? []), ...(configured ?? [])];
+}
+
+createEndpoint.create = <E extends { use?: MiddlewareHandler[] }>(opts?: E) => {
+	function createConfiguredEndpoint<
 		Path extends string,
 		Opts extends EndpointOptions,
-		R extends Promise<any>,
+		R,
 	>(
 		path: Path,
 		options: Opts,
-		handler: (ctx: EndpointContext<Path, Opts, InferUse<E["use"]>>) => R,
-	) => {
+		handler: EndpointHandler<Path, Opts, R, InferUse<E["use"]>>,
+	): StrictEndpoint<
+		Path,
+		ExtractStandSchema<Opts & { use: MiddlewareHandler[] }>,
+		R
+	>;
+
+	function createConfiguredEndpoint<Opts extends EndpointOptions, R>(
+		options: Opts,
+		handler: PathlessEndpointHandler<Opts, R, InferUse<E["use"]>>,
+	): StrictEndpoint<
+		never,
+		ExtractStandSchema<Opts & { use: MiddlewareHandler[] }>,
+		R
+	>;
+
+	function createConfiguredEndpoint<
+		Path extends string,
+		Opts extends EndpointOptions,
+		R,
+	>(
+		...args:
+			| [
+					path: Path,
+					options: Opts,
+					handler: EndpointHandler<Path, Opts, R, InferUse<E["use"]>>,
+			  ]
+			| [
+					options: Opts,
+					handler: PathlessEndpointHandler<Opts, R, InferUse<E["use"]>>,
+			  ]
+	) {
+		if (args.length === 3) {
+			const [path, options, handler] = args;
+			return createEndpoint(
+				path,
+				{
+					...options,
+					use: combineMiddleware(options.use, opts?.use),
+				},
+				handler,
+			);
+		}
+
+		const [options, handler] = args;
 		return createEndpoint(
-			path,
 			{
 				...options,
-				use: [...(options?.use || []), ...(opts?.use || [])],
+				use: combineMiddleware(options.use, opts?.use),
 			},
 			handler,
 		);
-	};
+	}
+
+	return createConfiguredEndpoint;
 };
 
 export type StrictEndpoint<

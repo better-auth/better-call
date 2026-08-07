@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import type { InferParam } from "./context";
+import type { EndpointContext, EndpointOptions } from "./endpoint";
 import type { InferParamPath, InferParamWildCard } from "./helper";
 
 describe("infer param", () => {
@@ -7,17 +8,20 @@ describe("infer param", () => {
 		expectTypeOf<InferParamPath<"/">>().toEqualTypeOf<{}>();
 		expectTypeOf<InferParamWildCard<"/">>().toEqualTypeOf<{}>();
 		expectTypeOf<InferParam<"/">>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 		expectTypeOf<InferParam<never>>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
+		>();
+		expectTypeOf<InferParam<string>>().toEqualTypeOf<
+			Record<string, string | undefined> | undefined
 		>();
 	});
 	it("static path", () => {
 		expectTypeOf<InferParamPath<"/static/path">>().toEqualTypeOf<{}>();
 		expectTypeOf<InferParamWildCard<"/static/path">>().toEqualTypeOf<{}>();
 		expectTypeOf<InferParam<"/static/path">>().toEqualTypeOf<
-			Record<string, any> | undefined
+			Record<string, string | undefined> | undefined
 		>();
 	});
 	it("single param", () => {
@@ -43,7 +47,20 @@ describe("infer param", () => {
 		expectTypeOf<InferParamWildCard<"/files/*">>().toEqualTypeOf<{
 			_: string;
 		}>();
-		expectTypeOf<InferParam<"/files/*">>().toEqualTypeOf<{ _: string }>();
+		expectTypeOf<InferParam<"/files/*">>().toEqualTypeOf<{
+			"0": string | undefined;
+		}>();
+		expectTypeOf<InferParam<"/files/*/">>().toEqualTypeOf<{
+			"0": string | undefined;
+		}>();
+		expectTypeOf<InferParam<"/file-*-*.png">>().toEqualTypeOf<{
+			"0": string;
+			"1": string;
+		}>();
+		expectTypeOf<InferParam<"/files/**">>().toEqualTypeOf<{ _: string }>();
+		expectTypeOf<InferParam<"/files/**:path">>().toEqualTypeOf<{
+			path: string;
+		}>();
 	});
 	it("mixed params", () => {
 		expectTypeOf<InferParamPath<"/user/:userId/files/*">>().toEqualTypeOf<{
@@ -54,7 +71,32 @@ describe("infer param", () => {
 		}>();
 		expectTypeOf<InferParam<"/user/:userId/files/*">>().toEqualTypeOf<{
 			userId: string;
-			_: string;
+			"0": string | undefined;
 		}>();
+	});
+});
+
+describe("endpoint context", () => {
+	it("preserves explicit context with generic endpoint options", () => {
+		type Context = EndpointContext<
+			string,
+			EndpointOptions,
+			{ adapter: object }
+		>["context"];
+
+		expectTypeOf<Context>().not.toBeAny();
+		expectTypeOf<Context>().toMatchTypeOf<{ adapter: object }>();
+	});
+
+	it("widens route-specific paths without losing inferred params", () => {
+		const widenContext = <
+			Path extends string,
+			Options extends EndpointOptions,
+			Context extends object,
+		>(
+			context: EndpointContext<Path, Options, Context>,
+		): EndpointContext<string, Options, Context, InferParam<string>> => context;
+
+		expectTypeOf(widenContext).toBeFunction();
 	});
 });
