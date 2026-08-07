@@ -48,27 +48,34 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          PACKAGE_VERSION=$(node -p "require('./packages/better-call/package.json').version")
+          TAG_VERSION="${TAG#v}"
+          RELEASE_BRANCH="main"
+          STABLE_NPM_TAG="latest"
+
+          if [[ "$PACKAGE_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Package version $PACKAGE_VERSION does not match release tag $TAG."
+            exit 1
+          fi
+
+          git fetch origin "refs/heads/$RELEASE_BRANCH:refs/remotes/origin/$RELEASE_BRANCH"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$RELEASE_BRANCH"; then
+            echo "::error::$TAG is not on $RELEASE_BRANCH."
+            exit 1
+          fi
+
           if [[ "$TAG" =~ -(next|canary|beta|rc) ]]; then
             # Extract pre-release tag (e.g., beta, rc)
             NPM_TAG=${BASH_REMATCH[1]}
           else
-            # Check if the commit is on the main branch or a version branch
-            git fetch origin main
-            CURRENT_BRANCH=$(git branch -r --contains "$GITHUB_SHA" | grep -E 'origin/(main|v[0-9]+\.[0-9]+\.x)' | head -1 | sed 's/.*origin\///')
-
-            if [[ "$CURRENT_BRANCH" == "main" ]]; then
-              NPM_TAG="latest"
-            elif [[ "$CURRENT_BRANCH" =~ ^v([0-9]+\.[0-9]+)\.x$ ]]; then
-              # For version branches like v1.3.x, v1.4.x, use the version as npm tag
-              # Use "release-X.Y" format to avoid SemVer range conflict (npm rejects "1.4" and "v1.4")
-              NPM_TAG="release-${BASH_REMATCH[1]}"
-            else
-              echo "The tagged commit is not on the main branch or a version branch (v*.*.x)."
-              echo "::error ::Releases must be on the main branch or a version branch (v*.*.x)."
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Unsupported release tag: $TAG"
               exit 1
             fi
+
+            NPM_TAG="$STABLE_NPM_TAG"
           fi
-          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
+          echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
           echo "Using npm tag: $NPM_TAG"
 
       - name: Publish to npm
