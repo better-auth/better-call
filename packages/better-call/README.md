@@ -26,7 +26,7 @@ pnpm i zod
 
 ## Usage
 
-The building blocks for better-call are endpoints. You can create an endpoint by calling `createEndpoint` and passing it a path, [options](#endpointoptions) and a handler that will be invoked when the endpoint is called.
+The building blocks for better-call are endpoints. You can create an endpoint by calling `createEndpoint` and passing it a path, [options](#endpoint) and a handler that will be invoked when the endpoint is called.
 
 ```ts
 // endpoint.ts
