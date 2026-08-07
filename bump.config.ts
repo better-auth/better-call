@@ -2,8 +2,8 @@ import { defineConfig } from "bumpp";
 import { globSync } from "tinyglobby";
 
 export const releaseConfig = {
-	branch: "main",
-	npmTag: "latest",
+	branch: "v1.3.x",
+	npmTag: "release-1.3",
 } as const;
 
 export default defineConfig({
