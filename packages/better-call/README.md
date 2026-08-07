@@ -1,6 +1,7 @@
-> [!NOTE]
+> ***Note***
+>
 > better-call v2 introduced substantial type-level breaking changes. Adopting it required widespread changes across better-auth, the largest consumer of better-call, and the migration cost outweighed the practical benefits.
-> 
+>
 > We therefore stopped maintaining the v2 release line and resumed active development from the v1 codebase. Any future breaking changes will be released as v3 rather than continuing v2.
 >
 > v2.0.x branch is preserved for historical reference only. For active development and supported releases, refer to the default branch of the repository.
