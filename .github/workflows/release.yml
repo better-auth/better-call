@@ -1,18 +1,20 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  pull_request:
+    types: [closed]
 
 permissions: {}
 
-concurrency:
-  group: release-${{ github.ref_name }}
-  cancel-in-progress: false
-
 jobs:
   release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    concurrency:
+      group: npm-release
+      queue: max
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -21,55 +23,110 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: '.nvmrc'
-
-      - run: npx changelogithub
-        env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-            node-version-file: '.nvmrc'
-            registry-url: 'https://registry.npmjs.org'
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Read release config
+        id: release_config
+        shell: bash
+        run: |
+          node --no-warnings --input-type=module -e '
+            import { releaseConfig } from "./bump.config.ts";
+            console.log(`branch=${releaseConfig.branch}`);
+            console.log(`npm_tag=${releaseConfig.npmTag}`);
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Determine release
+        id: release
+        shell: bash
+        env:
+          CONFIGURED_RELEASE_BRANCH: ${{ steps.release_config.outputs.branch }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          RELEASE_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          STABLE_NPM_TAG: ${{ steps.release_config.outputs.npm_tag }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./packages/better-call/package.json').version")
+          TAG="v$PACKAGE_VERSION"
+
+          if [[ "$RELEASE_BRANCH" != "$CONFIGURED_RELEASE_BRANCH" ]]; then
+            echo "::error::Release branch $RELEASE_BRANCH does not match configured branch $CONFIGURED_RELEASE_BRANCH."
+            exit 1
+          fi
+
+          if [[ "$RELEASE_PR_BRANCH" != "release/$TAG" ]]; then
+            echo "::error::Release branch $RELEASE_PR_BRANCH does not match package version $PACKAGE_VERSION."
+            exit 1
+          fi
+
+          if [[ "$PACKAGE_VERSION" =~ -(next|canary|beta|rc) ]]; then
+            NPM_TAG=${BASH_REMATCH[1]}
+          else
+            if [[ ! "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Unsupported release version: $PACKAGE_VERSION"
+              exit 1
+            fi
+
+            NPM_TAG="$STABLE_NPM_TAG"
+          fi
+
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG from $RELEASE_BRANCH with npm tag $NPM_TAG"
 
       - name: Build
         run: pnpm build
 
-      - name: Determine npm tag
-        id: determine_npm_tag
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          if [[ "$TAG" =~ -(next|canary|beta|rc) ]]; then
-            # Extract pre-release tag (e.g., beta, rc)
-            NPM_TAG=${BASH_REMATCH[1]}
-          else
-            # Check if the commit is on the main branch or a version branch
-            git fetch origin main
-            CURRENT_BRANCH=$(git branch -r --contains "$GITHUB_SHA" | grep -E 'origin/(main|v[0-9]+\.[0-9]+\.x)' | head -1 | sed 's/.*origin\///')
+      - name: Create tag
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        with:
+          script: |
+            const ref = `tags/${process.env.RELEASE_TAG}`;
+            const sha = process.env.RELEASE_SHA;
 
-            if [[ "$CURRENT_BRANCH" == "main" ]]; then
-              NPM_TAG="latest"
-            elif [[ "$CURRENT_BRANCH" =~ ^v([0-9]+\.[0-9]+)\.x$ ]]; then
-              # For version branches like v1.3.x, v1.4.x, use the version as npm tag
-              # Use "release-X.Y" format to avoid SemVer range conflict (npm rejects "1.4" and "v1.4")
-              NPM_TAG="release-${BASH_REMATCH[1]}"
-            else
-              echo "The tagged commit is not on the main branch or a version branch (v*.*.x)."
-              echo "::error ::Releases must be on the main branch or a version branch (v*.*.x)."
-              exit 1
-            fi
-          fi
-          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
-          echo "Using npm tag: $NPM_TAG"
+            try {
+              const { data } = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+              });
+
+              if (data.object.sha !== sha) {
+                core.setFailed(`${process.env.RELEASE_TAG} already points to ${data.object.sha}.`);
+                return;
+              }
+
+              core.info(`${process.env.RELEASE_TAG} already points to ${sha}.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/${ref}`,
+                sha,
+              });
+            }
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          npx changelogithub --to "$RELEASE_TAG"
 
       - name: Publish to npm
-        run: pnpm -r publish --provenance --access public --no-git-checks --tag ${{ steps.determine_npm_tag.outputs.npm_tag }}
+        run: pnpm -r publish --provenance --access public --no-git-checks --tag ${{ steps.release.outputs.npm_tag }}
