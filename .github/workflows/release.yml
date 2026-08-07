@@ -50,6 +50,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           PACKAGE_VERSION=$(node -p "require('./packages/better-call/package.json').version")
           TAG_VERSION="${TAG#v}"
+          # Maintenance branches must set their own release branch and stable npm tag.
           RELEASE_BRANCH="main"
           STABLE_NPM_TAG="latest"
 
