@@ -18,16 +18,18 @@ export type Interceptor = (c: any, next: () => Promise<any>) => any;
  */
 export type OnDefaultContext = {
 	input: Record<string, any>;
-	var: Record<string, any>;
-	use: Record<string, (input?: any) => Promise<any>>;
 	types: typeof vTypes;
 	fn: unknown;
+	/** Vars and used fns live directly on `c` - untyped here; mount the
+	 * entry on a builder's `on` for real types. */
+	[key: string]: any;
 };
 
 export type OnEntry<N extends string, Ext = unknown> = {
 	$on: true;
-	/** Exact key, a `*` wildcard pattern, or a RegExp. */
-	target: N | RegExp;
+	/** Exact key, a `*` wildcard pattern, a RegExp, or a LIST of any of
+	 * those - one handler mounted on several events at once. */
+	target: N | RegExp | readonly (string | RegExp)[];
 	/** Extra input fields this mount adds to the target fn. */
 	extend?: { input?: Ext };
 	handler: Interceptor;
@@ -35,16 +37,24 @@ export type OnEntry<N extends string, Ext = unknown> = {
 
 /**
  * Does an `on` target hit fn key `key`? Exact match, `*` wildcards
- * ("*", "sign_up.*", "/sign-up/*" - a `*` spans anything), or RegExp.
+ * ("*", "sign_up.*", "/sign-up/*" - a `*` spans anything), a RegExp, or a
+ * list (any member hitting counts).
  */
 export const matchesTarget = (
-	target: string | RegExp,
+	target: string | RegExp | readonly (string | RegExp)[],
 	key: string,
 ): boolean => {
+	if (Array.isArray(target)) {
+		return (target as readonly (string | RegExp)[]).some((member) =>
+			matchesTarget(member, key),
+		);
+	}
 	if (target instanceof RegExp) return target.test(key);
-	if (target === key) return true;
-	if (!target.includes("*")) return false;
-	const pattern = target
+	// Array.isArray cannot narrow a readonly array out of the union.
+	const name = target as string;
+	if (name === key) return true;
+	if (!name.includes("*")) return false;
+	const pattern = name
 		.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
 		.replace(/\*/g, ".*");
 	return new RegExp(`^${pattern}$`).test(key);
@@ -81,9 +91,24 @@ export type TargetMatches<N, K extends string> = N extends "*"
 export type Module = Record<string, unknown> & {
 	$var?: never;
 	$varExtend?: never;
-	$on?: never;
+	/** Rejects a bare `on` ENTRY (`$on: true`) while letting a storage
+	 * through - its `$on` is the hook-mounting METHOD, not the brand. */
+	$on?: (...args: never[]) => unknown;
 	$fn?: never;
 };
+
+/** A module member that can NEST other members: a plain record that is
+ * not itself branded. Fn defs are callable, so they never match. */
+type GroupMember<V> = V extends
+	| { $var: true }
+	| { $on: true }
+	| { $varExtend: true }
+	| ((...args: any[]) => any)
+	| readonly unknown[]
+	? never
+	: V extends Record<string, unknown>
+		? V
+		: never;
 
 type VarEntryUnion<M> = {
 	[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
@@ -92,7 +117,9 @@ type VarEntryUnion<M> = {
 			? unknown extends BT
 				? never
 				: { [P in N]: BT }
-			: never;
+			: [GroupMember<M[K]>] extends [never]
+				? never
+				: VarEntryUnion<GroupMember<M[K]>>;
 }[keyof M];
 
 /**
@@ -110,12 +137,42 @@ export type VarsFrom<M> = M extends unknown
 
 export type ModuleVars<PL> = UnionToIntersection<VarsFrom<Members<PL>>>;
 
-/** Fns a module exports, keyed by EXPORT name. */
-export type FnsFrom<M> = M extends unknown
-	? {
-			[K in keyof M as M[K] extends FnDefination<any, any> ? K : never]: M[K];
-		}
-	: never;
+/** Depth budget for nested groups: unbranded records can be arbitrarily
+ * deep (schema shapes, values), so the walk stops after a few levels
+ * instead of blowing the instantiation limit. */
+type GroupDepth = [never, 0, 1, 2];
+
+/** A nested GROUP's fns: only real groups holding at least one fn
+ * (within the depth budget) survive - everything else drops from the
+ * surface. */
+type GroupFns<V, D extends number> = [D] extends [never]
+	? never
+	: [GroupMember<V>] extends [never]
+		? never
+		: [keyof FnEntries<GroupMember<V>, D>] extends [never]
+			? never
+			: FnEntries<GroupMember<V>, D>;
+
+type FnEntries<M, D extends number = 3> = {
+	[K in keyof M as M[K] extends FnDefination<any, any, any, any, any, any>
+		? K
+		: M[K] extends VarDefination<any, any, any, any>
+			? K
+			: [GroupFns<M[K], GroupDepth[D]>] extends [never]
+				? never
+				: K]: M[K] extends FnDefination<any, any, any, any, any, any>
+		? M[K]
+		: M[K] extends VarDefination<any, any, any, any>
+			? M[K]
+			: GroupFns<M[K], GroupDepth[D]>;
+};
+
+/** Fns and vars a module exports, keyed by EXPORT name. A plain-record
+ * member is a GROUP: its members stay nested under the member's name
+ * (`use: [{ cookie: { setCookie } }]` -> `c.cookie.setCookie`). A var
+ * member is an ALIAS onto the var - `{ cookie: { options: cookieOptions } }`
+ * reads and writes the `cookieOptions` var through `c.cookie.options`. */
+export type FnsFrom<M> = M extends unknown ? FnEntries<M> : never;
 
 export type ModuleFns<PL> = UnionToIntersection<FnsFrom<Members<PL>>>;
 
@@ -157,6 +214,54 @@ export const collectFns = (
 	return fns;
 };
 
+/**
+ * A plain-record member that GROUPS other members - not itself branded
+ * (fn, var, on entry, var extension) but holding at least one such member,
+ * transitively. Storages and other `$`-surfaced objects fail the member
+ * test and stay opaque values.
+ */
+export const isNamespace = (
+	value: unknown,
+): value is Record<string, unknown> => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const proto = Object.getPrototypeOf(value);
+	if (proto !== Object.prototype && proto !== null) return false;
+	if (isVar(value) || isOn(value) || isVarExtension(value)) return false;
+	return Object.values(value).some(
+		(m) =>
+			isFn(m) || isVar(m) || isOn(m) || isVarExtension(m) || isNamespace(m),
+	);
+};
+
+/**
+ * Every exported fn AND var, with plain-record GROUPS kept as nested
+ * namespaces: `use: [{ cookie: { setCookie } }]` lands the fn on
+ * `c.cookie.setCookie`. A var member becomes an ALIAS under its export
+ * name (`{ cookie: { options: cookieOptions } }` -> `c.cookie.options`
+ * reads/writes the var). Groups holding nothing (however deep) drop out.
+ */
+export const collectUsable = (
+	modules: readonly Module[],
+): Record<string, unknown> => {
+	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
+		const out: Record<string, unknown> = {};
+		for (const [name, value] of Object.entries(mod)) {
+			if (isFn(value) || isVar(value)) {
+				out[name] = value;
+			} else if (isNamespace(value)) {
+				const nested = walk(value);
+				if (Object.keys(nested).length > 0) out[name] = nested;
+			}
+		}
+		return out;
+	};
+	const fns: Record<string, unknown> = {};
+	for (const mod of resolveModules(modules)) Object.assign(fns, walk(mod));
+	return fns;
+};
+
 export const isOn = (value: any): value is OnEntry<string> =>
 	value?.$on === true;
 
@@ -172,8 +277,9 @@ export const isOn = (value: any): value is OnEntry<string> =>
  * validated alongside the fn's own, land on `c.input`, and - through
  * `ApplyOns` - become required at every call site that mounts this entry.
  */
-/** The var name a `var.set.…` target addresses - literal when exact. */
-type VarNameOf<T extends string> = T extends `var.set.${infer N}`
+/** The var name a `var.set.…`/`var.get.…` target addresses - literal when
+ * exact. */
+type VarNameOf<T extends string> = T extends `var.${"set" | "get"}.${infer N}`
 	? N extends `${string}*${string}`
 		? string
 		: N
@@ -189,21 +295,39 @@ export type VarSetContext<N extends string = string> = {
 	value: unknown;
 	/** The fn frame performing the write. */
 	fn: string;
-	/** The rest of the scope's vars, readable. */
-	var: Record<string, unknown>;
+	/** Every other property reads the scope's vars directly. */
+	[key: string]: unknown;
+};
+
+/** What a `var.get.…` handler receives. Reads are synchronous, so the
+ * handler must be too - `next()` yields the stored value and whatever the
+ * handler returns becomes the read result. */
+export type VarGetContext<N extends string = string> = {
+	/** The var being read. */
+	name: N;
+	/** The fn frame performing the read. */
+	fn: string;
+	/** Every other property reads the scope's vars (raw - no get hooks). */
+	[key: string]: unknown;
 };
 
 type FnInputOf<F> =
-	F extends FnDefination<any, any, any, infer I, any> ? InferInput<I> : never;
+	F extends FnDefination<any, any, any, infer I, any, any>
+		? InferInput<I>
+		: never;
 
 type FnResultOf<F> =
-	F extends FnDefination<any, infer R, any, any, any> ? Awaited<R> : never;
+	F extends FnDefination<any, infer R, any, any, any, any> ? Awaited<R> : never;
 
 export function on<T extends "var.set.*" | `var.set.${string}`>(
 	target: T,
 	handler: (c: VarSetContext<VarNameOf<T>>, next: () => void) => void,
 ): OnEntry<T>;
-export function on<F extends FnDefination<any, any, string, any, any>>(
+export function on<T extends "var.get.*" | `var.get.${string}`>(
+	target: T,
+	handler: (c: VarGetContext<VarNameOf<T>>, next: () => unknown) => unknown,
+): OnEntry<T>;
+export function on<F extends FnDefination<any, any, string, any, any, any>>(
 	target: F,
 	handler: (
 		c: Omit<OnDefaultContext, "input"> & { input: FnInputOf<F> },
@@ -211,7 +335,7 @@ export function on<F extends FnDefination<any, any, string, any, any>>(
 	) => any,
 ): OnEntry<F["key"]>;
 export function on<
-	F extends FnDefination<any, any, string, any, any>,
+	F extends FnDefination<any, any, string, any, any, any>,
 	const Ext,
 >(
 	target: F,
@@ -223,6 +347,14 @@ export function on<
 		next: () => Promise<FnResultOf<F>>,
 	) => any,
 ): OnEntry<F["key"], Ext>;
+export function on(
+	targets: readonly (
+		| LiteralString
+		| RegExp
+		| FnDefination<any, any, string, any, any, any>
+	)[],
+	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
+): OnEntry<string>;
 export function on(
 	target: RegExp,
 	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
@@ -252,14 +384,27 @@ export function on<N extends LiteralString, const Ext>(
 	) => any,
 ): OnEntry<N, Ext>;
 export function on(
-	target: string | RegExp | FnDefination<any, any, string, any, any>,
+	target:
+		| string
+		| RegExp
+		| FnDefination<any, any, string, any, any, any>
+		| readonly (
+				| string
+				| RegExp
+				| FnDefination<any, any, string, any, any, any>
+		  )[],
 	extendOrHandler: any,
 	maybeHandler?: any,
 ): OnEntry<string, any> {
-	// A fn reference targets its own key - no string to typo.
-	const resolved = (isFn(target) ? (target as { key: string }).key : target) as
-		| string
-		| RegExp;
+	// A fn reference targets its own key - no string to typo. A LIST
+	// resolves member-wise: one handler, several events.
+	const resolveOne = (member: unknown) =>
+		isFn(member)
+			? (member as { key: string }).key
+			: (member as string | RegExp);
+	const resolved = (
+		Array.isArray(target) ? target.map(resolveOne) : resolveOne(target)
+	) as string | RegExp | readonly (string | RegExp)[];
 	return typeof extendOrHandler === "function"
 		? { $on: true, target: resolved, handler: extendOrHandler }
 		: {
@@ -340,6 +485,32 @@ export type VarExtensionArgsFor<PL, K extends string> = UnionToIntersection<
 	VarExtArgsEntry<Members<PL>, K>
 >;
 
+/** The args side of every VAR named `K` a module set declares - a
+ * `customize`d re-export shadows by NAME, so mounting it counts as a
+ * declaration about the same var. Schema-less vars contribute nothing. */
+type VarShadowArgsEntry<M, K extends string> = M extends unknown
+	? {
+			[P in keyof M]: M[P] extends VarDefination<K, any, infer S, any>
+				? unknown extends S
+					? never
+					: [NonNullable<S>] extends [never]
+						? never
+						: InferArgs<NonNullable<S>>
+				: never;
+		}[keyof M]
+	: never;
+
+/**
+ * Everything a module set says about var `K`'s ARGS side: extensions
+ * mounted on it, intersected with every same-name var declaration. This is
+ * what widens a fn schema whose input references `K` (see `WidenSchemaFns`)
+ * - `unknown` when the scope adds nothing, which intersects away.
+ */
+export type VarArgsInScope<PL, K extends string> = VarExtensionArgsFor<PL, K> &
+	([VarShadowArgsEntry<Members<PL>, K>] extends [never]
+		? unknown
+		: UnionToIntersection<VarShadowArgsEntry<Members<PL>, K>>);
+
 type VarFieldKeys<I> = {
 	[K in keyof I]: I[K] extends { $var: true } ? K : never;
 }[keyof I];
@@ -392,7 +563,16 @@ export type ExtendedArgs<PL, K extends string> = UnionToIntersection<
  * the call site, even though the fn itself never declared it.
  */
 export type ApplyOn<F, PL> =
-	F extends FnDefination<infer A, infer R, infer K, infer I, infer P>
+	F extends FnDefination<
+		infer A,
+		infer R,
+		infer K,
+		infer I,
+		infer P,
+		infer Er,
+		infer RV,
+		infer U
+	>
 		? unknown extends ExtendedArgs<PL, K & string> & InputVarExtra<PL, I>
 			? F
 			: FnDefination<
@@ -404,7 +584,10 @@ export type ApplyOn<F, PL> =
 					R,
 					K & string,
 					I,
-					P
+					P,
+					Er,
+					RV,
+					U
 				>
 		: F;
 

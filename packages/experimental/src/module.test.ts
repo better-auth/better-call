@@ -56,6 +56,18 @@ describe("on matching", () => {
 		expect(log).toEqual(["a:in", "b:in", "body", "b:out", "a:out"]);
 	});
 
+	it("an ARRAY of targets mounts one handler on several events", async () => {
+		const log: string[] = [];
+		const both = v.on(["plt.first", "plt.sec*"], async (_c, next) => {
+			log.push("hit");
+			return next();
+		});
+		await v.fn("plt.first", { use: [{ both }] }, () => 1)();
+		await v.fn("plt.second", { use: [{ both }] }, () => 2)();
+		await v.fn("plt.other", { use: [{ both }] }, () => 3)();
+		expect(log).toEqual(["hit", "hit"]);
+	});
+
 	it("a veto (no next) replaces the result", async () => {
 		const cut = v.on("plt.cut", async () => "vetoed");
 		await expect(
@@ -98,8 +110,8 @@ describe("var.set events", () => {
 			next();
 		});
 		const f = v.fn("plt.writer", { use: [core, { watch }] }, (c) => {
-			c.var.plt_flag.set(7);
-			return c.var.plt_flag.get();
+			c.plt_flag = 7;
+			return c.plt_flag;
 		});
 		expect(f()).toBe(7);
 		expect(seen).toEqual(["plt_flag=7@plt.writer"]);
@@ -108,8 +120,8 @@ describe("var.set events", () => {
 	it("skipping next() cancels the write", () => {
 		const veto = v.on("var.set.plt_flag", () => {});
 		const f = v.fn({ use: [core, { veto }] }, (c) => {
-			c.var.plt_flag.set(9);
-			return c.var.plt_flag.get();
+			c.plt_flag = 9;
+			return c.plt_flag;
 		});
 		expect(f()).toBe(0);
 	});
@@ -118,7 +130,7 @@ describe("var.set events", () => {
 		const lazy = v.on("var.set.*", (async (_c: unknown, next: () => void) =>
 			next()) as never);
 		const f = v.fn({ use: [core, { lazy }] }, (c) => {
-			c.var.plt_flag.set(1);
+			c.plt_flag = 1;
 		});
 		expect(() => f()).toThrow(/must be synchronous/);
 	});
@@ -130,8 +142,57 @@ describe("var.set events", () => {
 			return next();
 		});
 		const f = v.fn({ use: [core, { all }] }, (c) => {
-			c.var.plt_flag.set(3);
+			c.plt_flag = 3;
 		});
+		f();
+		expect(calls).toEqual(["fn"]);
+	});
+});
+
+describe("var.get events", () => {
+	it("wraps handle reads: next() yields the stored value, the return IS the read", () => {
+		const seen: string[] = [];
+		const watch = v.on("var.get.plt_flag", (c, next) => {
+			const value = next();
+			seen.push(`${c.name}=${value}@${c.fn}`);
+			return (value as number) + 1;
+		});
+		const f = v.fn("plt.reader", { use: [core, { watch }] }, (c) => {
+			c.plt_flag = 7;
+			return c.plt_flag;
+		});
+		expect(f()).toBe(8);
+		expect(seen).toEqual(["plt_flag=7@plt.reader"]);
+	});
+
+	it("internal reads stay raw: reading vars inside the handler does not recurse", () => {
+		let sawInHandler: unknown;
+		const spy = v.on("var.get.plt_flag", (c, next) => {
+			sawInHandler = c.plt_flag;
+			return next();
+		});
+		const f = v.fn({ use: [core, { spy }] }, (c) => {
+			c.plt_flag = 5;
+			return c.plt_flag;
+		});
+		expect(f()).toBe(5);
+		expect(sawInHandler).toBe(5);
+	});
+
+	it("async var-get handlers are rejected loudly", () => {
+		const lazy = v.on("var.get.*", (async (_c: unknown, next: () => unknown) =>
+			next()) as never);
+		const f = v.fn({ use: [core, { lazy }] }, (c) => c.plt_flag);
+		expect(() => f()).toThrow(/must be synchronous/);
+	});
+
+	it('the bare "*" fn wildcard does not fire on var reads', () => {
+		const calls: string[] = [];
+		const all = v.on("*", async (_c, next) => {
+			calls.push("fn");
+			return next();
+		});
+		const f = v.fn({ use: [core, { all }] }, (c) => c.plt_flag);
 		f();
 		expect(calls).toEqual(["fn"]);
 	});
@@ -140,12 +201,12 @@ describe("var.set events", () => {
 describe("read-only plugin", () => {
 	it("blocks the whole subtree from writing vars", async () => {
 		const deep = v.fn("plt.deepWrite", { use: [core] }, (c) => {
-			c.var.plt_flag.set(1);
+			c.plt_flag = 1;
 		});
 		const guarded = v.fn(
 			"plt.view",
 			{ use: [core, { deep }, readOnly] },
-			async (c) => c.use.deep(),
+			async (c) => c.deep(),
 		);
 		await expect(guarded()).rejects.toThrow(
 			/readonly scope: attempted to set var "plt_flag"/,
@@ -153,7 +214,7 @@ describe("read-only plugin", () => {
 	});
 
 	it("reading stays allowed", () => {
-		const f = v.fn({ use: [core, readOnly] }, (c) => c.var.plt_flag.get());
+		const f = v.fn({ use: [core, readOnly] }, (c) => c.plt_flag);
 		expect(f()).toBe(0);
 	});
 });

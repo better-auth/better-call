@@ -15,8 +15,8 @@ const betterAuth = v.fn(
 		],
 	},
 	(c) => {
-		c.var.user.get()?.birthday;
-		return c.use;
+		c.user?.birthday;
+		return c;
 	},
 );
 
@@ -30,7 +30,7 @@ v.fn(
 		use: [http],
 	},
 	async (c) => {
-		c.var.path.get();
+		c.req?.path;
 	},
 );
 
@@ -43,3 +43,7 @@ const _auth = betterAuth();
 //server (/...) authorize
 
 //store("...") /// capability don't accept it...
+
+const _updateUser = v.fn("/update-user", {}, async (_c) => {
+	// c.fn();
+});

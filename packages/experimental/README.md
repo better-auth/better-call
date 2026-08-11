@@ -51,6 +51,36 @@ const createTool = v.fn("create_tool", {
 createTool("get_weather", { description: "..." }, async ({ location }) => ({ ... }));
 ```
 
+Inside a **data schema** (a `v.object` shape, a var's `schema`), declare fn-typed fields with `v.fn.type` — and bare `v.fn` (never called) is "any function":
+
+```ts
+const db = v.var("db", {
+  schema: v.object({
+    user: v.object({
+      create: v.fn.type({                         // a fn from { id } to { id }
+        input: { id: v.string() },
+        output: v.object({ id: v.string() }),
+      }),
+      drop: v.fn,                                 // any function at all
+    }),
+  }),
+});
+```
+
+Validation checks what a signature *can* be checked for: the value is a function, and a plain closure gets the declared input validated at its door on every call — the rest of the signature lives at the type level. `v.fn.type` exists apart from the handler-less builder for **inline** spots like the one above: a `v.fn(...)` *call* written inline inside another call's arguments makes TypeScript defer it (the handler overloads return a callable, which trips higher-order inference), silently wiping the enclosing `v.object`/`v.var`'s type inference. A handler-less `v.fn({ ... })` still works as a schema when hoisted to its own `const`.
+
+A fn schema whose input **is a var** (`create: v.fn.type({ input: user })`) resolves that input against the **scope it is read in**, not just the schema it was written with: whatever the scope mounts on the var — a `v.extend` extension, a `customize`d re-export — widens the fn's call args, the same way `ApplyOn` widens a used fn. Declare storage against the core `user`, let the app mount `userWithEmail`, and every `db.createUser(...)` call site inside that scope demands the email:
+
+```ts
+const db = v.var("db", {
+  schema: v.object({ createUser: v.fn.type({ input: user }) }),
+});
+const app = v.fn({ use: [{ user, userWithEmail, db }] });
+app.fn("auth.x", async (c) => {
+  c.db?.createUser({ id: "1", email: "a@b.c" }); // email required HERE
+});
+```
+
 ### errors
 
 Errors are the third contract door: input validates on entry, output on exit, errors at throw. A fn declares its failures as `tag -> payload schema`; `c.error` only accepts declared tags and validates the payload at mint:
@@ -85,7 +115,7 @@ const createSession = v.fn(
   "create_session",
   { input: { userId: v.string() }, provides: ["session"], use: [{ session }] },
   async (c) => {
-    c.var.session = { userId: c.input.userId };
+    c.session = { userId: c.input.userId };
     return { created: true };
   },
 );
@@ -104,6 +134,28 @@ const app = v.fn({ use: [coreSession] });
 ```
 
 `v.on` mounts onto another fn by name (or reference): the handler replaces the target's body and receives `next` — call it to delegate, or don't. Targets take exact keys, `*` wildcards, RegExps, and `var.set.<name>` events for intercepting writes.
+
+## Fns vs plain functions
+
+Not everything is a fn. A fn is for an **operation** — a unit that participates in the app's composition model. A plain function is for a **primitive** — a pure computation. Everything `v.fn` buys — validation at the door, a declared error channel, vars traveling down the tree, interception by key, a name a router can serve — is aimed at the application boundary. Where none of that applies, the wrapper is dead weight.
+
+Write a `v.fn` when at least one of these is true:
+
+- **Its input is untrusted** — it arrives from a user, a wire, another process — so validation at the door means something.
+- **It reads or provides vars** — it needs session, storage, request state without threading arguments.
+- **Someone else should be able to change it** — a plugin hooking it with `on`, an override through `use`. Extensibility is the point.
+- **It should be addressable** — a router exposes it, a capability names it, an error trail should record it.
+
+Keep a plain function when the opposite holds:
+
+- **The input is already trusted and precisely typed.** A `CryptoKey`, a `Uint8Array`, a `JsonWebKey` — TypeScript checks these better than any schema could express them. Wrapping them in `v.any()` is validation theater with runtime cost.
+- **It's pure.** Same input, same output, no context — the var machinery would carry nothing, and pure helpers sit in hot paths.
+- **Interception would be a liability, not a feature.** A signature check or a hash a plugin can wrap is an attack surface. Security primitives should be boringly non-extensible.
+- **It should stay portable.** A leaf module that imports nothing from the runtime can be lifted anywhere — making it a fn inverts the dependency arrow.
+
+The worked example is `expt-better-auth`: `sign_up.email` and `two_factor.enable` are fns — untrusted input, session vars, plugin surface, router paths. Its `src/crypto/` (base64url, JWK thumbprints, JWT sign/verify) is plain functions — pure, precisely typed, deliberately uninterceptable.
+
+When you *do* want extensibility around a primitive — say, letting an app observe or veto token verification — hang the hook on the operation that calls it, not on the primitive itself. The fn layer is where `on` belongs; the primitive stays sealed.
 
 ## Capability-based security
 
@@ -124,7 +176,7 @@ const updateProfile = v.fn(
   async (c) => {
     // fn to fn: no token, no ceremony. `use` handed this body a
     // REFERENCE to audit, and in-process possession IS authorization.
-    await c.use.audit({ event: `renamed to "${c.input.name}"` });
+    await c.audit({ event: `renamed to "${c.input.name}"` });
   },
 );
 ```

@@ -1,4 +1,5 @@
 import { v } from "../src";
+import { cookieOptions, setCookie } from "../src/plugins/http";
 import { db } from "./my-db";
 
 export const user = v.var("user", {
@@ -13,34 +14,46 @@ export const session = v.var("session", {
 	schema: v.object({ id: v.string(), userId: v.string() }),
 });
 
-const auth = v.fn({ use: [{ session, user }] });
+export const sessionCookie = v.derive(
+	"sessionCookie",
+	cookieOptions,
+	(base) => ({
+		name: "session_id",
+		options: {
+			...base,
+			httpOnly: true,
+			sameSite: "lax" as const,
+			maxAge: 60 * 60 * 24 * 7,
+		},
+	}),
+);
 
-/** Reading is the app's own concern: one round-trip answers both vars,
- * and the scope's vars CACHE the rows for everything below - a second
- * call in the same scope never touches the db. */
-export const loadSession = auth.fn("load_session", async (c) => {
-	const cached = c.var.session.get();
-	if (cached) return cached;
-	const [u, s] = db.selectMany(["user", "session"]);
-	if (u) c.var.user.set(u as never);
-	if (s) c.var.session.set(s as never);
-	return c.var.session.get();
+const s = v.fn({
+	use: [{ session, user, sessionCookie, cookieOptions }, { setCookie }],
 });
 
-export const createUser = auth.fn("create_user", { input: user }, async (c) => {
-	const value = c.var.user.get();
+export const createUser = s.fn("create_user", { input: user }, async (c) => {
+	const value = c.user;
 	if (value) db.insert({ table: "user", row: value });
-	return c.var.session.get();
+	return c.session;
 });
 
-export const createSession = auth.fn(
+export const createSession = s.fn(
 	"create_session",
 	{ input: session, provides: ["session"] },
 	async (c) => {
-		const u = c.var.user.get();
-		const s = c.var.session.get();
+		const u = c.user;
+		const s = c.session;
 		if (u) db.insert({ table: "user", row: u });
-		if (s) db.insert({ table: "session", row: s });
+		if (s) {
+			db.insert({ table: "session", row: s });
+			const cookie = c.sessionCookie;
+			c.setCookie({
+				name: cookie.name,
+				value: s.id,
+				options: cookie.options,
+			});
+		}
 		return { created: true };
 	},
 );
@@ -48,7 +61,7 @@ export const createSession = auth.fn(
 export const coreSession = {
 	createUser,
 	createSession,
-	loadSession,
 	session,
 	user,
+	sessionCookie,
 };

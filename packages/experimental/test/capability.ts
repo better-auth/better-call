@@ -219,7 +219,7 @@ export const capability = v.var("capability", {
 
 export const validateCaller = (fnKey: string) =>
 	v.on(fnKey, async (c, next) => {
-		const wire = c.var.capability.get();
+		const wire = c.capability;
 		// No boundary above this call: the caller reached this fn through
 		// a memory reference it was handed. That possession is the
 		// capability - nothing to verify.
@@ -235,7 +235,7 @@ export const validateCaller = (fnKey: string) =>
 			}
 			// The wire hop is spent: below this frame, every call is
 			// fn-to-fn by direct reference again.
-			c.var.capability.set({ ...wire, entry: null });
+			c.capability = { ...wire, entry: null };
 			return next();
 		}
 		// Called from inside by a fn that already passed the boundary
@@ -300,7 +300,7 @@ export type Authority = {
  * capability space, one per key, and EVERY one of them validates its
  * caller - there is no public list. Everything crosses as data: a fn
  * key, JSON input, and a freshly minted invocation. Verification sets
- * `c.var.capability`; `validateCaller` on every fn does the rest.
+ * `c.capability`; `validateCaller` on every fn does the rest.
  */
 export const serve = async (
 	modules: Record<string, unknown>,
@@ -491,7 +491,7 @@ export const serve = async (
 				// the target fn's own check - `entry` tells it which frame
 				// has no memory reference behind it.
 				const held = await verifyInvocation(key.id, token);
-				c.var.capability.set({ ...held, entry: c.input.call });
+				c.capability = { ...held, entry: c.input.call };
 			}
 			return (target as (i: unknown, p: unknown) => unknown)(c.input.input, c);
 		},

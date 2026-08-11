@@ -1,7 +1,6 @@
 import { type Issue, ValidationError } from "./error";
 import type { LiteralString, Prettify } from "./types";
 
-/** Constraints carried on a type and checked by `validate`. */
 export type Rules = {
 	/** Strings: length. Numbers: value. */
 	min?: number;
@@ -62,7 +61,7 @@ type DefOf<D, Opt> = [Opt] extends [true]
 		: D
 	: D;
 
-type StringOptions<O> = TypeOptions<string, O> &
+type StringOptions<E extends string, O> = TypeOptions<E, O> &
 	Pick<
 		Rules,
 		| "min"
@@ -74,7 +73,10 @@ type StringOptions<O> = TypeOptions<string, O> &
 		| "startsWith"
 		| "endsWith"
 		| "check"
-	> & { enum?: readonly string[] };
+	> & { enum?: readonly E[] };
+
+type ArrayOptions<E, O> = TypeOptions<FieldOut<E>[], O> &
+	Pick<Rules, "min" | "max" | "length" | "check">;
 
 type NumberOptions<O> = TypeOptions<number, O> &
 	Pick<Rules, "min" | "max" | "int" | "check"> & {
@@ -91,9 +93,22 @@ export type DefineInput<I> = Prettify<{
 	[K in keyof I]: FieldIn<I[K]>;
 }>;
 
-export type DefineOutput<O> = Prettify<{
-	[K in keyof O]: FieldOut<O[K]>;
-}>;
+/** Keys whose field is OPTIONAL with no default: absent from the output
+ * too, so they mark `?`. A defaulted field always produces a value and
+ * stays required. */
+type OutOptional<O> = {
+	[K in keyof O]: [DefaultOf<O[K]>] extends [never]
+		? never
+		: [DefaultOf<O[K]>] extends [undefined]
+			? K
+			: never;
+}[keyof O];
+
+export type DefineOutput<O> = Prettify<
+	{ [K in keyof O as K extends OutOptional<O> ? never : K]: FieldOut<O[K]> } & {
+		[K in keyof O as K extends OutOptional<O> ? K : never]?: FieldOut<O[K]>;
+	}
+>;
 
 /**
  * A handler-less `v.fn({ input, output })` used as a schema describes
@@ -106,14 +121,86 @@ export type DefineOutput<O> = Prettify<{
  *
  * `SchemaFnOut` is the CONSUMER's side (`c.input.x`) - the handler calls
  * it with RAW args, exactly like calling the fn it stands in for.
+ *
+ * No declared input means the signature is UNSPECIFIED, not zero-arg -
+ * any fn fits (`create: v.fn`), so the args stay open.
  */
 type SchemaFnIn<FI, FO> = (
-	...args: unknown extends FI ? [] : [input: InferInput<FI>]
-) => unknown extends FO ? any : InferInput<FO> | Promise<InferInput<FO>>;
+	...args: unknown extends FI ? any[] : [input: InferInput<FI>]
+) => unknown extends FO
+	? any
+	: InferInput<OutputSchemaOf<FO>> | Promise<InferInput<OutputSchemaOf<FO>>>;
 
 type SchemaFnOut<FI, FO> = (
-	...args: unknown extends FI ? [] : [input: InferArgs<FI>]
-) => unknown extends FO ? any : InferInput<FO> | Promise<InferInput<FO>>;
+	...args: unknown extends FI ? any[] : [input: InferArgs<FI>]
+) => unknown extends FO
+	? any
+	: InferInput<OutputSchemaOf<FO>> | Promise<InferInput<OutputSchemaOf<FO>>>;
+
+/**
+ * A fn schema whose input IS a var carries that var's name as an optional
+ * phantom (`$fnVar`, tuple-wrapped so a plain fn can never false-match).
+ * Scope resolution reads it to WIDEN the fn's args with everything the
+ * scope mounts on that var - see `WidenSchemaFns`. Optional, so any plain
+ * closure still satisfies the type.
+ */
+export type FnVarBrand<FI> = FI extends {
+	$var: true;
+	name: infer N extends string;
+}
+	? { readonly $fnVar?: [N] }
+	: unknown;
+
+/**
+ * A declared `output` comes in two forms: a bare schema (the signature
+ * AND the exit check), or the wrapper `{ def?, validation? }` splitting
+ * what the fn PROMISES from what gets CHECKED - `{ def }` documents
+ * without paying runtime validation, `{ def, validation }` checks with a
+ * different (usually looser) schema than it documents. The wrapper is
+ * recognized by its keys, so an output that IS an object with only
+ * `def`/`validation` fields must be written `v.object({...})`.
+ *
+ * `OutputSchemaOf` is the type-level unwrap - the schema the fn's return
+ * type (and its rendered signature) comes from.
+ */
+export type OutputSchemaOf<O> =
+	Exclude<keyof O, "def" | "validation"> extends never
+		? O extends { def: infer D }
+			? D
+			: O extends { validation: infer Vl }
+				? Vl
+				: O
+		: O;
+
+/** The runtime unwrap: `def` is the documented schema (falls back to
+ * `validation`), `validation` is what the exit check runs - undefined
+ * means no check. A bare schema is both. */
+export const outputContract = (
+	output: unknown,
+): { def?: unknown; validation?: unknown } => {
+	if (output === undefined) return {};
+	if (
+		output !== null &&
+		typeof output === "object" &&
+		!Array.isArray(output) &&
+		!isType(output) &&
+		!isVar(output) &&
+		!isFnSchema(output)
+	) {
+		const keys = Object.keys(output);
+		if (
+			keys.length > 0 &&
+			keys.every((k) => k === "def" || k === "validation")
+		) {
+			const { def, validation } = output as {
+				def?: unknown;
+				validation?: unknown;
+			};
+			return { def: def ?? validation, validation };
+		}
+	}
+	return { def: output, validation: output };
+};
 
 /**
  * One input field, in four flavours:
@@ -128,7 +215,7 @@ type SchemaFnOut<FI, FO> = (
 type FieldOut<F> = F extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnOut<FI, FO>
+		? SchemaFnOut<FI, FO> & FnVarBrand<FI>
 		: F extends TypeDefination<any, infer O, any>
 			? O
 			: F extends Record<string, unknown>
@@ -138,7 +225,7 @@ type FieldOut<F> = F extends { $var: true; schema?: infer S }
 type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnIn<FI, FO>
+		? SchemaFnIn<FI, FO> & FnVarBrand<FI>
 		: F extends TypeDefination<infer T, any, any>
 			? T
 			: F extends Record<string, unknown>
@@ -148,15 +235,20 @@ type FieldIn<F> = F extends { $var: true; schema?: infer S }
 /**
  * A field's declared default, looked through a var to its schema. Only a
  * TYPE's default counts - a var's own default is its initial value, not a
- * licence to omit the input.
+ * licence to omit the input. The `$fnSchema` guard mirrors `asType`'s
+ * ordering: a bare `v.fn` is CALLABLE, and any callable duck-matches
+ * TypeDefination (`.name` comes with every function), which would read a
+ * phantom default off it and wrongly mark the field optional.
  */
 type DefaultOf<F> = F extends { $var: true; schema?: infer S }
 	? NonNullable<S> extends TypeDefination<any, any, infer D>
 		? D
 		: never
-	: F extends TypeDefination<any, any, infer D>
-		? D
-		: never;
+	: F extends { $fnSchema: unknown }
+		? never
+		: F extends TypeDefination<any, any, infer D>
+			? D
+			: never;
 
 type Defaulted<I> = {
 	[K in keyof I]: [DefaultOf<I[K]>] extends [never] ? never : K;
@@ -178,7 +270,7 @@ type ArgsShape<I> = Prettify<
 export type InferInput<I> = I extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
 	: I extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnOut<FI, FO>
+		? SchemaFnOut<FI, FO> & FnVarBrand<FI>
 		: I extends readonly unknown[]
 			? { -readonly [K in keyof I]: InferInput<I[K]> }
 			: I extends TypeDefination<any, infer O, any>
@@ -189,7 +281,7 @@ export type InferInput<I> = I extends { $var: true; schema?: infer S }
 export type InferArgs<I> = I extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
 	: I extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnIn<FI, FO>
+		? SchemaFnIn<FI, FO> & FnVarBrand<FI>
 		: I extends readonly unknown[]
 			? { -readonly [K in keyof I]: InferArgs<I[K]> }
 			: I extends TypeDefination<infer T, any, any>
@@ -200,7 +292,8 @@ export const isType = (value: any): value is TypeDefination<any, any> =>
 	typeof value?.name === "string";
 
 /** A handler-less `v.fn(...)` builder doubles as a schema: the value it
- * describes is a FN with the declared signature. */
+ * describes is a FN with the declared signature. The builder FN itself is
+ * branded too, so bare `v.fn` reads as "any function". */
 export const isFnSchema = (
 	value: any,
 ): value is { $fnSchema: { input?: unknown; output?: unknown } } =>
@@ -274,6 +367,20 @@ const applyRules = (def: Rules, value: any, path: string) => {
 			fail(path, `expected to end with "${def.endsWith}"`);
 		}
 	}
+	if (Array.isArray(value)) {
+		if (def.length !== undefined && value.length !== def.length) {
+			fail(path, `expected length ${def.length}, received ${value.length}`);
+		}
+		if (def.min !== undefined && value.length < def.min) {
+			fail(
+				path,
+				`expected at least ${def.min} items, received ${value.length}`,
+			);
+		}
+		if (def.max !== undefined && value.length > def.max) {
+			fail(path, `expected at most ${def.max} items, received ${value.length}`);
+		}
+	}
 	if (typeof value === "number") {
 		if (def.int && !Number.isInteger(value)) {
 			fail(path, `expected an integer, received ${value}`);
@@ -314,6 +421,15 @@ export const validate = (
 	if (def.name === "any") {
 		return def.transform ? def.transform(value) : value;
 	}
+	if (def.name === "date") {
+		if (!(value instanceof Date)) {
+			throw new ValidationError(
+				path,
+				`expected date, received ${typeOf(value)}`,
+			);
+		}
+		return def.transform ? def.transform(value) : value;
+	}
 	if (def.name === "function") {
 		if (typeof value !== "function") {
 			throw new ValidationError(
@@ -333,6 +449,42 @@ export const validate = (
 				validate(innerType, input, `${path}()`),
 				parent,
 			);
+	}
+	if (def.name === "array") {
+		if (!Array.isArray(value)) {
+			throw new ValidationError(
+				path,
+				`expected array, received ${typeOf(value)}`,
+			);
+		}
+		applyRules(def, value, path);
+		// No declared element (`v.array()`): ANY array - passed through
+		// as-is, elements untouched.
+		if (def.shape === undefined) {
+			return def.transform ? def.transform(value) : value;
+		}
+		// Every element validates - ALL failures report together, not
+		// just the first, mirroring object fields.
+		const elementType = asType(def.shape);
+		const items: unknown[] = [];
+		const problems: Issue[] = [];
+		for (let index = 0; index < value.length; index++) {
+			try {
+				items.push(validate(elementType, value[index], `${path}[${index}]`));
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				problems.push(...thrown.issues);
+			}
+		}
+		const firstProblem = problems[0];
+		if (firstProblem) {
+			throw new ValidationError(
+				firstProblem.path,
+				firstProblem.message,
+				problems,
+			);
+		}
+		return def.transform ? def.transform(items) : items;
 	}
 	if (def.name === "object") {
 		if (typeOf(value) !== "object") {
@@ -354,11 +506,14 @@ export const validate = (
 			def.shape as Record<string, unknown>,
 		)) {
 			try {
-				parsed[field] = validate(
+				const parsedField = validate(
 					asType(child),
 					(value as Record<string, unknown>)[field],
 					`${path}.${field}`,
 				);
+				// An absent optional field stays ABSENT - materializing the key
+				// as `undefined` would clobber values it gets spread over.
+				if (parsedField !== undefined) parsed[field] = parsedField;
 			} catch (thrown) {
 				if (!(thrown instanceof ValidationError)) throw thrown;
 				issues.push(...thrown.issues);
@@ -388,9 +543,16 @@ const build = (name: string, options: any, extra?: any): any => ({
 });
 
 export const vTypes = {
-	string: <O = string, D = never, Opt extends boolean = false>(
-		options?: StringOptions<O> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<string, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+	/** An `enum` narrows both sides to the literal union: `v.string({
+	 * enum: ["a", "b"] })` types as `"a" | "b"`, not `string`. */
+	string: <
+		const E extends string = string,
+		O = E,
+		D = never,
+		Opt extends boolean = false,
+	>(
+		options?: StringOptions<E, O> & WithDefault<D> & WithOptional<Opt>,
+	): TypeDefination<E, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
 		build("string", options),
 	number: <O = number, D = never, Opt extends boolean = false>(
 		options?: NumberOptions<O> & WithDefault<D> & WithOptional<Opt>,
@@ -400,6 +562,11 @@ export const vTypes = {
 		options?: TypeOptions<boolean, O> & WithDefault<D> & WithOptional<Opt>,
 	): TypeDefination<boolean, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
 		build("boolean", options),
+	/** A Date INSTANCE - checked with `instanceof`, never parsed. */
+	date: <O = Date, D = never, Opt extends boolean = false>(
+		options?: TypeOptions<Date, O> & WithDefault<D> & WithOptional<Opt>,
+	): TypeDefination<Date, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+		build("date", options),
 	/** Passthrough - validated as-is, never coerced or stripped. */
 	any: <T = unknown, D = never, Opt extends boolean = false>(
 		options?: TypeOptions<T, T> & WithDefault<D> & WithOptional<Opt>,
@@ -423,4 +590,19 @@ export const vTypes = {
 		? TypeDefination<Record<string, any>, Record<string, any>>
 		: TypeDefination<ArgsShape<S>, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
 		build("object", options, shape === undefined ? {} : { shape }),
+	/** With an ELEMENT every item validates - all failures report
+	 * together, like object fields; with NO element (`v.array()`) any
+	 * array passes, as-is. `min`/`max`/`length` count items. */
+	array: <
+		E = undefined,
+		O = FieldOut<E>[],
+		D = never,
+		Opt extends boolean = false,
+	>(
+		element?: E,
+		options?: ArrayOptions<E, O> & WithDefault<D> & WithOptional<Opt>,
+	): [E] extends [undefined]
+		? TypeDefination<any[], OutOf<any[], D, Opt>, DefOf<D, Opt>>
+		: TypeDefination<FieldIn<E>[], OutOf<O, D, Opt>, DefOf<D, Opt>> =>
+		build("array", options, element === undefined ? {} : { shape: element }),
 } satisfies Record<string, (...args: any[]) => TypeDefination<any, any>>;

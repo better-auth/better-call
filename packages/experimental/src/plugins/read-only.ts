@@ -7,7 +7,7 @@ import { ValidationError, v } from "../index";
  * and this module is one `v.on` listener.
  *
  * Pairs with the `readonly: true` fn option, which adds the TYPE half
- * (readonly `c.var`, declared writers stripped from `c.use`).
+ * (vars readonly on `c`, declared writers uncallable).
  */
 export const readOnly = {
 	_readOnly: v.on("var.set.*", (c) => {

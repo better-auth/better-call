@@ -1,7 +1,9 @@
 import { FnError, type Issue, UnexpectedError, ValidationError } from "./error";
 import {
 	type ApplyOns,
-	collectFns,
+	collectUsable,
+	isFn,
+	isNamespace,
 	isOn,
 	isVarExtension,
 	type Module,
@@ -12,6 +14,7 @@ import {
 	resolveModules,
 	type TargetMatches,
 	type VarExtension,
+	type VarGetContext,
 	type VarSetContext,
 	type WithDerived,
 } from "./module";
@@ -20,20 +23,24 @@ import {
 	type InferArgs,
 	type InferInput,
 	isVar,
+	type OutputSchemaOf,
+	outputContract,
 	validate,
 	vTypes,
 } from "./schema";
-import type { HandleScope, ResolvedVars, ScopeOf, VarName } from "./scope";
+import type { ResolvedVars, ScopeOf, VarName, VarScope } from "./scope";
 import type { LiteralString, Prettify } from "./types";
 import {
 	type Cells,
-	createVarScope,
+	contextScope,
 	type Frame,
 	readVar,
+	readVarThrough,
+	type VarDefination,
 	writeVar,
 } from "./var";
 
-export type ParentContext = { var: any };
+export type ParentContext = Record<string, any>;
 
 /** The call shape: a TUPLE input spreads - one parameter per position,
  * the parent context last. Everything else takes (input?, parent?). */
@@ -64,6 +71,30 @@ type TryResult<R, Er> =
 /** No declared errors - the default error channel. */
 type NoErrors = Record<never, never>;
 
+/** The `use` half of `.with`: fn overrides by name, recursing into
+ * GROUPS so a nested binding can be overridden too. A var alias takes a
+ * SEED for the var it points at. */
+type WithFns<U> = {
+	[K in keyof U]?: U[K] extends FnDefination<any, any, any, any, any, any>
+		? BoundFn<U[K]>
+		: U[K] extends VarDefination<any, infer T, any, any>
+			? T
+			: WithFns<U[K]>;
+};
+
+/** The context `.with` accepts: any var of the fn's WHOLE chain scope
+ * (the builder's `use` included, not just the fn's own), plus any `use`
+ * fn as an override - and nothing else. Kept as PLAIN mapped types: with
+ * `RV`/`U` unknown both halves collapse to `{}`, which keeps every
+ * `extends FnDefination<any, ...>` structural check passing. */
+export type WithContext<RV, U> = { [K in keyof RV]?: RV[K] } & WithFns<U>;
+
+/** What `.with` returns: the same callable, context baked in. */
+export interface BoundCall<A, R, I, Er> {
+	(...args: CallArgs<A, I>): R;
+	try(...args: CallArgs<A, I>): TryResult<R, Er>;
+}
+
 export interface FnDefination<
 	A,
 	R,
@@ -71,6 +102,9 @@ export interface FnDefination<
 	I = unknown,
 	P extends readonly string[] = readonly string[],
 	Er = NoErrors,
+	RV = unknown,
+	U = unknown,
+	O = unknown,
 > {
 	(...args: CallArgs<A, I>): R;
 	/**
@@ -80,16 +114,40 @@ export interface FnDefination<
 	 * still throw, exactly as they should.
 	 */
 	try(...args: CallArgs<A, I>): TryResult<R, Er>;
+	/**
+	 * Call with a HAND-BUILT context. Keys naming a var SEED that var in a
+	 * fresh scope; keys naming a `use` fn OVERRIDE that binding for the
+	 * whole subtree below. Both are typed from the fn's chain - what the
+	 * BUILDER mounted counts, so `signOut.with({ user })` type-checks even
+	 * though `signOut` itself never says `use: [user]`. A parent passed to
+	 * the bound call is FORKED: its vars are copied in, never written back.
+	 */
+	with(context: WithContext<RV, U>): BoundCall<A, R, I, Er>;
 	/** Brand, so a plugin module can be scanned for its fns. */
 	readonly $fn: true;
 	/** The name interceptors target - literal, so `ApplyOn` can match it. */
 	readonly key: K;
+	/** The declared contract, retained AS WRITTEN for runtime
+	 * introspection (tool cards, docs renderers): the raw input/output
+	 * schemas, error tag map, and required vars. Optional so structural
+	 * `extends FnDefination` checks keep passing for hand-built fns. */
+	readonly $schema?: {
+		input?: unknown;
+		output?: unknown;
+		errors?: Record<string, unknown>;
+		requires?: readonly string[];
+		/** Declared idempotence - same args, same result, safe to repeat. */
+		idempotent?: boolean;
+	};
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
 	readonly provides: P;
 	/** Phantom: the raw declared input, so extensions of the vars it
-	 * references can widen `c.use` call sites. Never set at runtime. */
+	 * references can widen used-fn call sites. Never set at runtime. */
 	readonly $input?: I;
+	/** Phantom: the raw declared output, the counterpart of `$input` - the
+	 * schema as written, for type-level introspection. Never set at runtime. */
+	readonly $output?: O;
 	/** Phantom: declared error tags -> payload schemas. */
 	readonly $errors?: Er;
 }
@@ -121,11 +179,28 @@ export type OptionType<
 	/**
 	 * A readonly fn cannot write vars - not in its handler, not in
 	 * anything it calls, not from interceptors mounted on it. Enforced at
-	 * the type level (`set`-less handles, providers stripped from `c.use`)
+	 * the type level (vars readonly on `c`, declared writers uncallable)
 	 * and at runtime (the whole subtree's store locks).
 	 */
 	readonly?: RO;
+	/**
+	 * Declared idempotence: calling with the same args always produces the
+	 * same result and repeating the call is harmless - a read, a lookup, a
+	 * pure computation. Part of the retained contract (`$schema`), so
+	 * hosts may DEDUPE calls: the script engine serves repeated
+	 * same-args calls to an idempotent fn from one dispatch per session.
+	 * Note this is a different promise than `readonly` (writes no vars) -
+	 * an fn can be readonly and still hit a non-idempotent API.
+	 */
+	idempotent?: boolean;
 	input?: I;
+	/**
+	 * The fn's return contract. A bare schema is BOTH the signature and
+	 * the exit check; the wrapper `{ def?, validation? }` splits them -
+	 * `{ def }` documents the return (tool cards, handler typing) without
+	 * runtime validation, `validation` is the schema the exit check runs
+	 * (defaults to none in the wrapper form).
+	 */
 	output?: O;
 	/** Vars this fn guarantees to set. Checked on exit. */
 	provides?: P;
@@ -133,7 +208,8 @@ export type OptionType<
 	requires?: Q;
 	/**
 	 * Module namespaces to pull in. Their vars come into scope, their fns
-	 * appear on `c.use` already bound to this context, and their `on`
+	 * land directly on `c` already bound to this context (a plain-record
+	 * member nests as a NAMESPACE: `c.cookies.setCookie`), and their `on`
 	 * entries stay active for everything below.
 	 */
 	use?: PL;
@@ -142,7 +218,7 @@ export type OptionType<
 /** A used fn, with the parent context already applied. A tuple-input fn
  * keeps its positional signature. */
 type BoundFn<F> =
-	F extends FnDefination<infer A, infer R, string, infer I, any>
+	F extends FnDefination<infer A, infer R, string, infer I, any, any>
 		? I extends readonly unknown[]
 			? A extends readonly unknown[]
 				? (...args: [...A]) => R
@@ -152,17 +228,49 @@ type BoundFn<F> =
 				: (input: A) => R
 		: never;
 
-export type UseApi<U> = Prettify<{ [K in keyof U]: BoundFn<U[K]> }>;
+/** Keys of a usable map whose member is a VAR alias. */
+type UseVarKeys<U> = {
+	[K in keyof U]: U[K] extends VarDefination<any, any, any, any> ? K : never;
+}[keyof U];
 
-/** `c.use` inside a readonly fn: declared writers become uncallable,
- * with the reason on hover instead of a generic type error. */
-type ReadUseApi<U> = Prettify<{
-	[K in keyof U]: U[K] extends FnDefination<any, any, any, any, infer P>
-		? P extends readonly []
+/** A var alias' surface: the var's VALUE, read and written in place. */
+type UseVarValue<V> =
+	V extends VarDefination<any, infer T, any, any> ? T : never;
+
+export type UseApi<U> = Prettify<
+	{
+		[K in Exclude<keyof U, UseVarKeys<U>>]: U[K] extends FnDefination<
+			any,
+			any,
+			any,
+			any,
+			any,
+			any
+		>
 			? BoundFn<U[K]>
-			: `writes "${P[number] & string}" - not callable from a readonly fn`
-		: BoundFn<U[K]>;
-}>;
+			: UseApi<U[K]>;
+	} & { [K in UseVarKeys<U>]: UseVarValue<U[K]> }
+>;
+
+/** Used fns inside a readonly fn: declared writers become uncallable,
+ * with the reason on hover instead of a generic type error; var aliases
+ * become readonly properties. */
+type ReadUseApi<U> = Prettify<
+	{
+		[K in Exclude<keyof U, UseVarKeys<U>>]: U[K] extends FnDefination<
+			any,
+			any,
+			any,
+			any,
+			infer P,
+			any
+		>
+			? P extends readonly []
+				? BoundFn<U[K]>
+				: `writes "${P[number] & string}" - not callable from a readonly fn`
+			: ReadUseApi<U[K]>;
+	} & { readonly [K in UseVarKeys<U>]: UseVarValue<U[K]> }
+>;
 
 export type Context<
 	I,
@@ -185,20 +293,21 @@ export type Context<
 			? [data?: InferArgs<Errs[T]>]
 			: [data: InferArgs<Errs[T]>]
 	) => FnError<T, InferInput<Errs[T]>>;
-	/** Every var in scope, as a HANDLE: `.get()` / `.set()` and nothing
-	 * else - the value is only ever behind `get()`. `set` is absent
-	 * entirely on a readonly fn. */
-	var: HandleScope<RV, Required, RO>;
-	/** Fns from `use`, each already threaded with this context. */
-	use: RO extends true ? ReadUseApi<U> : UseApi<U>;
 	/** Define fns from inside: this fn's scope and key carry over, so
 	 * anything built here is typed exactly like a chained builder. */
 	fn: FnApi;
 	/** The schema constructors (string, number, object, ...). */
 	types: typeof vTypes;
-};
+} & /** Every var in scope, directly on `c`: read `c.session`, write by
+ * plain assignment (`c.session = {...}`). Every var is a readonly
+ * property on a readonly fn. */ VarScope<RV, Required, RO> &
+	/** Fns from `use`, directly on `c` and already threaded with this
+	 * context: `c.createUser({...})`. */
+	(RO extends true ? ReadUseApi<U> : UseApi<U>);
 
-export type InferReturn<O> = unknown extends O ? unknown : InferInput<O>;
+export type InferReturn<O> = unknown extends O
+	? unknown
+	: InferInput<OutputSchemaOf<O>>;
 
 export interface Fn<
 	Base = unknown,
@@ -206,30 +315,72 @@ export interface Fn<
 	BasePL extends readonly Module[] = [],
 	Prefix extends string = "",
 > {
+	/**
+	 * The builder FN is a schema too: `create: v.fn` (never called) declares
+	 * "any function" - typed `(...args: any[]) => any`, runtime checks only
+	 * `typeof value === "function"`.
+	 */
+	readonly $fnSchema: { input?: unknown; output?: unknown };
+	/**
+	 * "A fn with THIS signature", as a schema: `create: v.fn.type({ input,
+	 * output })` types the field as that fn and validates what a signature
+	 * CAN be validated for - the value is a function, and a plain closure
+	 * gets the declared input checked at its door on every call.
+	 *
+	 * This exists apart from a handler-less `v.fn({ input, output })` for
+	 * INLINE use: `v.fn`'s handler overloads return a callable, which makes
+	 * TypeScript defer any inline `v.fn(...)` call inside another generic
+	 * call's arguments (higher-order inference) - the enclosing `v.object`/
+	 * `v.var` then loses its shape inference entirely. `v.fn.type` returns a
+	 * plain carrier, so it composes inline anywhere.
+	 */
+	readonly type: <I = unknown, O = unknown>(signature?: {
+		input?: I;
+		output?: O;
+	}) => { readonly $fnSchema: { input?: I; output?: O } };
+
 	/* ---- a handler TERMINATES: these four produce a callable fn ---- */
 	<R>(
 		fn: (
 			ctx: Context<
 				unknown,
-				ScopeOf<[], Base>,
+				ScopeOf<[], Base, BasePL>,
 				never,
 				BaseFns,
 				Fn<Base, BaseFns, BasePL, Prefix>
 			>,
 		) => R,
-	): FnDefination<void, R, Prefix extends "" ? string : Prefix>;
+	): FnDefination<
+		void,
+		R,
+		Prefix extends "" ? string : Prefix,
+		unknown,
+		readonly string[],
+		NoErrors,
+		ScopeOf<[], Base, BasePL>,
+		BaseFns
+	>;
 	<K extends LiteralString, R>(
 		key: K,
 		fn: (
 			ctx: Context<
 				unknown,
-				ScopeOf<[], Base>,
+				ScopeOf<[], Base, BasePL>,
 				never,
 				BaseFns,
 				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
 			>,
 		) => R,
-	): FnDefination<void, R, `${Prefix}${K}`>;
+	): FnDefination<
+		void,
+		R,
+		`${Prefix}${K}`,
+		unknown,
+		readonly string[],
+		NoErrors,
+		ScopeOf<[], Base, BasePL>,
+		BaseFns
+	>;
 
 	<
 		const I,
@@ -245,7 +396,7 @@ export interface Fn<
 		fn: (
 			ctx: Context<
 				I,
-				ScopeOf<PL, Base>,
+				ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
 				WithDerived<PL, BasePL, Q[number]>,
 				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
 				Fn<
@@ -258,7 +409,17 @@ export interface Fn<
 				Er
 			>,
 		) => R,
-	): FnDefination<ArgsOf<I>, R, Prefix extends "" ? string : Prefix, I, P, Er>;
+	): FnDefination<
+		ArgsOf<I>,
+		R,
+		Prefix extends "" ? string : Prefix,
+		I,
+		P,
+		Er,
+		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
+		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+		O
+	>;
 	<
 		K extends LiteralString,
 		const I,
@@ -275,7 +436,7 @@ export interface Fn<
 		fn: (
 			ctx: Context<
 				I,
-				ScopeOf<PL, Base>,
+				ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
 				WithDerived<PL, BasePL, Q[number]>,
 				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
 				Fn<
@@ -288,7 +449,17 @@ export interface Fn<
 				Er
 			>,
 		) => R,
-	): FnDefination<ArgsOf<I>, R, `${Prefix}${K}`, I, P, Er>;
+	): FnDefination<
+		ArgsOf<I>,
+		R,
+		`${Prefix}${K}`,
+		I,
+		P,
+		Er,
+		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
+		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+		O
+	>;
 
 	/* ---- NO handler: a builder. Keys concatenate, `use` accumulates,
 	   and its `.fn` follows the same rule recursively. ---- */
@@ -338,6 +509,7 @@ const STORE = Symbol("var-store");
 const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
 const READONLY = Symbol("readonly-lock");
+const WITH = Symbol("with-overrides");
 
 const defineFn = (
 	key: string,
@@ -346,17 +518,22 @@ const defineFn = (
 ) => {
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
-	// Interceptors and var extensions this fn brings, from its modules.
+	// Interceptors and var extensions this fn brings, from its modules -
+	// nested GROUPS included. The SAME entry mounted twice (two views of
+	// one storage, a module and its re-export) applies once - identity
+	// dedup, like inheritance.
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
-	for (const mod of modules) {
+	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
-			if (isOn(value)) own.push(value);
-			if (isVarExtension(value)) ownExts.push(value);
+			if (isOn(value) && !own.includes(value)) own.push(value);
+			else if (isVarExtension(value)) ownExts.push(value);
+			else if (isNamespace(value)) scanMembers(value);
 		}
-	}
+	};
+	for (const mod of modules) scanMembers(mod);
 
-	const usable = collectFns(modules);
+	const usable = collectUsable(modules);
 
 	// A tuple input means POSITIONAL args: the callable takes one arg per
 	// declared position, then the parent context.
@@ -368,6 +545,10 @@ const defineFn = (
 	// (input on entry, output on exit, errors at throw). Declaring any
 	// also flips the defect rule on: untagged throws come out wrapped.
 	const declaredErrors = options.errors as Record<string, unknown> | undefined;
+
+	// Only the VALIDATION half of the output contract is checked on exit -
+	// a `{ def }`-only output is a documented promise, never a check.
+	const outputValidation = outputContract(options.output).validation;
 	const errorTypes = declaredErrors
 		? Object.fromEntries(
 				Object.entries(declaredErrors).map(([tag, schema]) => [
@@ -432,6 +613,10 @@ const defineFn = (
 				? inherited
 				: [...inherited, ...own.filter((e) => !inherited.includes(e))];
 		const chain = active.filter((entry) => matchesTarget(entry.target, key));
+
+		// Fn overrides from `.with`, travelling down like the active set: a
+		// mocked `use` fn stays mocked for the whole subtree.
+		const withFns: Record<string, unknown> | undefined = parent?.[WITH];
 
 		const inheritedExts: VarExtension<string, any>[] = parent?.[EXTS] ?? [];
 		const exts =
@@ -520,7 +705,9 @@ const defineFn = (
 			writeVar(frame, name, merged);
 		}
 
-		ctx = {
+		// The context's FIXED surface; everything not on it is a var, read
+		// and written straight on `c` through the proxy below.
+		const base: any = {
 			input: parsed,
 			// Mint a declared error: tag must be declared, payload validates
 			// at creation - an error is a contract too.
@@ -540,32 +727,72 @@ const defineFn = (
 					key,
 				);
 			},
-			var: createVarScope(frame),
 			[STORE]: cells,
 			[ACTIVE]: active,
 			[EXTS]: exts,
 			[READONLY]: lockedBy,
-			use: {},
+			[WITH]: withFns,
 			fn: builderFn(key === "anonymous" ? "" : key, {
 				use: options.use ?? [],
 			}),
 			types: vTypes,
 		};
-		// Bound to `ctx`, so a used fn shares this store and active set
-		// without the caller having to thread `c` by hand. A tuple-input fn
-		// gets its args padded to full arity so the context always lands in
-		// the parent slot, however many args the caller actually passed.
-		for (const [name, used] of Object.entries(usable)) {
-			const usedArity = (used as { $arity?: number }).$arity;
-			ctx.use[name] =
-				usedArity === undefined
-					? (i?: unknown) => (used as any)(i, ctx)
-					: (...args: unknown[]) => {
-							const padded = args.slice(0, usedArity);
-							while (padded.length < usedArity) padded.push(undefined);
-							return (used as any)(...padded, ctx);
-						};
-		}
+		ctx = contextScope(frame, base);
+		// Used fns land DIRECTLY on the context (`c.createUser(...)`), bound
+		// to `ctx` so they share this store and active set without the caller
+		// having to thread `c` by hand. A GROUP binds recursively and lands
+		// as a namespace (`c.cookie.setCookie(...)`); a VAR member becomes a
+		// live ALIAS under its export name (`c.cookie.options` reads and
+		// writes the var, hooks and readonly lock included). A tuple-input
+		// fn gets its args padded to full arity so the context always lands
+		// in the parent slot, however many args the caller actually passed.
+		const bindUsable = (
+			target: any,
+			map: Record<string, unknown>,
+			overrides: Record<string, unknown> | undefined,
+		) => {
+			for (const [name, used] of Object.entries(map)) {
+				const override = overrides?.[name];
+				if (isVar(used)) {
+					const varName = (used as { name: string }).name;
+					Object.defineProperty(target, name, {
+						get: () => readVarThrough(frame, varName),
+						set: (value: unknown) => writeVar(frame, varName, value),
+						enumerable: true,
+						configurable: true,
+					});
+					continue;
+				}
+				if (!isFn(used)) {
+					const group: any = {};
+					bindUsable(
+						group,
+						used as Record<string, unknown>,
+						isFn(override) ? undefined : (override as any),
+					);
+					target[name] = group;
+					continue;
+				}
+				// A `.with` override REPLACES the binding - a fn override still
+				// joins this context, a plain function is called as given.
+				if (override !== undefined) {
+					target[name] = isFn(override)
+						? (i?: unknown) => (override as any)(i, ctx)
+						: override;
+					continue;
+				}
+				const usedArity = (used as { $arity?: number }).$arity;
+				target[name] =
+					usedArity === undefined
+						? (i?: unknown) => (used as any)(i, ctx)
+						: (...args: unknown[]) => {
+								const padded = args.slice(0, usedArity);
+								while (padded.length < usedArity) padded.push(undefined);
+								return (used as any)(...padded, ctx);
+							};
+			}
+		};
+		bindUsable(base, usable, withFns);
 
 		const missing = (name: string) => {
 			const value = readVar(cells, name);
@@ -599,8 +826,8 @@ const defineFn = (
 
 		// Exit contracts run after the body, whether or not it was async.
 		const finish = (result: unknown) => {
-			if (options.output !== undefined) {
-				validate(asType(options.output), result, `${key}.output`);
+			if (outputValidation !== undefined) {
+				validate(asType(outputValidation), result, `${key}.output`);
 			}
 			if (bodyRan) {
 				for (const name of options.provides ?? []) {
@@ -667,13 +894,99 @@ const defineFn = (
 		}
 	};
 
+	/**
+	 * `.with`: a hand-built context. Keys naming one of this fn's `use`
+	 * fns become OVERRIDES (carried by the subtree via `WITH`); everything
+	 * else SEEDS a var in a fresh store. A parent given to the bound call
+	 * is forked - its cells are copied, so seeds and writes inside never
+	 * leak back into it.
+	 */
+	const withCall = (context: Record<string, unknown>) => {
+		const makeParent = (given: any) => {
+			const source: Cells = given?.[STORE] ?? {};
+			const cells: Cells = Object.fromEntries(
+				Object.entries(source).map(([name, cell]) => [name, { ...cell }]),
+			);
+			const seedFrame: Frame = {
+				cells,
+				key: `${key}.with`,
+				lockedBy: undefined,
+				entries: [],
+			};
+			const overrides: Record<string, unknown> = { ...given?.[WITH] };
+			// Walk the given context against the usable tree: a fn member is
+			// an OVERRIDE, a var member (top-level or inside a group) SEEDS
+			// the var under its DECLARED name, a group recurses, and anything
+			// unknown seeds a var by the given key.
+			const applyWith = (
+				map: Record<string, unknown> | undefined,
+				entries: Record<string, unknown>,
+				target: Record<string, unknown>,
+			) => {
+				for (const [name, value] of Object.entries(entries)) {
+					const member = map?.[name];
+					if (member === undefined) {
+						writeVar(seedFrame, name, value);
+					} else if (isVar(member)) {
+						writeVar(seedFrame, (member as { name: string }).name, value);
+					} else if (isFn(member) || typeof value !== "object" || !value) {
+						target[name] = value;
+					} else {
+						const existing = target[name];
+						const sub =
+							existing && typeof existing === "object"
+								? (existing as Record<string, unknown>)
+								: {};
+						target[name] = sub;
+						applyWith(
+							member as Record<string, unknown>,
+							value as Record<string, unknown>,
+							sub,
+						);
+					}
+				}
+			};
+			applyWith(usable, context, overrides);
+			return {
+				[STORE]: cells,
+				[ACTIVE]: given?.[ACTIVE],
+				[EXTS]: given?.[EXTS],
+				[READONLY]: given?.[READONLY],
+				[WITH]: Object.keys(overrides).length > 0 ? overrides : undefined,
+			};
+		};
+		const rewrite = (callArgs: any[]) => {
+			if (tupleInput) {
+				const padded = callArgs.slice(0, tupleInput.length);
+				while (padded.length < tupleInput.length) padded.push(undefined);
+				return [...padded, makeParent(callArgs[tupleInput.length])];
+			}
+			return [callArgs[0], makeParent(callArgs[1])];
+		};
+		const bound = (...callArgs: any[]) => callable(...rewrite(callArgs));
+		bound.try = (...callArgs: any[]) => tryCall(...rewrite(callArgs));
+		return bound;
+	};
+
 	return Object.assign(callable, {
 		$fn: true as const,
 		key,
 		provides: (options.provides ?? []) as readonly string[],
 		try: tryCall,
-		// Positional arg count, so `c.use` bindings know where ctx goes.
+		with: withCall,
+		// Positional arg count, so used-fn bindings know where ctx goes.
 		...(tupleInput ? { $arity: tupleInput.length } : {}),
+		// The declared contract, as written - introspectable by hosts that
+		// render the fn to an authorizer or an authoring model.
+		$schema: {
+			...(options.input !== undefined ? { input: options.input } : {}),
+			...(options.output !== undefined ? { output: options.output } : {}),
+			...(declaredErrors ? { errors: declaredErrors } : {}),
+			...(options.requires?.length
+				? { requires: options.requires as readonly string[] }
+				: {}),
+			...(options.idempotent === true ? { idempotent: true } : {}),
+		},
 	});
 };
 
@@ -687,25 +1000,47 @@ type OnTargetSuggest<Base, BaseFns, Prefix extends string> =
 	| FnTargetSuggest<BaseFns, Prefix>
 	| `var.set.${keyof ScopeOf<[], Base> & string}`
 	| "var.set.*"
+	| `var.get.${keyof ScopeOf<[], Base> & string}`
+	| "var.get.*"
 	| "*";
 
 type FnTargetSuggest<Fns, Prefix extends string> = {
-	[K in keyof Fns]: Fns[K] extends FnDefination<any, any, infer FK, any, any>
+	[K in keyof Fns]: Fns[K] extends FnDefination<
+		any,
+		any,
+		infer FK,
+		any,
+		any,
+		any
+	>
 		? FK extends `${Prefix}${infer Rest}`
 			? Rest
 			: never
 		: never;
 }[keyof Fns];
 
-type VarNameOfT<T extends string> = T extends `var.set.${infer N}`
+type VarNameOfT<T extends string> = T extends `var.${"set" | "get"}.${infer N}`
 	? N extends `${string}*${string}`
 		? string
 		: N
 	: string;
 
+/** The scope's value for a var-event target - `unknown` when inexact. */
+type VarValueOfT<T extends string, Base> =
+	VarNameOfT<T> extends keyof ScopeOf<[], Base>
+		? ScopeOf<[], Base>[VarNameOfT<T>]
+		: unknown;
+
 /** The fns among `Fns` whose key the (already prefixed) target hits. */
 type MatchedFn<Fns, T extends string> = {
-	[K in keyof Fns]: Fns[K] extends FnDefination<any, any, infer FK, any, any>
+	[K in keyof Fns]: Fns[K] extends FnDefination<
+		any,
+		any,
+		infer FK,
+		any,
+		any,
+		any
+	>
 		? TargetMatches<T, FK & string> extends true
 			? Fns[K]
 			: never
@@ -716,33 +1051,32 @@ type MatchedFn<Fns, T extends string> = {
  * or an open record when the target names nothing the builder knows. */
 type MatchedInput<F> = [F] extends [never]
 	? Record<string, any>
-	: F extends FnDefination<any, any, any, infer I, any>
+	: F extends FnDefination<any, any, any, infer I, any, any>
 		? InferInput<I>
 		: never;
 
 /** What `next()` resolves to: the matched fn's own result. */
 type MatchedResult<F> = [F] extends [never]
 	? any
-	: F extends FnDefination<any, infer R, any, any, any>
+	: F extends FnDefination<any, infer R, any, any, any, any>
 		? Awaited<R>
 		: never;
 
-/** What a builder-scoped `on` handler sees: vars (as handles), `use` and
- * `types` from the builder, `input` from the TARGET fn when known. */
+/** What a builder-scoped `on` handler sees: vars and `use` fns directly
+ * on `c` from the builder, `input` from the TARGET fn when known. */
 type OnContext<Base, BaseFns, F, Ext = unknown> = {
 	input: MatchedInput<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
-	var: HandleScope<ScopeOf<[], Base>, never>;
-	use: UseApi<BaseFns>;
 	types: typeof vTypes;
 	fn: unknown;
-};
+} & VarScope<ScopeOf<[], Base>, never> &
+	UseApi<BaseFns>;
 
 /** `v.on`, scoped: string targets get the builder's key prefix; the
  * handler's `c` and `next()` are typed against the matched target fn. */
 export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	/** A fn REFERENCE targets its own key - never prefixed, fully typed
 	 * from the fn itself plus the builder's scope. */
-	<F extends FnDefination<any, any, string, any, any>>(
+	<F extends FnDefination<any, any, string, any, any, any>>(
 		target: F,
 		handler: (
 			c: OnContext<Base, BaseFns, F>,
@@ -759,13 +1093,23 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	>(
 		target: T,
 		handler: (
-			c: VarSetContext<VarNameOfT<T>> & {
-				value: VarNameOfT<T> extends keyof ScopeOf<[], Base>
-					? ScopeOf<[], Base>[VarNameOfT<T>]
-					: unknown;
-			},
+			c: VarSetContext<VarNameOfT<T>> & { value: VarValueOfT<T, Base> },
 			next: () => void,
 		) => void,
+	): OnEntry<T>;
+	/** Var-read events: `next()` yields the stored value and the handler's
+	 * return becomes the read result - typed from the scope when exact. */
+	<
+		T extends
+			| `var.get.${keyof ScopeOf<[], Base> & string}`
+			| "var.get.*"
+			| `var.get.${string}`,
+	>(
+		target: T,
+		handler: (
+			c: VarGetContext<VarNameOfT<T>>,
+			next: () => VarValueOfT<T, Base>,
+		) => VarValueOfT<T, Base>,
 	): OnEntry<T>;
 	(
 		target: RegExp,
@@ -826,7 +1170,13 @@ export type Instance<
 	 * loosened since they vary per fn. A real context only exists per
 	 * invocation, so this is `undefined` at runtime.
 	 */
-	readonly ctx: Context<unknown, ScopeOf<[], Base>, never, BaseFns, unknown>;
+	readonly ctx: Context<
+		unknown,
+		ScopeOf<[], Base, PL>,
+		never,
+		BaseFns,
+		unknown
+	>;
 };
 
 /**
@@ -853,9 +1203,8 @@ const mergeOptions = (
 		: {}),
 });
 
-const builderFn =
-	(baseKey: string, base: Record<string, any>) =>
-	(...args: any[]) => {
+const builderFn = (baseKey: string, base: Record<string, any>) => {
+	const build = (...args: any[]) => {
 		const hasKey = typeof args[0] === "string";
 		const childKey: string = hasKey ? args[0] : "";
 		const rest = hasKey ? args.slice(1) : args;
@@ -888,5 +1237,17 @@ const builderFn =
 		}
 		return defineFn(key || "anonymous", options, handler);
 	};
+	// The builder FN doubles as a schema itself: bare `v.fn` (never called)
+	// declares "any function", `v.fn.type({ input, output })` a specific
+	// signature, and a chained builder's `.fn` carries whatever input/output
+	// it has accumulated - same contract as the handler-less builder object
+	// (see `isFnSchema`).
+	return Object.assign(build, {
+		$fnSchema: { input: base.input, output: base.output },
+		type: (signature: { input?: unknown; output?: unknown } = {}) => ({
+			$fnSchema: { input: signature.input, output: signature.output },
+		}),
+	});
+};
 
 export const fnImpl = builderFn("", {});

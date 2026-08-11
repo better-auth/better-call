@@ -2,6 +2,7 @@ import { type Fn, fnImpl } from "./fn";
 import { extendVar, on } from "./module";
 
 import { type InferInput, vTypes } from "./schema";
+import { makeStorage } from "./storage";
 import type { LiteralString } from "./types";
 import {
 	deriveVar,
@@ -16,7 +17,15 @@ interface V {
 	var: <N extends LiteralString, S = undefined, D = undefined>(
 		name: N,
 		options?: { default?: D; schema?: S },
-	) => VarDefination<N, [S] extends [undefined] ? D : InferInput<S> | D, S>;
+		// A default the schema already covers (e.g. `{}` against an
+		// all-optional shape) is absorbed; `default: null` still unions in.
+	) => VarDefination<
+		N,
+		[S] extends [undefined]
+			? D
+			: InferInput<S> | ([D] extends [InferInput<S>] ? never : D),
+		S
+	>;
 	/** A var you accumulate into: `set()` merges instead of replacing. */
 	record: <N extends LiteralString, S = undefined>(
 		name: N,
@@ -44,12 +53,22 @@ interface V {
 		unknown,
 		NameOfVar<SV>
 	>;
+	/**
+	 * MANY instances of a var, queryable: each named var becomes a
+	 * COLLECTION of rows shaped like its value - `db.user.create(row)`,
+	 * `db.user.findOne({ email })`, findMany/update/delete/count. The
+	 * adapter is the translation seam a real database implements;
+	 * `memoryAdapter()` is the built-in dummy.
+	 */
+	storage: typeof makeStorage;
 	on: typeof on;
 	extend: typeof extendVar;
 	string: (typeof vTypes)["string"];
 	number: (typeof vTypes)["number"];
 	boolean: (typeof vTypes)["boolean"];
+	date: (typeof vTypes)["date"];
 	object: (typeof vTypes)["object"];
+	array: (typeof vTypes)["array"];
 	any: (typeof vTypes)["any"];
 }
 
@@ -59,6 +78,7 @@ export const v: V = {
 	record: ((name: string, options: any = {}) =>
 		makeVar(name, { ...options, accessor: true })) as V["record"],
 	derive: deriveVar as V["derive"],
+	storage: makeStorage,
 	on,
 	extend: extendVar,
 	...vTypes,
@@ -84,9 +104,11 @@ export {
 	type ApplyOn,
 	type ApplyOns,
 	collectFns,
+	collectUsable,
 	type ExtendedArgs,
 	type Interceptor,
 	isFn,
+	isNamespace,
 	isOn,
 	isVarExtension,
 	type Module,
@@ -96,15 +118,36 @@ export {
 	type OnEntry,
 	type VarExtension,
 	type VarExtensionsFor,
+	type VarGetContext,
+	type VarSetContext,
 	type VarsFrom,
 } from "./module";
 export type {
-	HandleScope,
 	ResolvedVars,
 	ScopeOf,
-	VarHandle,
 	VarName,
 	VarScope,
 } from "./scope";
+export {
+	type Collection,
+	type Condition,
+	conditionsOf,
+	type FieldMeta,
+	type FindManyOptions,
+	type ModelConfig,
+	matchesWhere,
+	memoryAdapter,
+	type Storage,
+	type StorageAdapter,
+	type StorageApi,
+	type StorageHook,
+	type StorageHookContext,
+	type StorageModels,
+	type StorageOp,
+	type StorageTarget,
+	type Where,
+	type WhereOp,
+	type WhereOps,
+} from "./storage";
 export type { LiteralString, Prettify } from "./types";
 export type { VarCustomizer, VarDefination, VarMap } from "./var";

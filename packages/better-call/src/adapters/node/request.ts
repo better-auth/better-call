@@ -105,7 +105,7 @@ function get_raw_body(req: IncomingMessage, body_size_limit?: number) {
 	// check if no request body
 	if (
 		(req.httpVersionMajor === 1 &&
-			isNaN(content_length) &&
+			Number.isNaN(content_length) &&
 			h["transfer-encoding"] == null) ||
 		content_length === 0
 	) {
@@ -206,7 +206,7 @@ function constructRelativeUrl(
 	// which has a trailing forward slash the original url did not have.
 	// Checking the `req.originalUrl` path ending can prevent this issue.
 
-	const originalPathEnding = originalUrl.split("?")[0]!.at(-1);
+	const originalPathEnding = originalUrl.split("?")[0]?.at(-1);
 	return originalPathEnding === "/" ? baseUrl + req.url : baseUrl;
 }
 
@@ -222,7 +222,7 @@ export function getRequest({
 	// Check if body has already been parsed by Express middleware
 	const maybeConsumedReq = request as NodeRequestWithBody;
 	const isFormUrlEncoded = hasFormUrlEncodedContentType(request.headers);
-	let body = undefined;
+	let body: ReadableStream | null | undefined;
 
 	const method = request.method;
 	// Request with GET/HEAD method cannot have body.
@@ -253,7 +253,7 @@ export function getRequest({
 }
 
 export async function setResponse(res: ServerResponse, response: Response) {
-	for (const [key, value] of response.headers as any) {
+	for (const [key, value] of response.headers) {
 		try {
 			res.setHeader(
 				key,
@@ -264,7 +264,9 @@ export async function setResponse(res: ServerResponse, response: Response) {
 					: value,
 			);
 		} catch (error) {
-			res.getHeaderNames().forEach((name) => res.removeHeader(name));
+			for (const name of res.getHeaderNames()) {
+				res.removeHeader(name);
+			}
 			res.writeHead(500).end(String(error));
 			return;
 		}
@@ -322,8 +324,6 @@ export async function setResponse(res: ServerResponse, response: Response) {
 						process.env.AWS_LAMBDA_FUNCTION_NAME ||
 						process.env.LAMBDA_TASK_ROOT
 					) {
-						// In Lambda, continue without waiting for drain
-						continue;
 					} else {
 						// Standard Node.js behavior
 						res.once("drain", next);

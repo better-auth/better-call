@@ -22,12 +22,21 @@
 
 		// experimental package vocabulary
 		"Customizer",
+		"dedup",
+		"dedups",
 		"deriveds",
 		"omittable",
 		"renamer",
 		"uncallable",
 		"unflushed",
+		"uninterceptable",
+		"unqueryable",
 		"unvalidated",
+		"travelling",
+		// test fixture variable names (wuser, xuser, puser)
+		"wuser",
+		"xuser",
+		"puser",
 		"licence",
 		"sess",
 		"chal",

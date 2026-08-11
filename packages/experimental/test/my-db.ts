@@ -61,13 +61,13 @@ const insert = v.fn(
 		const { table: name, row } = c.input;
 		const rows = table(journal ?? tables, name);
 		rows.set(row.id, row as Row);
-		c.var.model;
+		c.model;
 		return { inserted: true };
 	},
 );
 
 const transaction = v.on("insert", async (c, _next) => {
-	c.var;
+	c.model;
 });
 
 export const db = { selectOne, selectMany, insert, transaction, queries };

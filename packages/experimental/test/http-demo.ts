@@ -3,22 +3,25 @@ import * as http from "../src/plugins/http";
 
 const app = v.fn({ use: [http] });
 
-export const whoami = app.fn("whoami", { requires: ["request"] }, (c) => ({
-	// requiring `request` alone makes every var DERIVED from it non-null:
-	method: c.var.method.get(),
-	path: c.var.path.get(),
-	ua: c.var.headers.get().get("user-agent") ?? null,
-	q: c.var.query.get(),
-	cookie: c.var.cookies.get().theme ?? null,
-}));
+export const whoami = app.fn("whoami", { requires: ["req"] }, (c) => {
+	// requiring `req` makes the whole request non-null - one var, all of it:
+	const req = c.req;
+	return {
+		method: req.method,
+		path: req.path,
+		ua: req.headers.get("user-agent") ?? null,
+		q: req.query,
+		cookie: req.cookies.theme ?? null,
+	};
+});
 
 const handle = v
 	.fn({ use: [http, { whoami }] })
 	.fn("handle", { input: { request: v.any<Request>() } }, async (c) => {
-		await c.use.fromRequest({ request: c.input.request });
-		c.var.responseHeaders.get()?.set("x-powered-by", "better-call");
-		return Response.json(c.use.whoami(), {
-			headers: c.var.responseHeaders.get() ?? undefined,
+		await c.fromRequest({ request: c.input.request });
+		c.res?.headers.set("x-powered-by", "better-call");
+		return Response.json(c.whoami(), {
+			headers: c.res?.headers,
 		});
 	});
 

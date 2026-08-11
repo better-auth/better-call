@@ -37,20 +37,20 @@ const signIn = v.fn(
 const readProfile = v.fn(
 	"profile.read",
 	{ use: [{ capability }] },
-	async (c) => profiles[c.var.capability.get()?.subject ?? ""] ?? null,
+	async (c) => profiles[c.capability?.subject ?? ""] ?? null,
 );
 
 const updateProfile = v.fn(
 	"profile.update",
 	{ input: { name: v.string() }, use: [{ capability, audit }] },
 	async (c) => {
-		const subject = c.var.capability.get()?.subject ?? "";
+		const subject = c.capability?.subject ?? "";
 		const existing = profiles[subject];
 		if (!existing) throw new Error("no profile");
 		existing.name = c.input.name;
 		// fn to fn: no token, no ceremony. `use` handed this body a
 		// REFERENCE to audit, and in-process possession IS authorization.
-		await c.use.audit({ event: `${subject} renamed to "${c.input.name}"` });
+		await c.audit({ event: `${subject} renamed to "${c.input.name}"` });
 		return existing;
 	},
 );
