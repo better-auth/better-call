@@ -662,6 +662,18 @@ describe(".try", () => {
 	it("contract violations still throw too", () => {
 		expect(() => guard.try({ n: "x" } as never)).toThrow(ValidationError);
 	});
+
+	it("a used fn that declares errors stays on c", async () => {
+		const refuse = v.fn(
+			"fnt.refuse",
+			{ errors: { nope: { n: v.number() } } },
+			(c) => {
+				throw c.error("nope", { n: 1 });
+			},
+		);
+		const wrap = v.fn({ use: [{ refuse }] }, async (c) => c.refuse());
+		await expect(wrap()).rejects.toMatchObject({ tag: "nope" });
+	});
 });
 
 describe("v.array", () => {

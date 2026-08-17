@@ -153,22 +153,25 @@ type GroupFns<V, D extends number> = [D] extends [never]
 			? never
 			: FnEntries<GroupMember<V>, D>;
 
-type FnEntries<M, D extends number = 3> = {
-	[K in keyof M as M[K] extends FnDefination<any, any, any, any, any, any>
-		? K
-		: M[K] extends VarDefination<any, any, any, any>
-			? K
-			: [GroupFns<M[K], GroupDepth[D]>] extends [never]
-				? never
-				: K]: M[K] extends FnDefination<any, any, any, any, any, any>
-		? M[K]
-		: M[K] extends VarDefination<any, any, any, any>
-			? M[K]
-			: GroupFns<M[K], GroupDepth[D]>;
-};
+type FnEntries<M, D extends number = 3> = M extends { readonly $fns: infer F }
+	? F
+	: {
+			[K in keyof M as M[K] extends FnDefination<any, any, any, any, any, any>
+				? K
+				: M[K] extends VarDefination<any, any, any, any>
+					? K
+					: [GroupFns<M[K], GroupDepth[D]>] extends [never]
+						? never
+						: K]: M[K] extends FnDefination<any, any, any, any, any, any>
+				? M[K]
+				: M[K] extends VarDefination<any, any, any, any>
+					? M[K]
+					: GroupFns<M[K], GroupDepth[D]>;
+		};
 
-/** Fns and vars a module exports, keyed by EXPORT name. A plain-record
- * member is a GROUP: its members stay nested under the member's name
+/** Fns and vars a module exports, keyed by EXPORT name. A module with
+ * `$fns` (adapters) uses that map as-is. Otherwise a plain-record member
+ * is a GROUP: its members stay nested under the member's name
  * (`use: [{ cookie: { setCookie } }]` -> `c.cookie.setCookie`). A var
  * member is an ALIAS onto the var - `{ cookie: { options: cookieOptions } }`
  * reads and writes the `cookieOptions` var through `c.cookie.options`. */
