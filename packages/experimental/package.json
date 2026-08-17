@@ -22,24 +22,31 @@
 		"dev": "tsdown --watch"
 	},
 	"devDependencies": {
+		"@better-auth/core": "1.6.28",
+		"@libsql/client": "^0.17.4",
 		"@types/body-parser": "^1.19.6",
 		"@types/express": "^5.0.3",
 		"@types/set-cookie-parser": "^2.4.10",
 		"@types/supertest": "^7.2.0",
 		"body-parser": "^2.2.0",
+		"drizzle-orm": "^0.45.2",
 		"express": "^5.1.0",
 		"supertest": "^7.1.4"
 	},
 	"dependencies": {
-		"@better-auth/utils": "^0.4.0",
-		"@better-fetch/fetch": "^1.1.21",
+		"@better-auth/utils": "^0.4.2",
+		"@better-fetch/fetch": "^1.3.1",
 		"rou3": "^0.7.12",
 		"set-cookie-parser": "^3.0.1"
 	},
 	"peerDependencies": {
+		"drizzle-orm": "^0.45.2",
 		"zod": "^4.0.0"
 	},
 	"peerDependenciesMeta": {
+		"drizzle-orm": {
+			"optional": true
+		},
 		"zod": {
 			"optional": true
 		}
@@ -56,17 +63,6 @@
 				"default": "./dist/index.cjs"
 			}
 		},
-		"./client": {
-			"dev-source": "./src/client.ts",
-			"import": {
-				"types": "./dist/client.d.mts",
-				"default": "./dist/client.mjs"
-			},
-			"require": {
-				"types": "./dist/client.d.cts",
-				"default": "./dist/client.cjs"
-			}
-		},
 		"./error": {
 			"dev-source": "./src/error.ts",
 			"import": {
@@ -78,15 +74,26 @@
 				"default": "./dist/error.cjs"
 			}
 		},
-		"./node": {
-			"dev-source": "./src/adapters/node/index.ts",
+		"./adapter": {
+			"dev-source": "./adapter/mod.ts",
 			"import": {
-				"types": "./dist/node.d.mts",
-				"default": "./dist/node.mjs"
+				"types": "./dist/adapter.d.mts",
+				"default": "./dist/adapter.mjs"
 			},
 			"require": {
-				"types": "./dist/node.d.cts",
-				"default": "./dist/node.cjs"
+				"types": "./dist/adapter.d.cts",
+				"default": "./dist/adapter.cjs"
+			}
+		},
+		"./adapter/drizzle": {
+			"dev-source": "./adapter/drizzle/index.ts",
+			"import": {
+				"types": "./dist/drizzle.d.mts",
+				"default": "./dist/drizzle.mjs"
+			},
+			"require": {
+				"types": "./dist/drizzle.d.cts",
+				"default": "./dist/drizzle.cjs"
 			}
 		}
 	},
