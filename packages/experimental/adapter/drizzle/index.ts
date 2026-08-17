@@ -1,2 +1,2 @@
-export { drizzleAdapter } from "./create-adapter";
+export { drizzleAdapter } from "./drizzle-adapter";
 export type { DebugLogOption, DrizzleAdapterConfig } from "./types";
