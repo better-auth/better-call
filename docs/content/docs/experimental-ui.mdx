@@ -1,0 +1,107 @@
+---
+title: Experimental UI
+description: An optional UI composition layer for Better Call.
+---
+
+In order to provide the capability of dynamic and modularized UI. User interface is split into three layers:
+
+1. Shells: The root component of the page, responsible for the overall layout and structure of the page.
+2. Slots: Pre-defined components that can be assembled into shells.
+3. Pages: The combination of a shell and UI slots creates that page.
+
+## Why this design?
+
+The design we landed on is formulated from the several problems we're trying to solve:
+
+1. **Dynamic & Modularized UI:** We want the ability to add or modify any UI component part of a page dynamically.
+2. **Developer Experience:** We need to make sure the developer experience for writing dynamic UI is extremely easy and familiar, while making sure that consumers who may want to assemble their own UI can easily take the necessary components and design their own UI with that good DX as well.
+3. **Framework agnostic:** Given Better Calls' framework-agnostic nature, we need to have the ability to respond in pure HTML. This means building their page at runtime efficiently.
+
+## Creating a shell
+
+Shells are composed of metadata of the page, the structure / layout of the page, and UI slots which can be dynamically
+filled with any component.
+
+Example of a basic shell:
+
+```tsx
+export const shell = ui.shell(
+  // A list of slot names that represent the slots that can be filled in the shell
+  ["hello", "world"],
+  // The function that returns the JSX of the shell
+  (c, slots) => (
+    <Page>
+      <Main>
+        {slots.hello}
+        {slots.world}
+      </Main>
+    </Page>
+  )
+);
+```
+
+Example sign-in page shell:
+
+```tsx
+import { Page, Main, Title, Description, ui } from "better-call/ui";
+
+export const signInShell = ui.shell(["methods", "after"], (c, slots) => (
+    <Page>
+        <Title>Sign In</Title>
+        <Description>Sign into your {c.options.appName} account and get started!</Description>
+        <Main class="flex justify-center items-center">
+            <div class="w-64 rounded-lg border p-6 bg-card">
+                <span class="text-lg font-bold">Welcome to {c.options.appName}</span>
+                <div class="flex flex-col gap-4 my-4">
+                    {slots.methods}
+                </div>
+                {slots.after}
+            </div>
+        </Main>
+    </Page>
+));
+```
+
+
+## Defining UI slots
+
+UI slots can be thought of more as components added to shells of any page.
+
+```tsx
+export const passkey = ui.slot("passkey", () => (
+    <Button action={signInPasskey}>Use a passkey</Button>
+));
+```
+
+```tsx
+export const emailPassword = ui.slot("emailPassword", () => (
+    <Form action={signInEmail}>
+        <Fields auto />
+        <Button type="submit">Sign in with email</Button>
+    </Form>
+));
+```
+<Callout>
+  Using `<Fields auto />` will automatically infer the fields for the form based on the action's input schema.
+</Callout>
+
+
+## Assembling the page
+
+To assemble the page, we must combine the shell with the UI slots.
+
+```tsx
+export const signInPage = signInShell.assemble("auth.sign-in", {
+  // Typed object of each UI slot from the sign-in shell
+  methods: [passkey, emailPassword],
+  after: [agreeToTerms],
+});
+```
+
+## Creating your app
+
+To create your app, you must combine the pages together.
+
+```tsx
+export const ui = ui.app([signInPage]);
+```
