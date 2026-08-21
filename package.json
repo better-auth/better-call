@@ -14,8 +14,7 @@
 		"typecheck": "tsc --build",
 		"bump": "bumpp",
 		"test": "pnpm -w --filter=./packages/* run test",
-		"coverage": "pnpm -w --filter=./packages/* run coverage",
-		"serve": "bun --hot example/hello.ts"
+		"coverage": "pnpm -w --filter=./packages/* run coverage"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",

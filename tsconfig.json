@@ -8,9 +8,6 @@
 	"references": [
 		{
 			"path": "./packages/better-call/tsconfig.json"
-		},
-		{
-			"path": "./example/tsconfig.json"
 		}
 	]
 }

@@ -21,21 +21,6 @@
 		"build": "tsdown",
 		"dev": "tsdown --watch"
 	},
-	"devDependencies": {
-		"@types/body-parser": "^1.19.6",
-		"@types/express": "^5.0.3",
-		"@types/set-cookie-parser": "^2.4.10",
-		"@types/supertest": "^7.2.0",
-		"body-parser": "^2.2.0",
-		"express": "^5.1.0",
-		"supertest": "^7.1.4"
-	},
-	"dependencies": {
-		"@better-auth/utils": "^0.4.0",
-		"@better-fetch/fetch": "^1.1.21",
-		"rou3": "^0.7.12",
-		"set-cookie-parser": "^3.0.1"
-	},
 	"peerDependencies": {
 		"zod": "^4.0.0"
 	},
@@ -56,17 +41,6 @@
 				"default": "./dist/index.cjs"
 			}
 		},
-		"./client": {
-			"dev-source": "./src/client.ts",
-			"import": {
-				"types": "./dist/client.d.mts",
-				"default": "./dist/client.mjs"
-			},
-			"require": {
-				"types": "./dist/client.d.cts",
-				"default": "./dist/client.cjs"
-			}
-		},
 		"./error": {
 			"dev-source": "./src/error.ts",
 			"import": {
@@ -76,17 +50,6 @@
 			"require": {
 				"types": "./dist/error.d.cts",
 				"default": "./dist/error.cjs"
-			}
-		},
-		"./node": {
-			"dev-source": "./src/adapters/node/index.ts",
-			"import": {
-				"types": "./dist/node.d.mts",
-				"default": "./dist/node.mjs"
-			},
-			"require": {
-				"types": "./dist/node.d.cts",
-				"default": "./dist/node.cjs"
 			}
 		},
 		"./plugins/http": {

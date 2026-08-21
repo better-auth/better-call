@@ -5,10 +5,12 @@ on:
         branches:
             - main
             - v*.x
+            - experimental
     push:
         branches:
             - main
             - v*.x
+            - experimental
     merge_group: {}
 
 jobs:

@@ -1,17 +1,17 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
 	"workspaces": {
-		"./example": {
-			"project": ["example/**/*.ts!"],
+		"./packages/*": {
+			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [
-				"better-call",
-				"zod",
-				"arktype",
-				"effect",
-				"valibot"
+				// implicit dependencies
+				"zod"
 			]
 		},
-		"./packages/*": {
+		// WIP package: treat all sources as entries so the settling export
+		// surface isn't policed; unused dependencies are still reported.
+		"./packages/experimental": {
+			"entry": ["src/**/*.ts!"],
 			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [
 				// implicit dependencies
