@@ -11,6 +11,11 @@
 	"assist": {
 		"enabled": true
 	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
 	"overrides": [
 		{
 			"includes": ["packages/experimental/**"],
