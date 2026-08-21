@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - experimental
+  workflow_dispatch: {}
 
 permissions: {}
 
@@ -13,6 +16,7 @@ concurrency:
 
 jobs:
   release:
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -30,7 +34,7 @@ jobs:
       - run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          
+
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
       - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -67,3 +71,40 @@ jobs:
 
       - name: Publish to npm
         run: pnpm -r publish --provenance --access public --no-git-checks --tag ${{ steps.determine_npm_tag.outputs.npm_tag }}
+
+  # Snapshot releases of packages/experimental, published from the
+  # experimental branch as better-call@0.0.0-experimental.<sha> under the
+  # 'experimental' dist-tag. Lives in this workflow because npm allows only
+  # one trusted publisher per package, and it is bound to this filename.
+  experimental:
+    if: github.ref == 'refs/heads/experimental'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter ./packages/experimental build
+
+      - name: Stamp snapshot version
+        working-directory: packages/experimental
+        run: |
+          VERSION="0.0.0-experimental.$(git rev-parse --short=8 HEAD)"
+          npm pkg set version="$VERSION"
+          echo "Publishing better-call@$VERSION under the 'experimental' dist-tag"
+
+      - name: Publish to npm
+        run: pnpm --filter ./packages/experimental publish --provenance --access public --no-git-checks --tag experimental
