@@ -88,6 +88,17 @@
 				"types": "./dist/node.d.cts",
 				"default": "./dist/node.cjs"
 			}
+		},
+		"./plugins/http": {
+			"dev-source": "./src/plugins/http.ts",
+			"import": {
+				"types": "./dist/plugins/http.d.mts",
+				"default": "./dist/plugins/http.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/http.d.cts",
+				"default": "./dist/plugins/http.cjs"
+			}
 		}
 	},
 	"files": [
