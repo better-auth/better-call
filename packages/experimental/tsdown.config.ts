@@ -4,7 +4,9 @@ export default defineConfig({
 	entry: {
 		index: "src/index.ts",
 		error: "src/error.ts",
+		schema: "src/schema.ts",
 		"plugins/http": "src/plugins/http.ts",
+		"plugins/read-only": "src/plugins/read-only.ts",
 	},
 	dts: { build: true, incremental: true },
 	sourcemap: true,
