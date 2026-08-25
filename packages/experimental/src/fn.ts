@@ -86,8 +86,53 @@ type WithFns<U> = {
  * (the builder's `use` included, not just the fn's own), plus any `use`
  * fn as an override - and nothing else. Kept as PLAIN mapped types: with
  * `RV`/`U` unknown both halves collapse to `{}`, which keeps every
- * `extends FnDefination<any, ...>` structural check passing. */
+ * `extends FnDefination<any, ...>` structural check passing.
+ *
+ * Prefer {@link WithSeed} for values stored on {@link FnDefination} - it
+ * is what `v.fn` returns, and stays declaration-emit safe. */
 export type WithContext<RV, U> = { [K in keyof RV]?: RV[K] } & WithFns<U>;
+
+/** Storage (or the FnEntries slice of one): anything carrying `$models`.
+ * Nested under a module as `{ db }`, it must not flow into `.with` seeds -
+ * model schemas alone blow past declaration serialize limits. ModuleFns
+ * drops `$adapter`/`$on`/collections, so duck-typing `$models` alone. */
+type StorageLike = { $models: object };
+
+/** Flatten `use` members to `.with` overrides: bound call signatures, var
+ * alias values, nested groups. Storage is dropped (mount-only). */
+type WithFnsSeed<U> = {
+	[K in keyof U as U[K] extends StorageLike
+		? never
+		: K]?: U[K] extends FnDefination<any, any, any, any, any, any>
+		? BoundFn<U[K]>
+		: U[K] extends VarDefination<any, infer T, any, any>
+			? T
+			: WithFnsSeed<U[K]>;
+};
+
+/**
+ * Flat `.with` seed map stored on exported fns. Evaluating ScopeOf /
+ * ModuleFns here (instead of embedding those wrappers as type arguments)
+ * keeps declaration emit small: `.d.ts` shows leaf var shapes and bound
+ * call signatures, not `ScopeOf<ResolvedVars<entire module graph>>`.
+ */
+export type WithSeed<RV, U> = Prettify<
+	{ [K in keyof RV]?: RV[K] } & WithFnsSeed<U>
+>;
+
+/** What `v.fn` / `e.fn` returns: contract params plus a flat {@link WithSeed}
+ * for `.with`, never the raw ScopeOf / ModuleFns graph. */
+type PublicFn<
+	A,
+	R,
+	K extends string,
+	I,
+	P extends readonly string[],
+	Er,
+	RV,
+	U,
+	O = unknown,
+> = FnDefination<A, R, K, I, P, Er, WithSeed<RV, U>, O>;
 
 /** What `.with` returns: the same callable, context baked in. */
 export interface BoundCall<A, R, I, Er> {
@@ -102,8 +147,9 @@ export interface FnDefination<
 	I = unknown,
 	P extends readonly string[] = readonly string[],
 	Er = NoErrors,
-	RV = unknown,
-	U = unknown,
+	/** `.with` seed map ({@link WithSeed}). Defaults keep structural
+	 * `extends FnDefination<any, ...>` checks passing. */
+	W = unknown,
 	O = unknown,
 > {
 	(...args: CallArgs<A, I>): R;
@@ -122,7 +168,7 @@ export interface FnDefination<
 	 * though `signOut` itself never says `use: [user]`. A parent passed to
 	 * the bound call is FORKED: its vars are copied in, never written back.
 	 */
-	with(context: WithContext<RV, U>): BoundCall<A, R, I, Er>;
+	with(context: W): BoundCall<A, R, I, Er>;
 	/** Brand, so a plugin module can be scanned for its fns. */
 	readonly $fn: true;
 	/** The name interceptors target - literal, so `ApplyOn` can match it. */
@@ -350,7 +396,7 @@ export interface Fn<
 				Fn<Base, BaseFns, BasePL, Prefix>
 			>,
 		) => R,
-	): FnDefination<
+	): PublicFn<
 		void,
 		R,
 		Prefix extends "" ? string : Prefix,
@@ -371,7 +417,7 @@ export interface Fn<
 				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
 			>,
 		) => R,
-	): FnDefination<
+	): PublicFn<
 		void,
 		R,
 		`${Prefix}${K}`,
@@ -409,7 +455,7 @@ export interface Fn<
 				Er
 			>,
 		) => R,
-	): FnDefination<
+	): PublicFn<
 		ArgsOf<I>,
 		R,
 		Prefix extends "" ? string : Prefix,
@@ -449,7 +495,7 @@ export interface Fn<
 				Er
 			>,
 		) => R,
-	): FnDefination<
+	): PublicFn<
 		ArgsOf<I>,
 		R,
 		`${Prefix}${K}`,

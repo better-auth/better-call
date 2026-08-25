@@ -99,6 +99,8 @@ export type {
 	OptionType,
 	ParentContext,
 	UseApi,
+	WithContext,
+	WithSeed,
 } from "./fn";
 export {
 	type ApplyOn,
