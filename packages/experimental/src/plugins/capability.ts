@@ -1,9 +1,23 @@
-import { collectFns, type FnDefination, type Module, v } from "../src";
+import { collectFns, type FnDefination, type Module, v } from "../index";
 
 const subtle = globalThis.crypto.subtle;
 
-const b64 = (bytes: ArrayBuffer | Uint8Array) =>
-	Buffer.from(bytes as Uint8Array).toString("base64url");
+const b64 = (bytes: ArrayBuffer | Uint8Array) => {
+	const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+	let binary = "";
+	for (const byte of view) binary += String.fromCharCode(byte);
+	return btoa(binary)
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replace(/=+$/, "");
+};
+
+const unb64 = (text: string) => {
+	const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes;
+};
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
@@ -32,19 +46,17 @@ const verifySignature = async (
 ) => {
 	const key = await subtle.importKey(
 		"raw",
-		Buffer.from(publicKeyId, "base64url"),
+		unb64(publicKeyId),
 		{ name: "Ed25519" },
 		false,
 		["verify"],
 	);
-	return subtle.verify(
-		"Ed25519",
-		key,
-		Buffer.from(signature, "base64url"),
-		utf8(payload),
-	);
+	return subtle.verify("Ed25519", key, unb64(signature), utf8(payload));
 };
 
+/** The name of a right: a fn key, optionally pinned to exact input
+ * fields. Never signed on its own - delegations carry caps, invocations
+ * spend them. */
 export type Cap = string | { fn: string; input?: Record<string, unknown> };
 
 export const fnOf = (cap: Cap) => (typeof cap === "string" ? cap : cap.fn);
@@ -59,7 +71,9 @@ export const fmtCap = (cap: Cap) =>
 const sameJson = (a: unknown, b: unknown) =>
 	JSON.stringify(a) === JSON.stringify(b);
 
-const covers = (parent: Cap, child: Cap) => {
+/** Does holding `parent` justify holding `child`? Same fn, and every
+ * field the parent pins must be pinned identically by the child. */
+export const covers = (parent: Cap, child: Cap) => {
 	if (fnOf(parent) !== fnOf(child)) return false;
 	const pin = pinOf(parent);
 	if (!pin) return true;
@@ -70,6 +84,7 @@ const covers = (parent: Cap, child: Cap) => {
 	);
 };
 
+/** Do these held caps authorize calling `fn` with `input`? */
 export const permits = (caps: Cap[], fn: string, input: unknown) =>
 	caps.some((cap) => {
 		if (fnOf(cap) !== fn) return false;
@@ -143,7 +158,7 @@ export class CapabilityError extends Error {
 }
 
 /** Walk the chain: every link signed, attenuating, unexpired, rooted. */
-const verifyDelegation = async (
+export const verifyDelegation = async (
 	root: string,
 	link: Delegation,
 ): Promise<Delegation> => {
