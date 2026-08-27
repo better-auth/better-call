@@ -1,9 +1,23 @@
-import { collectFns, type FnDefination, type Module, v } from "../src";
+import { collectFns, type FnDefination, type Module, v } from "./index";
 
 const subtle = globalThis.crypto.subtle;
 
-const b64 = (bytes: ArrayBuffer | Uint8Array) =>
-	Buffer.from(bytes as Uint8Array).toString("base64url");
+const b64 = (bytes: ArrayBuffer | Uint8Array) => {
+	const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+	let binary = "";
+	for (const byte of view) binary += String.fromCharCode(byte);
+	return btoa(binary)
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replace(/=+$/, "");
+};
+
+const unb64 = (text: string) => {
+	const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes;
+};
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
@@ -30,21 +44,26 @@ const verifySignature = async (
 	payload: string,
 	signature: string,
 ) => {
-	const key = await subtle.importKey(
-		"raw",
-		Buffer.from(publicKeyId, "base64url"),
-		{ name: "Ed25519" },
-		false,
-		["verify"],
-	);
-	return subtle.verify(
-		"Ed25519",
-		key,
-		Buffer.from(signature, "base64url"),
-		utf8(payload),
-	);
+	// Malformed base64, a wrong-length key, or a bad signature are all just
+	// "this did not verify" - never a thrown DOMException that escapes the
+	// CapabilityError contract the callers rely on.
+	try {
+		const key = await subtle.importKey(
+			"raw",
+			unb64(publicKeyId),
+			{ name: "Ed25519" },
+			false,
+			["verify"],
+		);
+		return await subtle.verify("Ed25519", key, unb64(signature), utf8(payload));
+	} catch {
+		return false;
+	}
 };
 
+/** The name of a right: a fn key, optionally pinned to exact input
+ * fields. Never signed on its own - delegations carry caps, invocations
+ * spend them. */
 export type Cap = string | { fn: string; input?: Record<string, unknown> };
 
 export const fnOf = (cap: Cap) => (typeof cap === "string" ? cap : cap.fn);
@@ -59,7 +78,9 @@ export const fmtCap = (cap: Cap) =>
 const sameJson = (a: unknown, b: unknown) =>
 	JSON.stringify(a) === JSON.stringify(b);
 
-const covers = (parent: Cap, child: Cap) => {
+/** Does holding `parent` justify holding `child`? Same fn, and every
+ * field the parent pins must be pinned identically by the child. */
+export const covers = (parent: Cap, child: Cap) => {
 	if (fnOf(parent) !== fnOf(child)) return false;
 	const pin = pinOf(parent);
 	if (!pin) return true;
@@ -70,6 +91,7 @@ const covers = (parent: Cap, child: Cap) => {
 	);
 };
 
+/** Do these held caps authorize calling `fn` with `input`? */
 export const permits = (caps: Cap[], fn: string, input: unknown) =>
 	caps.some((cap) => {
 		if (fnOf(cap) !== fn) return false;
@@ -104,9 +126,28 @@ export type Invocation = {
 
 const now = () => Math.floor(Date.now() / 1000);
 
+/** Deterministic serialization: object keys sorted at every depth so the
+ * signed bytes never depend on construction order or a re-serializing
+ * intermediary. This IS the signing format - both minting and verifying
+ * go through it. */
+const canonical = (value: unknown): string => {
+	// Mirror JSON.stringify's treatment of undefined so the signed bytes
+	// survive a JSON wire round-trip: an undefined object field is dropped,
+	// an undefined array slot becomes null.
+	if (value === undefined) return "null";
+	if (value === null || typeof value !== "object") return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+	const source = value as Record<string, unknown>;
+	const entries = Object.keys(source)
+		.filter((key) => source[key] !== undefined)
+		.sort()
+		.map((key) => `${JSON.stringify(key)}:${canonical(source[key])}`);
+	return `{${entries.join(",")}}`;
+};
+
 const payloadOf = (token: Record<string, unknown>) => {
 	const { sig, ...rest } = token;
-	return JSON.stringify(rest);
+	return canonical(rest);
 };
 
 export const mintDelegation = async (
@@ -142,11 +183,20 @@ export class CapabilityError extends Error {
 	}
 }
 
+/** A crafted chain of self-signed links (valid until the root check at the
+ * very bottom) would otherwise force unbounded recursion and signature
+ * verifications - a cheap denial-of-service. Cap the depth. */
+export const MAX_DELEGATION_DEPTH = 16;
+
 /** Walk the chain: every link signed, attenuating, unexpired, rooted. */
-const verifyDelegation = async (
+export const verifyDelegation = async (
 	root: string,
 	link: Delegation,
+	depth = 0,
 ): Promise<Delegation> => {
+	if (depth > MAX_DELEGATION_DEPTH) {
+		throw new CapabilityError("delegation chain too deep");
+	}
 	if (link.typ !== "dlg") throw new CapabilityError("not a delegation");
 	if (link.exp < now()) throw new CapabilityError("delegation expired");
 	if (!(await verifySignature(link.iss, payloadOf(link), link.sig))) {
@@ -158,7 +208,7 @@ const verifyDelegation = async (
 		}
 		return link;
 	}
-	const parent = await verifyDelegation(root, link.prf);
+	const parent = await verifyDelegation(root, link.prf, depth + 1);
 	if (parent.aud !== link.iss) {
 		throw new CapabilityError("delegation not issued by its parent's audience");
 	}
@@ -311,6 +361,20 @@ export const serve = async (
 	const challenges = new Map<string, Challenge>();
 	let challengeSeq = 0;
 
+	// A minted invocation spends exactly ONCE. Its nonce is remembered
+	// until the invocation would expire anyway; a replay within that window
+	// is refused. This is what makes "single-use" true rather than a claim.
+	const spent = new Map<string, number>();
+	const spend = async (token: Invocation) => {
+		const held = await verifyInvocation(key.id, token);
+		const t = now();
+		for (const [seen, exp] of spent) if (exp < t) spent.delete(seen);
+		const id = `${token.iss}:${token.nonce}`;
+		if (spent.has(id)) throw new CapabilityError("invocation already spent");
+		spent.set(id, token.exp);
+		return held;
+	};
+
 	const issue = (holder: string, subject: string, caps: Cap[]) =>
 		mintDelegation(key, { aud: holder, sub: subject, caps, exp: now() + ttl });
 
@@ -390,8 +454,15 @@ export const serve = async (
 
 			// The invocation here proves POSSESSION of a chain - who is
 			// asking - not authority over what is asked for; that is the
-			// very thing the request is trying to widen.
-			const held = await verifyInvocation(key.id, c.input.token as Invocation);
+			// very thing the request is trying to widen. It must still be an
+			// invocation minted for THIS builtin, spent once like any other.
+			const token = c.input.token as Invocation | undefined;
+			if (token?.call !== "capability.request") {
+				throw new CapabilityError(
+					"invocation not minted for capability.request",
+				);
+			}
+			const held = await spend(token);
 			assertServed(caps, fns);
 			const payout = async () => ({
 				status: "approved" as const,
@@ -487,10 +558,10 @@ export const serve = async (
 					throw new CapabilityError("invocation minted for different input");
 				}
 				// The boundary only proves the chain is genuinely held and
-				// bound to this exact message. Whether it covers the call is
-				// the target fn's own check - `entry` tells it which frame
-				// has no memory reference behind it.
-				const held = await verifyInvocation(key.id, token);
+				// bound to this exact message, spent once. Whether it covers
+				// the call is the target fn's own check - `entry` tells it
+				// which frame has no memory reference behind it.
+				const held = await spend(token);
 				c.capability = { ...held, entry: c.input.call };
 			}
 			return (target as (i: unknown, p: unknown) => unknown)(c.input.input, c);

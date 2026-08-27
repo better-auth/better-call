@@ -7,6 +7,7 @@ export default defineConfig({
 		schema: "src/schema.ts",
 		"plugins/http": "src/plugins/http.ts",
 		"plugins/read-only": "src/plugins/read-only.ts",
+		capability: "src/capability.ts",
 	},
 	dts: { build: true, incremental: true },
 	sourcemap: true,

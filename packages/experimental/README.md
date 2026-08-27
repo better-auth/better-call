@@ -159,7 +159,7 @@ When you *do* want extensibility around a primitive — say, letting an app obse
 
 ## Capability-based security
 
-`test/capability.ts` and `test/capability-demo.ts` explore what security looks like when it is built out of the primitives above. The model in one sentence:
+`src/capability.ts` (exported as `better-call/capability`, demoed in `test/capability-demo.ts`) builds security out of the primitives above. The model in one sentence:
 
 > A fn may be called exactly by whoever **holds a reference** to it, and every fn validates that about its caller before doing anything.
 
@@ -192,7 +192,7 @@ A capability is never created or registered — it is inferred from the fn it na
 
 ### The rule
 
-Every served fn runs one check before its body: *was my caller authorized to make this call with this input?* (`validateCaller` in `test/capability.ts`):
+Every served fn runs one check before its body: *was my caller authorized to make this call with this input?* (`validateCaller` in `src/capability.ts`):
 
 - No boundary above this call → the caller reached this fn through a memory reference. Possession is the capability; nothing to verify.
 - This fn is the wire entry → the caller holds no memory reference, only the reified one. It must cover this fn AND this input, or the fn refuses.

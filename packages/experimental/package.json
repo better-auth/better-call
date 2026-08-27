@@ -84,6 +84,17 @@
 				"types": "./dist/plugins/read-only.d.cts",
 				"default": "./dist/plugins/read-only.cjs"
 			}
+		},
+		"./capability": {
+			"dev-source": "./src/capability.ts",
+			"import": {
+				"types": "./dist/capability.d.mts",
+				"default": "./dist/capability.mjs"
+			},
+			"require": {
+				"types": "./dist/capability.d.cts",
+				"default": "./dist/capability.cjs"
+			}
 		}
 	},
 	"files": [
