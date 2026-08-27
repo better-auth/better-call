@@ -159,7 +159,7 @@ When you *do* want extensibility around a primitive — say, letting an app obse
 
 ## Capability-based security
 
-`test/capability.ts` and `test/capability-demo.ts` explore what security looks like when it is built out of the primitives above. The model in one sentence:
+`test/capability.ts` and `test/capability-demo.ts` explore what security looks like when it is built out of the primitives above; a larger API-shaped example lives in `test/capability-api-demo.ts`. The model in one sentence:
 
 > A fn may be called exactly by whoever **holds a reference** to it, and every fn validates that about its caller before doing anything.
 
@@ -244,6 +244,7 @@ renamer.hold(
 
 ```sh
 npx tsx test/capability-demo.ts
+npx tsx test/capability-api-demo.ts   # richer endpoint-shaped Authority example
 ```
 
 The arc it walks: in-process calls need no token → an agent is born asking and gets only the sign-in bootstrap → nothing is public → signing in attests WHO and trades for the defaults → a fn calls a fn the remote caller was never granted (implied reference) while the same fn refuses the wire → widening is challenged and user-approved → stolen delegations are inert → attenuation and input-pinning hold → attestation outlives the agent.
