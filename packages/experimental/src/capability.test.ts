@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { v } from "../index";
 import {
 	type Attestation,
 	type Cap,
@@ -11,7 +10,9 @@ import {
 	fmtCap,
 	fnOf,
 	generateKeypair,
+	type Invocation,
 	type Keypair,
+	MAX_DELEGATION_DEPTH,
 	mintDelegation,
 	mintInvocation,
 	permits,
@@ -21,6 +22,7 @@ import {
 	verifyDelegation,
 	verifyInvocation,
 } from "./capability";
+import { v } from "./index";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -184,6 +186,32 @@ describe("delegations", () => {
 			/changes subject/,
 		);
 	});
+
+	it("rejects an over-deep chain before walking it all", async () => {
+		const root = await generateKeypair();
+		const [first, ...rest] = await Promise.all(
+			Array.from({ length: MAX_DELEGATION_DEPTH + 3 }, () => generateKeypair()),
+		);
+		if (!first) throw new Error("expected at least one key");
+		let link = await mintDelegation(root, {
+			aud: first.id,
+			sub: "user:1",
+			caps: ["profile.read"],
+			exp: now() + 60,
+		});
+		let issuer = first;
+		for (const next of rest) {
+			link = await mintDelegation(issuer, {
+				aud: next.id,
+				sub: "user:1",
+				caps: ["profile.read"],
+				exp: now() + 60,
+				prf: link,
+			});
+			issuer = next;
+		}
+		await expect(verifyDelegation(root.id, link)).rejects.toThrow(/too deep/);
+	});
 });
 
 describe("invocations", () => {
@@ -251,10 +279,16 @@ describe("attestations", () => {
 			sub: "user:1",
 			exp,
 		};
-		const { sig: _, ...payload } = { ...unsigned, sig: "" };
+		// Match the library's canonical (sorted-key) signing format.
+		const payload = JSON.stringify({
+			exp: unsigned.exp,
+			iss: unsigned.iss,
+			sub: unsigned.sub,
+			typ: unsigned.typ,
+		});
 		return {
 			...unsigned,
-			sig: await issuer.sign(JSON.stringify(payload)),
+			sig: await issuer.sign(payload),
 		} satisfies Attestation;
 	};
 
@@ -437,6 +471,24 @@ describe("serve", () => {
 			attestation: first.attestation(),
 		});
 		expect(second.held()?.caps).toEqual(["profile.read"]);
+	});
+
+	it("an invocation spends once: a replay of the same token is refused", async () => {
+		const { server, transport } = await makeApp();
+		const captured: { call: string; input?: unknown; token?: Invocation }[] =
+			[];
+		const spy: Transport = async (message) => {
+			captured.push(message);
+			return transport(message);
+		};
+		const agent = await createAgent(spy);
+		await agent.call("sign_in.email", { email: "b@acme.com", password: "pw" });
+		await agent.call("profile.read");
+		const replay = captured.at(-1);
+		if (!replay?.token) throw new Error("no captured invocation to replay");
+		await expect(
+			server.exec(JSON.parse(JSON.stringify(replay)) as never),
+		).rejects.toThrow(/already spent/);
 	});
 
 	it("a bad attestation is refused outright", async () => {
