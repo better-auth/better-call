@@ -5,7 +5,7 @@ import {
 	createAgent,
 	fmtCap,
 	serve,
-} from "./capability";
+} from "../src/capability";
 
 const profiles: Record<string, { name: string; email: string }> = {
 	"user:1": { name: "Bereket", email: "b@acme.com" },

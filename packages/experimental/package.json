@@ -52,6 +52,17 @@
 				"default": "./dist/error.cjs"
 			}
 		},
+		"./schema": {
+			"dev-source": "./src/schema.ts",
+			"import": {
+				"types": "./dist/schema.d.mts",
+				"default": "./dist/schema.mjs"
+			},
+			"require": {
+				"types": "./dist/schema.d.cts",
+				"default": "./dist/schema.cjs"
+			}
+		},
 		"./plugins/http": {
 			"dev-source": "./src/plugins/http.ts",
 			"import": {
@@ -61,6 +72,28 @@
 			"require": {
 				"types": "./dist/plugins/http.d.cts",
 				"default": "./dist/plugins/http.cjs"
+			}
+		},
+		"./plugins/read-only": {
+			"dev-source": "./src/plugins/read-only.ts",
+			"import": {
+				"types": "./dist/plugins/read-only.d.mts",
+				"default": "./dist/plugins/read-only.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/read-only.d.cts",
+				"default": "./dist/plugins/read-only.cjs"
+			}
+		},
+		"./capability": {
+			"dev-source": "./src/capability.ts",
+			"import": {
+				"types": "./dist/capability.d.mts",
+				"default": "./dist/capability.mjs"
+			},
+			"require": {
+				"types": "./dist/capability.d.cts",
+				"default": "./dist/capability.cjs"
 			}
 		}
 	},

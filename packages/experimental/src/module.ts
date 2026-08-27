@@ -570,8 +570,8 @@ export type ApplyOn<F, PL> =
 		infer I,
 		infer P,
 		infer Er,
-		infer RV,
-		infer U
+		infer W,
+		infer O
 	>
 		? unknown extends ExtendedArgs<PL, K & string> & InputVarExtra<PL, I>
 			? F
@@ -586,8 +586,8 @@ export type ApplyOn<F, PL> =
 					I,
 					P,
 					Er,
-					RV,
-					U
+					W,
+					O
 				>
 		: F;
 
