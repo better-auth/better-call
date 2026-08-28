@@ -40,6 +40,7 @@ export const http = {
 	res,
 	cookieOptions,
 	fromRequest,
+	handler: fromRequest,
 	createHandler,
 	getCookie,
 	setCookie,
