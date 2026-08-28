@@ -136,6 +136,26 @@ describe("http.redirect", () => {
 		expect(response.headers.get("location")).toBe("/dashboard");
 	});
 
+	it("mounted c.handler catches Redirect from run", async () => {
+		const entry = app.fn(
+			"httpt.redirect.mounted_handler",
+			{ input: { request: v.any<Request>() } },
+			async (c) =>
+				c.handler({
+					request: c.input.request,
+					run: (ctx) => {
+						ctx.redirect({ url: "/in", status: 303 });
+					},
+				}),
+		);
+		const response = await entry({
+			request: new Request("http://x.test/"),
+		});
+		expect(response).toBeInstanceOf(Response);
+		expect(response.status).toBe(303);
+		expect(response.headers.get("location")).toBe("/in");
+	});
+
 	it("createHandler preserves cookies set before redirect", async () => {
 		const handle = createHandler((c) => {
 			c.setCookie({ name: "sid", value: "1", options: { path: "/" } });
@@ -158,5 +178,6 @@ describe("http.redirect", () => {
 		expect(http.redirect).toBe(redirect);
 		expect(http.Redirect).toBe(Redirect);
 		expect(http.createHandler).toBe(createHandler);
+		expect(http.handler).toBeDefined();
 	});
 });

@@ -1,6 +1,6 @@
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
 import { applyError, err, errorStatus, statusOf } from "./error";
-import { createHandler } from "./handle";
+import { createHandler, handler } from "./handle";
 import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
@@ -22,7 +22,7 @@ export {
 	statusOf,
 } from "./error";
 export type { CreateHandlerOptions } from "./handle";
-export { createHandler } from "./handle";
+export { createHandler, handler } from "./handle";
 export type { RedirectStatus } from "./redirect";
 export {
 	applyRedirect,
@@ -40,7 +40,7 @@ export const http = {
 	res,
 	cookieOptions,
 	fromRequest,
-	handler: fromRequest,
+	handler,
 	createHandler,
 	getCookie,
 	setCookie,

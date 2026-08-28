@@ -24,13 +24,16 @@ const h = v.fn({ use: [{ res }] });
 /**
  * Write a redirect onto the scope's `res`, then throw {@link Redirect}
  * so the call stack unwinds. Catch it at the web edge with
- * {@link createHandler} (or {@link asResponse} in a manual try/catch).
- * `.try` does not catch it.
+ * {@link handler} / {@link createHandler} (or {@link asResponse} in a
+ * manual try/catch). `.try` does not catch it.
  *
  * @example
  * ```ts
- * const handler = createHandler((c) => {
- *   c.redirect({ url: "/dashboard" });
+ * return c.handler({
+ *   request,
+ *   run: (ctx) => {
+ *     ctx.redirect({ url: "/dashboard" });
+ *   },
  * });
  * ```
  */
