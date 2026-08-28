@@ -85,6 +85,7 @@ export const v: V = {
 };
 
 export {
+	ControlFlow,
 	FnError,
 	type Issue,
 	UnexpectedError,

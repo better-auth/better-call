@@ -1,5 +1,5 @@
 import { v } from "../src";
-import * as http from "../src/plugins/http";
+import { createHandler, http } from "../src/plugins/http";
 
 const app = v.fn({ use: [http] });
 
@@ -15,17 +15,18 @@ export const whoami = app.fn("whoami", { requires: ["req"] }, (c) => {
 	};
 });
 
-const handle = v
-	.fn({ use: [http, { whoami }] })
-	.fn("handle", { input: { request: v.any<Request>() } }, async (c) => {
-		await c.fromRequest({ request: c.input.request });
+export const handler = createHandler(
+	async (c) => {
 		c.res?.headers.set("x-powered-by", "better-call");
+		if (c.req?.path === "/go") {
+			c.redirect({ url: "/me" });
+		}
 		return Response.json(c.whoami(), {
 			headers: c.res?.headers,
 		});
-	});
-
-export const handler = (request: Request) => handle({ request });
+	},
+	{ use: [{ whoami }] },
+);
 
 const res = await handler(
 	new Request("https://example.com/me?a=1", {
@@ -33,6 +34,9 @@ const res = await handler(
 	}),
 );
 console.log("request :", await res.json());
+
+const redirected = await handler(new Request("https://example.com/go"));
+console.log("redirect:", redirected.status, redirected.headers.get("location"));
 
 /* Concurrency needs no mechanism at all now: two root calls are two
    invocations, and invocations never share state unless asked. */

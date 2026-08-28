@@ -4,6 +4,7 @@ import {
 	applyError,
 	err,
 	errorStatus,
+	type HttpResponse,
 	http,
 	kHttpErr,
 	statusOf,
@@ -16,7 +17,9 @@ describe("http.err - status on declared errors", () => {
 		const decl = err(401, { attempts: v.number() });
 		expect(statusOf(decl)).toBe(401);
 		expect(Object.keys(decl)).toEqual(["attempts"]);
-		expect(decl[kHttpErr]).toEqual({ status: 401 });
+		expect((decl as Record<symbol, unknown>)[kHttpErr]).toEqual({
+			status: 401,
+		});
 	});
 
 	it("status-only declarations stay empty payloads", () => {
@@ -62,7 +65,11 @@ describe("http.err - status on declared errors", () => {
 			expect(bad.error).toBeInstanceOf(FnError);
 			expect(bad.error.tag).toBe("invalid_credentials");
 			expect(bad.error.data).toEqual({ attempts: 3 });
-			expectTypeOf(bad.error.data).toEqualTypeOf<{ attempts: number }>();
+			if (bad.error.tag === "invalid_credentials") {
+				expectTypeOf(bad.error.data).toEqualTypeOf<{
+					readonly attempts: number;
+				}>();
+			}
 		}
 
 		const gone = signIn.try({ kind: "gone" });
@@ -96,7 +103,7 @@ describe("http.err - status on declared errors", () => {
 				throw c.error("denied");
 			},
 		);
-		const errors = guard.$schema.errors;
+		const errors = guard.$schema?.errors;
 		expect(errorStatus(errors, "denied")).toBe(403);
 		expect(errorStatus(errors, "plain")).toBeUndefined();
 		expect(errorStatus(errors, "missing")).toBeUndefined();
@@ -121,8 +128,8 @@ describe("http.err - status on declared errors", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 
-		const response = { headers: new Headers() };
-		applyError(response, endpoint.$schema.errors, result.error);
+		const response: HttpResponse = { headers: new Headers() };
+		applyError(response, endpoint.$schema?.errors, result.error);
 		expect(response.status).toBe(401);
 	});
 

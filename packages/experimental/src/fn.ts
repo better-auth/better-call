@@ -1,4 +1,10 @@
-import { FnError, type Issue, UnexpectedError, ValidationError } from "./error";
+import {
+	ControlFlow,
+	FnError,
+	type Issue,
+	UnexpectedError,
+	ValidationError,
+} from "./error";
 import {
 	type ApplyOns,
 	collectUsable,
@@ -63,8 +69,12 @@ export type FnErrors<F> =
 		? FnErrorsOf<Er>
 		: never;
 
-type TryResult<R, Er> =
-	R extends Promise<infer V>
+/** Non-distributive `never` guard first: a naked `R extends Promise`
+ * distributes over `never` into `never`, and `[never] extends [Promise<_>]`
+ * is also true (bottom type). Always-throwing bodies need a sync result. */
+type TryResult<R, Er> = [R] extends [never]
+	? { ok: true; value: never } | { ok: false; error: FnErrorsOf<Er> }
+	: R extends Promise<infer V>
 		? Promise<{ ok: true; value: V } | { ok: false; error: FnErrorsOf<Er> }>
 		: { ok: true; value: R } | { ok: false; error: FnErrorsOf<Er> };
 
@@ -894,6 +904,9 @@ const defineFn = (
 		// DEFECT - wrapped with the cause kept - so a domain refusal and a
 		// bug are never the same shape.
 		const decorate = (thrown: unknown): unknown => {
+			// Redirects and other transport control must cross frames that
+			// declare `errors` without becoming UnexpectedError.
+			if (thrown instanceof ControlFlow) return thrown;
 			if (thrown instanceof FnError || thrown instanceof UnexpectedError) {
 				if (thrown.trail[thrown.trail.length - 1] !== key) {
 					thrown.trail.push(key);
