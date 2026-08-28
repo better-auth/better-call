@@ -12,3 +12,14 @@ export type HttpResponse = {
 };
 
 export const res = v.var("res", { default: null as HttpResponse | null });
+
+/** Build a fetch {@link Response} from the scope's response state. */
+export const toResponse = (
+	response: HttpResponse,
+	body: BodyInit | null = null,
+): Response =>
+	new Response(body, {
+		status: response.status ?? 200,
+		statusText: response.statusText,
+		headers: response.headers,
+	});

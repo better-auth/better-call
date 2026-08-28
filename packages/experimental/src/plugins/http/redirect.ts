@@ -1,7 +1,7 @@
 import { ControlFlow } from "../../error";
 import { v } from "../../index";
 import type { HttpResponse } from "./response";
-import { res } from "./response";
+import { res, toResponse } from "./response";
 
 export type RedirectStatus = 301 | 302 | 303 | 307 | 308;
 
@@ -23,13 +23,15 @@ const h = v.fn({ use: [{ res }] });
 
 /**
  * Write a redirect onto the scope's `res`, then throw {@link Redirect}
- * so the call stack unwinds. The HTTP edge catches `Redirect` (and may
- * also use {@link applyRedirect}); `.try` does not catch it.
+ * so the call stack unwinds. Catch it at the web edge with
+ * {@link createHandler} (or {@link asResponse} in a manual try/catch).
+ * `.try` does not catch it.
  *
  * @example
  * ```ts
- * c.redirect({ url: "/dashboard" });
- * c.redirect({ url: "/done", status: 303 });
+ * const handler = createHandler((c) => {
+ *   c.redirect({ url: "/dashboard" });
+ * });
  * ```
  */
 export const redirect = h.fn(
@@ -67,4 +69,18 @@ export const applyRedirect = (
 	response.status = redirected.status;
 	response.headers.set("location", redirected.url);
 	return response;
+};
+
+/**
+ * Turn a thrown {@link Redirect} into a fetch Response, preserving
+ * headers already on `response`. Any other value is rethrown.
+ */
+export const asResponse = (
+	thrown: unknown,
+	response?: HttpResponse | null,
+): Response => {
+	if (!(thrown instanceof Redirect)) throw thrown;
+	const current = response ?? { headers: new Headers() };
+	applyRedirect(current, thrown);
+	return toResponse(current, null);
 };

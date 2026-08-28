@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { FnError, UnexpectedError, v } from "../../index";
-import { applyRedirect, http, Redirect, redirect } from "./index";
+import {
+	applyRedirect,
+	asResponse,
+	createHandler,
+	http,
+	Redirect,
+	redirect,
+} from "./index";
 
 const app = v.fn({ use: [http] });
 
@@ -107,8 +114,49 @@ describe("http.redirect", () => {
 		expect(response.headers.get("location")).toBe("/home");
 	});
 
+	it("asResponse turns Redirect into a fetch Response", () => {
+		const response = { headers: new Headers() };
+		response.headers.set("x-powered-by", "better-call");
+		const out = asResponse(new Redirect("/home", 303), response);
+		expect(out.status).toBe(303);
+		expect(out.headers.get("location")).toBe("/home");
+		expect(out.headers.get("x-powered-by")).toBe("better-call");
+	});
+
+	it("asResponse rethrows non-Redirect values", () => {
+		expect(() => asResponse(new Error("nope"))).toThrow(/nope/);
+	});
+
+	it("createHandler catches Redirect and returns a 3xx Response", async () => {
+		const handle = createHandler((c) => {
+			c.redirect({ url: "/dashboard" });
+		});
+		const response = await handle(new Request("http://x.test/"));
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("/dashboard");
+	});
+
+	it("createHandler preserves cookies set before redirect", async () => {
+		const handle = createHandler((c) => {
+			c.setCookie({ name: "sid", value: "1", options: { path: "/" } });
+			c.redirect({ url: "/app", status: 303 });
+		});
+		const response = await handle(new Request("http://x.test/"));
+		expect(response.status).toBe(303);
+		expect(response.headers.get("location")).toBe("/app");
+		expect(response.headers.getSetCookie()).toEqual(["sid=1; Path=/"]);
+	});
+
+	it("createHandler passes through a returned Response", async () => {
+		const handle = createHandler(() => Response.json({ ok: true }));
+		const response = await handle(new Request("http://x.test/"));
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+	});
+
 	it("redirect is mounted on the http module", () => {
 		expect(http.redirect).toBe(redirect);
 		expect(http.Redirect).toBe(Redirect);
+		expect(http.createHandler).toBe(createHandler);
 	});
 });
