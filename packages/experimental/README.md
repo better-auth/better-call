@@ -251,5 +251,5 @@ The arc it walks: in-process calls need no token → an agent is born asking and
 
 ## Other explorations
 
-- `test/http-demo.ts` — serving fns over HTTP via `src/plugins/http.ts`
+- `test/http-demo.ts` — serving fns over HTTP via `src/plugins/http/`
 - `test/better-auth.ts`, `test/email-password.ts`, `test/session.ts`, `test/birthday.ts` — module composition sketches
