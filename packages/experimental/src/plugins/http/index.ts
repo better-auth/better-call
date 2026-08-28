@@ -1,5 +1,6 @@
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
 import { applyError, err, errorStatus, statusOf } from "./error";
+import { applyRedirect, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res } from "./response";
 
@@ -19,6 +20,8 @@ export {
 	kHttpErr,
 	statusOf,
 } from "./error";
+export type { RedirectStatus } from "./redirect";
+export { applyRedirect, Redirect, redirect } from "./redirect";
 export type { HttpRequest } from "./request";
 export { fromRequest, req, toHttpRequest } from "./request";
 export type { HttpResponse } from "./response";
@@ -36,4 +39,7 @@ export const http = {
 	statusOf,
 	errorStatus,
 	applyError,
+	redirect,
+	applyRedirect,
+	Redirect,
 };

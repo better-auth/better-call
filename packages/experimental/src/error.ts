@@ -64,3 +64,12 @@ export class UnexpectedError extends Error {
 		this.trail = [fn];
 	}
 }
+
+/** Plugin/transport control that is neither a domain refusal nor a defect.
+ * Frames with declared `errors` must not wrap these as UnexpectedError. */
+export class ControlFlow extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ControlFlow";
+	}
+}
