@@ -67,6 +67,3 @@ export function createHandler(
 
 	return (request) => entry({ request }) as Promise<Response>;
 }
-
-/** Alias of {@link createHandler}. */
-export const handler = createHandler;

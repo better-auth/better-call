@@ -22,7 +22,7 @@ export {
 	statusOf,
 } from "./error";
 export type { CreateHandlerOptions } from "./handle";
-export { createHandler, handler } from "./handle";
+export { createHandler } from "./handle";
 export type { RedirectStatus } from "./redirect";
 export {
 	applyRedirect,
@@ -39,14 +39,7 @@ export const http = {
 	req,
 	res,
 	cookieOptions,
-	/** Seed req/res from a fetch Request (setup only). */
 	fromRequest,
-	/**
-	 * Deprecated alias of `fromRequest`. Prefer `fromRequest` for setup,
-	 * or {@link createHandler} for the web edge that turns Redirect into
-	 * a 3xx Response.
-	 */
-	handler: fromRequest,
 	createHandler,
 	getCookie,
 	setCookie,
