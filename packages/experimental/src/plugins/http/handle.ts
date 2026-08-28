@@ -45,6 +45,21 @@ const catchRedirect = (
 	return toResponse(current, null);
 };
 
+/** Seed req/res, run `run` on the same `c`, settle Redirect / body. */
+const settle = async (
+	c: any,
+	request: Request,
+	run: (c: any) => unknown | Promise<unknown>,
+): Promise<Response> => {
+	await c.fromRequest({ request });
+	try {
+		const out = await run(c);
+		return resultToResponse(c.res ?? { headers: new Headers() }, out);
+	} catch (thrown) {
+		return catchRedirect(thrown, c.res);
+	}
+};
+
 const h = v.fn({ use: [base] });
 
 /**
@@ -69,42 +84,29 @@ export const handler = h.fn(
 			run: v.any<(c: any) => unknown | Promise<unknown>>(),
 		},
 	},
-	async (c) => {
-		await c.fromRequest({ request: c.input.request });
-		try {
-			const out = await c.input.run(c);
-			return resultToResponse(c.res ?? { headers: new Headers() }, out);
-		} catch (thrown) {
-			return catchRedirect(thrown, c.res);
-		}
-	},
+	async (c) => settle(c, c.input.request, c.input.run),
 );
 
-const scope = { ...base, handler };
-
 export type CreateHandlerOptions = {
-	/** Extra modules mounted into the handler scope (alongside HTTP). */
+	/** Extra modules mounted onto the same `c` that `run` receives. */
 	use?: unknown[];
 };
 
 /**
- * Fetch adapter: `(request) => Response`. Same boundary as {@link handler},
- * for wiring into a server without a surrounding fn.
+ * Fetch adapter: `(request) => Response`. Modules in `options.use` are
+ * mounted on the same context as `req` / `res` / `redirect`, so
+ * `createHandler((c) => c.whoami(), { use: [{ whoami }] })` works.
  */
 export function createHandler(
 	run: (c: any) => unknown | Promise<unknown>,
 	options?: CreateHandlerOptions,
 ): (request: Request) => Promise<Response> {
 	const entry = v
-		.fn({ use: [scope, ...(options?.use ?? [])] })
+		.fn({ use: [base, ...(options?.use ?? [])] })
 		.fn(
 			"http.create_handler",
 			{ input: { request: v.any<Request>() } },
-			async (c) =>
-				c.handler({
-					request: c.input.request,
-					run,
-				}),
+			async (c) => settle(c, c.input.request, run),
 		);
 
 	return (request) => entry({ request }) as Promise<Response>;

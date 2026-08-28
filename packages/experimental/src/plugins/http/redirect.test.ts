@@ -174,6 +174,18 @@ describe("http.redirect", () => {
 		await expect(response.json()).resolves.toEqual({ ok: true });
 	});
 
+	it("createHandler mounts options.use onto the same c that run receives", async () => {
+		const whoami = app.fn("httpt.whoami_edge", { requires: ["req"] }, (c) => ({
+			path: c.req.path,
+		}));
+		const handle = createHandler((c) => c.whoami(), {
+			use: [{ whoami }],
+		});
+		const response = await handle(new Request("http://x.test/me"));
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ path: "/me" });
+	});
+
 	it("redirect is mounted on the http module", () => {
 		expect(http.redirect).toBe(redirect);
 		expect(http.Redirect).toBe(Redirect);
