@@ -64,7 +64,7 @@
 			}
 		},
 		"./plugins/http": {
-			"dev-source": "./src/plugins/http.ts",
+			"dev-source": "./src/plugins/http/index.ts",
 			"import": {
 				"types": "./dist/plugins/http.d.mts",
 				"default": "./dist/plugins/http.mjs"

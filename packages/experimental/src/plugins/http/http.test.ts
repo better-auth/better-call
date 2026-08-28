@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { v } from "../index";
-import * as http from "./http";
+import { v } from "../../index";
+import * as http from "./index";
 
 const app = v.fn({ use: [http] });
 
