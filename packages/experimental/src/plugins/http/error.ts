@@ -32,10 +32,10 @@ export function err(
 	status: number,
 	data: Record<string, unknown> = {},
 ): Record<string, unknown> {
-	if (!Number.isInteger(status) || status < 100 || status > 599) {
+	if (!Number.isInteger(status) || status < 200 || status > 599) {
 		throw new ValidationError(
 			"http.err.status",
-			`expected HTTP status 100-599, received ${status}`,
+			`expected HTTP status 200-599, received ${status}`,
 		);
 	}
 	// Copy so two tags can share a data shape without sharing metadata.
