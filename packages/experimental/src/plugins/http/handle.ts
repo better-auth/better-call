@@ -1,4 +1,7 @@
+import type { Context, Fn } from "../../fn";
 import { v } from "../../index";
+import type { ApplyOns, Module, ModuleFns } from "../../module";
+import type { ScopeOf } from "../../scope";
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
 import { applyRedirect, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
@@ -15,6 +18,18 @@ const base = {
 	deleteCookie,
 	cookieOptions,
 };
+
+type EdgeModules<PL extends readonly Module[]> = readonly [typeof base, ...PL];
+
+/** Context `run` receives: HTTP base plus anything in `options.use`. */
+export type CreateHandlerContext<PL extends readonly Module[] = readonly []> =
+	Context<
+		{ request: Request },
+		ScopeOf<EdgeModules<PL>>,
+		never,
+		ApplyOns<ModuleFns<EdgeModules<PL>>, EdgeModules<PL>>,
+		Fn
+	>;
 
 const isBodyInit = (value: unknown): value is BodyInit =>
 	typeof value === "string" ||
@@ -87,9 +102,9 @@ export const handler = h.fn(
 	async (c) => settle(c, c.input.request, c.input.run),
 );
 
-export type CreateHandlerOptions = {
+export type CreateHandlerOptions<PL extends readonly Module[] = readonly []> = {
 	/** Extra modules mounted onto the same `c` that `run` receives. */
-	use?: unknown[];
+	use?: PL;
 };
 
 /**
@@ -97,12 +112,16 @@ export type CreateHandlerOptions = {
  * mounted on the same context as `req` / `res` / `redirect`, so
  * `createHandler((c) => c.whoami(), { use: [{ whoami }] })` works.
  */
-export function createHandler(
-	run: (c: any) => unknown | Promise<unknown>,
-	options?: CreateHandlerOptions,
+export function createHandler<
+	const PL extends readonly Module[] = readonly [],
+	R = unknown,
+>(
+	run: (c: CreateHandlerContext<PL>) => R | Promise<R>,
+	options?: CreateHandlerOptions<PL>,
 ): (request: Request) => Promise<Response> {
+	const use = [base, ...(options?.use ?? [])] as EdgeModules<PL>;
 	const entry = v
-		.fn({ use: [base, ...(options?.use ?? [])] })
+		.fn({ use })
 		.fn(
 			"http.create_handler",
 			{ input: { request: v.any<Request>() } },

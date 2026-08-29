@@ -21,8 +21,9 @@ export {
 	kHttpErr,
 	statusOf,
 } from "./error";
-export type { CreateHandlerOptions } from "./handle";
+export type { CreateHandlerContext, CreateHandlerOptions } from "./handle";
 export { createHandler, handler } from "./handle";
+
 export type { RedirectStatus } from "./redirect";
 export {
 	applyRedirect,

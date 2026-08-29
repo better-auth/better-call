@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { FnError, UnexpectedError, v } from "../../index";
 import {
 	applyRedirect,
 	asResponse,
 	createHandler,
+	type HttpResponse,
 	http,
 	Redirect,
 	redirect,
@@ -108,14 +109,14 @@ describe("http.redirect", () => {
 	});
 
 	it("applyRedirect writes status + Location onto a response", () => {
-		const response = { headers: new Headers() };
+		const response: HttpResponse = { headers: new Headers() };
 		applyRedirect(response, new Redirect("/home", 301));
 		expect(response.status).toBe(301);
 		expect(response.headers.get("location")).toBe("/home");
 	});
 
 	it("asResponse turns Redirect into a fetch Response", () => {
-		const response = { headers: new Headers() };
+		const response: HttpResponse = { headers: new Headers() };
 		response.headers.set("x-powered-by", "better-call");
 		const out = asResponse(new Redirect("/home", 303), response);
 		expect(out.status).toBe(303);
@@ -178,9 +179,13 @@ describe("http.redirect", () => {
 		const whoami = app.fn("httpt.whoami_edge", { requires: ["req"] }, (c) => ({
 			path: c.req.path,
 		}));
-		const handle = createHandler((c) => c.whoami(), {
-			use: [{ whoami }],
-		});
+		const handle = createHandler(
+			(c) => {
+				expectTypeOf(c.whoami).toBeCallableWith();
+				return c.whoami();
+			},
+			{ use: [{ whoami }] },
+		);
 		const response = await handle(new Request("http://x.test/me"));
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({ path: "/me" });
