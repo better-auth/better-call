@@ -67,6 +67,73 @@ describe("v.fn call forms", () => {
 	});
 });
 
+describe("omittable input", () => {
+	it("optional object schema allows a zero-arg call", () => {
+		const id = v.fn(
+			"fnt.id",
+			{
+				input: v.object(
+					{ size: v.number({ optional: true, default: 32 }) },
+					{ optional: true },
+				),
+				output: v.string(),
+			},
+			(c) => (c.input === undefined ? "none" : `s${c.input.size}`),
+		);
+		expect(id()).toBe("none");
+		expect(id({ size: 8 })).toBe("s8");
+		expectTypeOf(id).toBeCallableWith();
+		expectTypeOf(id).toBeCallableWith({ size: 8 });
+	});
+
+	it("all-optional fields allow omit without { optional: true } on the object", () => {
+		const f = v.fn(
+			"fnt.opts",
+			{ input: { size: v.number({ optional: true, default: 32 }) } },
+			(c) => c.input.size,
+		);
+		expect(f()).toBe(32);
+		expect(f({})).toBe(32);
+		expectTypeOf(f).toBeCallableWith();
+		type Optional = undefined extends Parameters<typeof f>[0] ? true : false;
+		expectTypeOf<Optional>().toEqualTypeOf<true>();
+	});
+
+	it("required fields stay required on the call", () => {
+		const f = v.fn("fnt.need", { input: { n: v.number() } }, (c) => c.input.n);
+		expect(f({ n: 1 })).toBe(1);
+		expectTypeOf(f).toBeCallableWith({ n: 1 });
+		type Required = undefined extends Parameters<typeof f>[0] ? true : false;
+		expectTypeOf<Required>().toEqualTypeOf<false>();
+	});
+
+	it("bound used fns allow zero-arg when input is omittable", () => {
+		const generateId = v.fn(
+			"fnt.generateId",
+			{
+				input: v.object({
+					size: v.number({ optional: true, default: 16 }),
+				}),
+			},
+			(c) => c.input.size,
+		);
+		const outer = v.fn({ use: [{ generateId }] }, (c) => c.generateId());
+		expect(outer()).toBe(16);
+		expectTypeOf(outer).toBeCallableWith();
+	});
+
+	it("open v.object() still requires an object arg", () => {
+		const f = v.fn("fnt.open", { input: v.object() }, (c) => c.input);
+		expect(f({ a: 1 })).toEqual({ a: 1 });
+		expectTypeOf(f).toBeCallableWith({ a: 1 });
+		type Required = undefined extends Parameters<typeof f>[0] ? true : false;
+		expectTypeOf<Required>().toEqualTypeOf<false>();
+		expect(() => (f as (input?: unknown) => unknown)()).toThrow(
+			/expected object/,
+		);
+	});
+});
+
 describe("builder", () => {
 	it("keys concatenate down the chain", () => {
 		const leaf = v

@@ -475,10 +475,13 @@ export const validate = (
 	path: string,
 ): any => {
 	// `undefined` falls back to the declared default before anything else,
-	// then to `optional`, which passes it through untouched.
+	// then to `optional`, which passes it through untouched. A shaped
+	// object with no default treats omit as `{}` so all-optional fields
+	// can be left off the call without a dummy payload.
 	if (value === undefined) {
 		if (def.default !== undefined) value = def.default;
 		else if (def.optional) return undefined;
+		else if (def.name === "object" && def.shape !== undefined) value = {};
 	}
 	// A var used as an input field validates against its own schema. An
 	// absent value is left alone so the var keeps its default.

@@ -33,6 +33,7 @@ import {
 	isVar,
 	type OutputSchemaOf,
 	outputContract,
+	type TypeDefination,
 	validate,
 	vTypes,
 } from "./schema";
@@ -50,15 +51,42 @@ import {
 
 export type ParentContext = Record<string, any>;
 
+/**
+ * `{}` assignable to `A`, and `A` is not an open index signature
+ * (`Record<string, …>` / `v.object()` with no shape). Those accept any
+ * object, so omitting the arg is not the same as sending one.
+ */
+type EmptyExtendsArgs<A> =
+	Record<never, never> extends A
+		? string extends keyof A
+			? false
+			: true
+		: false;
+
+/**
+ * Callers may omit a non-tuple input when the schema is optional or
+ * defaulted, or every field is already optional to send.
+ */
+type InputOmittable<A, I> = I extends { $var: true; schema?: infer S }
+	? InputOmittable<A, NonNullable<S>>
+	: I extends TypeDefination<any, any, infer D>
+		? [D] extends [never]
+			? EmptyExtendsArgs<A>
+			: true
+		: EmptyExtendsArgs<A>;
+
 /** The call shape: a TUPLE input spreads - one parameter per position,
- * the parent context last. Everything else takes (input?, parent?). */
+ * the parent context last. No input, or an omittable one, takes
+ * `(input?, parent?)`; required inputs stay required. */
 type CallArgs<A, I> = I extends readonly unknown[]
 	? A extends readonly unknown[]
 		? [...A] | [...A, ParentContext]
 		: never
 	: [A] extends [void]
 		? [input?: undefined, parent?: ParentContext]
-		: [input: A, parent?: ParentContext];
+		: InputOmittable<A, I> extends true
+			? [input?: A, parent?: ParentContext]
+			: [input: A, parent?: ParentContext];
 
 /** The union of a fn's DECLARED errors, as thrown values. */
 export type FnErrorsOf<Er> = {
@@ -288,7 +316,7 @@ export type OptionType<
 };
 
 /** A used fn, with the parent context already applied. A tuple-input fn
- * keeps its positional signature. */
+ * keeps its positional signature. Omittable inputs match {@link CallArgs}. */
 type BoundFn<F> =
 	F extends FnDefination<infer A, infer R, string, infer I, any, any>
 		? I extends readonly unknown[]
@@ -297,7 +325,9 @@ type BoundFn<F> =
 				: never
 			: [A] extends [void]
 				? () => R
-				: (input: A) => R
+				: InputOmittable<A, I> extends true
+					? (input?: A) => R
+					: (input: A) => R
 		: never;
 
 /** Keys of a usable map whose member is a VAR alias. */
