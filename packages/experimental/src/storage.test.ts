@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { memoryAdapter, type StorageAdapter, v } from "./index";
+import {
+	memoryAdapter,
+	resolveModelFields,
+	type StorageAdapter,
+	v,
+} from "./index";
 import { db, indexed, references, unique } from "./plugins/db";
 
 describe("v.storage", () => {
@@ -417,7 +422,7 @@ describe("v.storage", () => {
 		).toEqual({ unique: false });
 	});
 
-	it("bare var with db attrs is wrapped so $models exposes fields", () => {
+	it("bare var stays a var on $models; resolveModelFields reads attrs", () => {
 		const item = v.var("stg_bare_attr", {
 			default: null,
 			schema: v.object({
@@ -427,11 +432,14 @@ describe("v.storage", () => {
 		});
 		const store = v.storage(memoryAdapter(), { item });
 		const model = store.$models.item as {
-			schema?: unknown;
-			fields?: Record<string, unknown>;
+			$var?: boolean;
+			name?: string;
 		};
-		expect(model.fields?.slug).toEqual({ unique: true });
-		expect((model.schema as { name: string }).name).toBe("stg_bare_attr");
+		expect(model.$var).toBe(true);
+		expect(model.name).toBe("stg_bare_attr");
+		expect(resolveModelFields(store.$models.item)?.slug).toEqual({
+			unique: true,
+		});
 	});
 
 	it("indexed and references wrappers write $attrs.db", () => {

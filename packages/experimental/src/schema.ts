@@ -318,14 +318,31 @@ export const asType = (value: any): TypeDefination<any, any> =>
 
 /**
  * Attach plugin attributes under `namespace`, deep-merging with any
- * already on the schema. Returns a new type def; the value type is
- * unchanged. Core never reads these - only plugin edges do.
+ * already on the schema. Returns a new type def (or var) with the same
+ * value type. Core never reads these - only plugin edges do.
+ *
+ * Passed a var, attributes land on the var itself (`$attrs`) and the
+ * `$var` / `name` / `schema` / `customize` identity is preserved.
  */
 export const withAttrs = <S>(
 	schema: S,
 	namespace: string,
 	attrs: Record<string, unknown>,
 ): S => {
+	if (isVar(schema)) {
+		const v = schema as {
+			$attrs?: AttrBag;
+			[key: string]: unknown;
+		};
+		const prev = v.$attrs ?? {};
+		return {
+			...v,
+			$attrs: {
+				...prev,
+				[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
+			},
+		} as S;
+	}
 	const def = asType(schema);
 	const prev = def.$attrs ?? {};
 	return {
@@ -348,7 +365,12 @@ export function attrsOf(
 	namespace?: string,
 ): AttrBag | Record<string, unknown> | undefined {
 	if (schema === null || schema === undefined) return undefined;
-	const bag = asType(schema).$attrs;
+	// Vars carry whole-var attrs on themselves; field attrs live on the
+	// schema type def. Do not unwrap through asType or var identity is
+	// lost and whole-var attrs become invisible.
+	const bag = isVar(schema)
+		? (schema as { $attrs?: AttrBag }).$attrs
+		: asType(schema).$attrs;
 	if (!bag) return undefined;
 	return namespace === undefined ? bag : bag[namespace];
 }

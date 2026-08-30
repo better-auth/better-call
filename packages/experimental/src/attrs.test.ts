@@ -30,4 +30,18 @@ describe("schema $attrs", () => {
 		expect(validate(email, "a@b.c", "email")).toBe("a@b.c");
 		expect(() => validate(email, "nope", "email")).toThrow(ValidationError);
 	});
+
+	it("withAttrs on a var keeps $var identity", () => {
+		const user = v.var("attr_user", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const marked = withAttrs(user, "http", { serverOnly: true });
+		expect(marked.$var).toBe(true);
+		expect(marked.name).toBe("attr_user");
+		expect(typeof marked.customize).toBe("function");
+		expect(attrsOf(marked, "http")).toEqual({ serverOnly: true });
+		// Field schema on the var is untouched.
+		expect(attrsOf(marked.schema)).toBeUndefined();
+	});
 });

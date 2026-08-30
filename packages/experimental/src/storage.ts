@@ -333,13 +333,15 @@ export const resolveModelFields = (
 	return Object.keys(merged).length > 0 ? merged : undefined;
 };
 
-/** Normalize `$models` entries so adapters always see merged `fields`. */
+/** Normalize `$models` entries so adapters always see merged `fields`.
+ * Bare vars stay bare vars (identity preserved); use
+ * {@link resolveModelFields} to read schema attrs off them. ModelConfig
+ * entries get `fields` filled from schema attrs + overrides. */
 const resolveModels = <M extends StorageModels>(models: M): M => {
 	const out: Record<string, unknown> = {};
 	for (const [key, input] of Object.entries(models)) {
 		if (isVar(input)) {
-			const fields = resolveModelFields(input);
-			out[key] = fields === undefined ? input : { schema: input, fields };
+			out[key] = input;
 			continue;
 		}
 		const config = input as ModelConfig;
