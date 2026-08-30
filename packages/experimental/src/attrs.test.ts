@@ -44,4 +44,20 @@ describe("schema $attrs", () => {
 		// Field schema on the var is untouched.
 		expect(attrsOf(marked.schema)).toBeUndefined();
 	});
+
+	it("customize after withAttrs keeps whole-var attrs", () => {
+		const user = v.var("attr_user_customize", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const marked = withAttrs(user, "http", { serverOnly: true });
+		const widened = marked.customize({
+			schema: (c) => c.add({ role: c.string() }),
+		});
+		expect(widened.$var).toBe(true);
+		expect(attrsOf(widened, "http")).toEqual({ serverOnly: true });
+		expect(
+			(widened.schema as { shape: Record<string, unknown> }).shape.role,
+		).toBeDefined();
+	});
 });

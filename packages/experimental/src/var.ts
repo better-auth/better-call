@@ -79,6 +79,10 @@ export const makeVar = (name: string, options: any = {}): any => {
 			makeVar(name, {
 				...options,
 				default: def.default,
+				// Carry whole-var attrs through customize (including any
+				// attached after mint via withAttrs-rebinding, which goes
+				// through its own path; this covers options.attrs).
+				...(def.$attrs !== undefined ? { attrs: def.$attrs } : {}),
 				schema: opts.schema({
 					...vTypes,
 					fn: fnImpl,

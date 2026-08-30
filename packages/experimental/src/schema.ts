@@ -317,41 +317,45 @@ export const asType = (value: any): TypeDefination<any, any> =>
 				: { name: "object", shape: value };
 
 /**
+ * Replace the whole `$attrs` bag. On a var, rebinds `customize` so a later
+ * customize keeps these attrs (the original closure closes over pre-attr
+ * options and would otherwise drop them).
+ */
+const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
+	if (isVar(schema)) {
+		const v = schema as {
+			$attrs?: AttrBag;
+			customize: (opts: any) => unknown;
+			[key: string]: unknown;
+		};
+		return {
+			...v,
+			$attrs: bag,
+			customize: (opts: any) => withAttrBag(v.customize(opts) as S, bag),
+		} as S;
+	}
+	return { ...asType(schema), $attrs: bag } as S;
+};
+
+/**
  * Attach plugin attributes under `namespace`, deep-merging with any
  * already on the schema. Returns a new type def (or var) with the same
  * value type. Core never reads these - only plugin edges do.
  *
  * Passed a var, attributes land on the var itself (`$attrs`) and the
- * `$var` / `name` / `schema` / `customize` identity is preserved.
+ * `$var` / `name` / `schema` identity is preserved; `customize` is rebound
+ * so attrs survive further customization.
  */
 export const withAttrs = <S>(
 	schema: S,
 	namespace: string,
 	attrs: Record<string, unknown>,
 ): S => {
-	if (isVar(schema)) {
-		const v = schema as {
-			$attrs?: AttrBag;
-			[key: string]: unknown;
-		};
-		const prev = v.$attrs ?? {};
-		return {
-			...v,
-			$attrs: {
-				...prev,
-				[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
-			},
-		} as S;
-	}
-	const def = asType(schema);
-	const prev = def.$attrs ?? {};
-	return {
-		...def,
-		$attrs: {
-			...prev,
-			[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
-		},
-	} as S;
+	const prev = (attrsOf(schema) ?? {}) as AttrBag;
+	return withAttrBag(schema, {
+		...prev,
+		[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
+	});
 };
 
 /** Read the whole attr bag, or one plugin namespace. */
