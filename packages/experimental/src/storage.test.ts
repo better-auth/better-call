@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { memoryAdapter, type StorageAdapter, v } from "./index";
+import {
+	memoryAdapter,
+	resolveModelFields,
+	type StorageAdapter,
+	v,
+} from "./index";
+import { db, indexed, references, unique } from "./plugins/db";
 
 describe("v.storage", () => {
 	it("many instances of a var: CRUD in the var's shape", async () => {
@@ -379,6 +385,76 @@ describe("v.storage", () => {
 		});
 		const config = db.$models.item as { fields?: Record<string, unknown> };
 		expect(config.fields?.email).toEqual({ unique: true, index: true });
+	});
+
+	it("db attrs on the schema surface through $models; fields: overrides", () => {
+		const item = v.var("stg_attr_meta", {
+			default: null,
+			schema: v.object({
+				id: v.string(),
+				email: db.unique(db.indexed(v.string())),
+				ownerId: db.references(v.string(), {
+					model: "owner",
+					field: "id",
+				}),
+			}),
+		});
+		const fromSchema = v.storage(memoryAdapter(), {
+			item: { schema: item },
+		});
+		const fields = (
+			fromSchema.$models.item as { fields?: Record<string, unknown> }
+		).fields;
+		expect(fields?.email).toEqual({ unique: true, index: true });
+		expect(fields?.ownerId).toEqual({
+			references: { model: "owner", field: "id" },
+		});
+
+		const overridden = v.storage(memoryAdapter(), {
+			item: {
+				schema: item,
+				fields: { email: { unique: false } },
+			},
+		});
+		expect(
+			(overridden.$models.item as { fields?: Record<string, unknown> }).fields
+				?.email,
+		).toEqual({ unique: false });
+	});
+
+	it("bare var stays a var on $models; resolveModelFields reads attrs", () => {
+		const item = v.var("stg_bare_attr", {
+			default: null,
+			schema: v.object({
+				id: v.string(),
+				slug: unique(v.string()),
+			}),
+		});
+		const store = v.storage(memoryAdapter(), { item });
+		const model = store.$models.item as {
+			$var?: boolean;
+			name?: string;
+		};
+		expect(model.$var).toBe(true);
+		expect(model.name).toBe("stg_bare_attr");
+		expect(resolveModelFields(store.$models.item)?.slug).toEqual({
+			unique: true,
+		});
+	});
+
+	it("indexed and references wrappers write $attrs.db", () => {
+		expect(indexed(v.string())).toMatchObject({
+			$attrs: { db: { index: true } },
+		});
+		expect(
+			references(v.string(), { model: "u", field: "id", onDelete: "cascade" }),
+		).toMatchObject({
+			$attrs: {
+				db: {
+					references: { model: "u", field: "id", onDelete: "cascade" },
+				},
+			},
+		});
 	});
 
 	it("adapters are addressed by the VAR name, not the export key", async () => {

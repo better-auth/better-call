@@ -4,6 +4,7 @@ import { ValidationError } from "./error";
 import { type Fn, fnImpl } from "./fn";
 import { matchesTarget, type OnEntry } from "./module";
 import {
+	type AttrBag,
 	asType,
 	type DefineOutput,
 	type InferArgs,
@@ -28,6 +29,8 @@ export interface VarDefination<
 	/** Phantom: the var this one derives from - `requires` on the source
 	 * makes this one non-null too. */
 	$source?: Source;
+	/** Whole-var plugin attributes (field attrs live on the schema). */
+	$attrs?: AttrBag;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;
@@ -69,12 +72,17 @@ export const makeVar = (name: string, options: any = {}): any => {
 		name,
 		default: options.default,
 		schema,
+		...(options.attrs !== undefined ? { $attrs: options.attrs } : {}),
 		$accessor: options.accessor === true,
 		$derive: options.derive,
 		customize: (opts: any) =>
 			makeVar(name, {
 				...options,
 				default: def.default,
+				// Carry whole-var attrs through customize (including any
+				// attached after mint via withAttrs-rebinding, which goes
+				// through its own path; this covers options.attrs).
+				...(def.$attrs !== undefined ? { attrs: def.$attrs } : {}),
 				schema: opts.schema({
 					...vTypes,
 					fn: fnImpl,

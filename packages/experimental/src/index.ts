@@ -125,6 +125,16 @@ export {
 	type VarSetContext,
 	type VarsFrom,
 } from "./module";
+export {
+	type AttrBag,
+	attrsOf,
+	type InferArgs,
+	type InferInput,
+	type InferOutput,
+	type InferType,
+	type TypeDefination,
+	withAttrs,
+} from "./schema";
 export type {
 	ResolvedVars,
 	ScopeOf,
@@ -137,9 +147,11 @@ export {
 	conditionsOf,
 	type FieldMeta,
 	type FindManyOptions,
+	fieldsFromSchema,
 	type ModelConfig,
 	matchesWhere,
 	memoryAdapter,
+	resolveModelFields,
 	type Storage,
 	type StorageAdapter,
 	type StorageApi,

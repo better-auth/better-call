@@ -21,6 +21,10 @@ export type Rules = {
 	check?: (value: any) => boolean | string;
 };
 
+/** Plugin-owned field metadata. Outer key is the plugin namespace
+ * (`"http"`, `"db"`, …); core never interprets the contents. */
+export type AttrBag = Record<string, Record<string, unknown>>;
+
 export interface TypeDefination<T, O, D = never> extends Rules {
 	name: LiteralString;
 	type?: T;
@@ -34,6 +38,8 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	/** When true, `undefined` passes straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
+	/** Opaque plugin attributes - ignored by validate / Infer*. */
+	$attrs?: AttrBag;
 }
 
 export type TypeOptions<T, O> = {
@@ -309,6 +315,69 @@ export const asType = (value: any): TypeDefination<any, any> =>
 			: isType(value)
 				? value
 				: { name: "object", shape: value };
+
+/**
+ * Replace the whole `$attrs` bag. On a var, rebinds `customize` so a later
+ * customize keeps these attrs (the original closure closes over pre-attr
+ * options and would otherwise drop them).
+ */
+const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
+	if (isVar(schema)) {
+		const v = schema as {
+			$attrs?: AttrBag;
+			customize: (opts: any) => unknown;
+			[key: string]: unknown;
+		};
+		return {
+			...v,
+			$attrs: bag,
+			customize: (opts: any) => withAttrBag(v.customize(opts) as S, bag),
+		} as S;
+	}
+	return { ...asType(schema), $attrs: bag } as S;
+};
+
+/**
+ * Attach plugin attributes under `namespace`, deep-merging with any
+ * already on the schema. Returns a new type def (or var) with the same
+ * value type. Core never reads these - only plugin edges do.
+ *
+ * Passed a var, attributes land on the var itself (`$attrs`) and the
+ * `$var` / `name` / `schema` identity is preserved; `customize` is rebound
+ * so attrs survive further customization.
+ */
+export const withAttrs = <S>(
+	schema: S,
+	namespace: string,
+	attrs: Record<string, unknown>,
+): S => {
+	const prev = (attrsOf(schema) ?? {}) as AttrBag;
+	return withAttrBag(schema, {
+		...prev,
+		[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
+	});
+};
+
+/** Read the whole attr bag, or one plugin namespace. */
+export function attrsOf(schema: unknown): AttrBag | undefined;
+export function attrsOf(
+	schema: unknown,
+	namespace: string,
+): Record<string, unknown> | undefined;
+export function attrsOf(
+	schema: unknown,
+	namespace?: string,
+): AttrBag | Record<string, unknown> | undefined {
+	if (schema === null || schema === undefined) return undefined;
+	// Vars carry whole-var attrs on themselves; field attrs live on the
+	// schema type def. Do not unwrap through asType or var identity is
+	// lost and whole-var attrs become invisible.
+	const bag = isVar(schema)
+		? (schema as { $attrs?: AttrBag }).$attrs
+		: asType(schema).$attrs;
+	if (!bag) return undefined;
+	return namespace === undefined ? bag : bag[namespace];
+}
 
 export const typeOf = (value: unknown) =>
 	value === null

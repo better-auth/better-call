@@ -1,4 +1,5 @@
 import { collectFns, type FnDefination, type Module, v } from "./index";
+import { rejectServerOnly } from "./plugins/http/attrs";
 
 const subtle = globalThis.crypto.subtle;
 
@@ -563,6 +564,12 @@ export const serve = async (
 				// which frame has no memory reference behind it.
 				const held = await spend(token);
 				c.capability = { ...held, entry: c.input.call };
+			}
+			// Wire edge: reject http.serverOnly fields before the target
+			// validates (object validate would otherwise strip them quietly).
+			const inputSchema = (target as FnDefination<any, any>).$schema?.input;
+			if (inputSchema !== undefined) {
+				rejectServerOnly(inputSchema, c.input.input, c.input.call);
 			}
 			return (target as (i: unknown, p: unknown) => unknown)(c.input.input, c);
 		},
