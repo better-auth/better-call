@@ -1,0 +1,5 @@
+rules:
+  use-trusted-publishing:
+    ignore:
+      # pkg.pr.new publishes preview packages to its own npm-compatible registry.
+      - preview.yml
