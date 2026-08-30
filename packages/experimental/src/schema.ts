@@ -67,6 +67,22 @@ type DefOf<D, Opt> = [Opt] extends [true]
 		: D
 	: D;
 
+/**
+ * Recover a type's output `O`. Plain `infer O` from
+ * `TypeDefination<any, infer O, …>` drops `| undefined` because `output?`
+ * is optional and TypeScript attributes the undefined to the property.
+ * When DefOf is `undefined` (optional, no default), put `| undefined`
+ * back so handlers see the same absence validate produces at runtime.
+ */
+type OutputOf<F> =
+	F extends TypeDefination<any, infer O, infer D>
+		? [D] extends [never]
+			? O
+			: undefined extends D
+				? O | undefined
+				: O
+		: never;
+
 type StringOptions<E extends string, O> = TypeOptions<E, O> &
 	Pick<
 		Rules,
@@ -93,7 +109,7 @@ export type InferType<T> =
 	T extends TypeDefination<infer T2, any, any> ? T2 : never;
 
 export type InferOutput<T> =
-	T extends TypeDefination<any, infer O, any> ? O : never;
+	T extends TypeDefination<any, any, any> ? OutputOf<T> : never;
 
 export type DefineInput<I> = Prettify<{
 	[K in keyof I]: FieldIn<I[K]>;
@@ -222,8 +238,8 @@ type FieldOut<F> = F extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
 		? SchemaFnOut<FI, FO> & FnVarBrand<FI>
-		: F extends TypeDefination<any, infer O, any>
-			? O
+		: F extends TypeDefination<any, any, any>
+			? OutputOf<F>
 			: F extends Record<string, unknown>
 				? Prettify<{ [K in keyof F]: FieldOut<F[K]> }>
 				: never;
@@ -279,8 +295,8 @@ export type InferInput<I> = I extends { $var: true; schema?: infer S }
 		? SchemaFnOut<FI, FO> & FnVarBrand<FI>
 		: I extends readonly unknown[]
 			? { -readonly [K in keyof I]: InferInput<I[K]> }
-			: I extends TypeDefination<any, infer O, any>
-				? O
+			: I extends TypeDefination<any, any, any>
+				? OutputOf<I>
 				: Prettify<{ [K in keyof I]: FieldOut<I[K]> }>;
 
 /** Pre-transform shape - what a caller sends. Same branch order. */
