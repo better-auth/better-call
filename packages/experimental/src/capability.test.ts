@@ -505,6 +505,46 @@ describe("serve", () => {
 			createAgent(transport, { attestation: forged }),
 		).rejects.toThrow(/attestation not signed by this server/);
 	});
+	it("wire rejects http.serverOnly fields; in-process still accepts them", async () => {
+		const { serverOnly } = await import("./plugins/http/attrs");
+		const { ValidationError } = await import("./error");
+
+		const createUser = v.fn(
+			"user.create",
+			{
+				input: {
+					email: v.string(),
+					role: serverOnly(v.string({ optional: true })),
+				},
+				use: [{ capability }],
+			},
+			async (c) => ({ email: c.input.email, role: c.input.role }),
+		);
+
+		const server = await serve(
+			{ createUser },
+			{
+				defaults: () => ["user.create"],
+				identify: () => null,
+			},
+		);
+		const transport: Transport = async (message) =>
+			server.exec(JSON.parse(JSON.stringify(message)) as never);
+
+		const agent = await createAgent(transport);
+		await expect(
+			agent.call("user.create", { email: "a@b.c", role: "admin" }),
+		).rejects.toThrow(ValidationError);
+
+		await expect(
+			agent.call("user.create", { email: "a@b.c" }),
+		).resolves.toEqual({ email: "a@b.c", role: undefined });
+
+		// Direct in-process call may pass server-only fields.
+		await expect(
+			createUser({ email: "x@y.z", role: "admin" }),
+		).resolves.toEqual({ email: "x@y.z", role: "admin" });
+	});
 });
 
 describe("the rule: every fn validates its caller", () => {

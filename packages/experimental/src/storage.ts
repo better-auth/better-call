@@ -1,5 +1,5 @@
 import { matchesTarget, type OnEntry } from "./module";
-import { isVar } from "./schema";
+import { asType, attrsOf, isVar } from "./schema";
 import type { ValueOfVar, VarDefination } from "./var";
 
 /* ---------------------------------- where ---------------------------------- */
@@ -282,7 +282,9 @@ type AnyVar = VarDefination<any, any, any, any>;
 
 /** Persistence facts about one field the ROW SHAPE can't say - consumed by
  * schema generators and adapters, never acted on by the runtime. (Read
- * shaping like redaction is a `$on` hook, not metadata.) */
+ * shaping like redaction is a `$on` hook, not metadata.) Prefer declaring
+ * these via `db.unique` / `db.indexed` / `db.references` on the field
+ * schema; `ModelConfig.fields` remains an override. */
 export type FieldMeta = {
 	/** No two rows share a value. */
 	unique?: boolean;
@@ -294,6 +296,57 @@ export type FieldMeta = {
 		field: string;
 		onDelete?: "cascade" | "set null" | "restrict";
 	};
+};
+
+/** Read `$attrs.db` off each field of a var's object schema. */
+export const fieldsFromSchema = (sv: AnyVar): Record<string, FieldMeta> => {
+	const schema = asType((sv as { schema?: unknown }).schema ?? {});
+	if (schema.name !== "object" || schema.shape === undefined) return {};
+	const fields: Record<string, FieldMeta> = {};
+	for (const [key, child] of Object.entries(
+		schema.shape as Record<string, unknown>,
+	)) {
+		const meta = attrsOf(child, "db") as FieldMeta | undefined;
+		if (meta && Object.keys(meta).length > 0) fields[key] = { ...meta };
+	}
+	return fields;
+};
+
+/**
+ * Schema attrs first; `ModelConfig.fields[k]` replaces that key entirely
+ * when present (compat override).
+ */
+export const resolveModelFields = (
+	input: ModelInput,
+): Record<string, FieldMeta> | undefined => {
+	if (isVar(input)) {
+		const fromSchema = fieldsFromSchema(input as AnyVar);
+		return Object.keys(fromSchema).length > 0 ? fromSchema : undefined;
+	}
+	const config = input as ModelConfig;
+	const fromSchema = fieldsFromSchema(config.schema);
+	const override = config.fields ?? {};
+	const merged: Record<string, FieldMeta> = { ...fromSchema };
+	for (const [key, meta] of Object.entries(override)) {
+		if (meta !== undefined) merged[key] = meta;
+	}
+	return Object.keys(merged).length > 0 ? merged : undefined;
+};
+
+/** Normalize `$models` entries so adapters always see merged `fields`. */
+const resolveModels = <M extends StorageModels>(models: M): M => {
+	const out: Record<string, unknown> = {};
+	for (const [key, input] of Object.entries(models)) {
+		if (isVar(input)) {
+			const fields = resolveModelFields(input);
+			out[key] = fields === undefined ? input : { schema: input, fields };
+			continue;
+		}
+		const config = input as ModelConfig;
+		const fields = resolveModelFields(config);
+		out[key] = fields === undefined ? { ...config } : { ...config, fields };
+	}
+	return out as M;
 };
 
 /** What an op subscription hands back: `v.on` entries to mount. */
@@ -557,7 +610,7 @@ const buildStorage = <M extends StorageModels>(
 				? state.adapter.transaction((tx) => inside(tx))
 				: inside(state.adapter);
 		},
-		$models: models,
+		$models: resolveModels(models),
 	} as StorageApi<M>) as Storage<M>;
 	return self;
 };

@@ -85,6 +85,17 @@
 				"default": "./dist/plugins/read-only.cjs"
 			}
 		},
+		"./plugins/db": {
+			"dev-source": "./src/plugins/db.ts",
+			"import": {
+				"types": "./dist/plugins/db.d.mts",
+				"default": "./dist/plugins/db.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/db.d.cts",
+				"default": "./dist/plugins/db.cjs"
+			}
+		},
 		"./capability": {
 			"dev-source": "./src/capability.ts",
 			"import": {

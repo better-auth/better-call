@@ -21,6 +21,10 @@ export type Rules = {
 	check?: (value: any) => boolean | string;
 };
 
+/** Plugin-owned field metadata. Outer key is the plugin namespace
+ * (`"http"`, `"db"`, …); core never interprets the contents. */
+export type AttrBag = Record<string, Record<string, unknown>>;
+
 export interface TypeDefination<T, O, D = never> extends Rules {
 	name: LiteralString;
 	type?: T;
@@ -34,6 +38,8 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	/** When true, `undefined` passes straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
+	/** Opaque plugin attributes - ignored by validate / Infer*. */
+	$attrs?: AttrBag;
 }
 
 export type TypeOptions<T, O> = {
@@ -309,6 +315,43 @@ export const asType = (value: any): TypeDefination<any, any> =>
 			: isType(value)
 				? value
 				: { name: "object", shape: value };
+
+/**
+ * Attach plugin attributes under `namespace`, deep-merging with any
+ * already on the schema. Returns a new type def; the value type is
+ * unchanged. Core never reads these - only plugin edges do.
+ */
+export const withAttrs = <S>(
+	schema: S,
+	namespace: string,
+	attrs: Record<string, unknown>,
+): S => {
+	const def = asType(schema);
+	const prev = def.$attrs ?? {};
+	return {
+		...def,
+		$attrs: {
+			...prev,
+			[namespace]: { ...(prev[namespace] ?? {}), ...attrs },
+		},
+	} as S;
+};
+
+/** Read the whole attr bag, or one plugin namespace. */
+export function attrsOf(schema: unknown): AttrBag | undefined;
+export function attrsOf(
+	schema: unknown,
+	namespace: string,
+): Record<string, unknown> | undefined;
+export function attrsOf(
+	schema: unknown,
+	namespace?: string,
+): AttrBag | Record<string, unknown> | undefined {
+	if (schema === null || schema === undefined) return undefined;
+	const bag = asType(schema).$attrs;
+	if (!bag) return undefined;
+	return namespace === undefined ? bag : bag[namespace];
+}
 
 export const typeOf = (value: unknown) =>
 	value === null

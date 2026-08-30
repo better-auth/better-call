@@ -1,3 +1,10 @@
+import {
+	clientSchema,
+	fromJsonBody,
+	rejectServerOnly,
+	serverOnly,
+	wireInput,
+} from "./attrs";
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
 import { applyError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
@@ -5,6 +12,13 @@ import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
 
+export {
+	clientSchema,
+	fromJsonBody,
+	rejectServerOnly,
+	serverOnly,
+	wireInput,
+} from "./attrs";
 export type { CookieOptions } from "./cookie";
 export {
 	cookieOptions,
@@ -23,7 +37,6 @@ export {
 } from "./error";
 export type { CreateHandlerContext, CreateHandlerOptions } from "./handle";
 export { createHandler, handler } from "./handle";
-
 export type { RedirectStatus } from "./redirect";
 export {
 	applyRedirect,
@@ -55,4 +68,9 @@ export const http = {
 	asResponse,
 	toResponse,
 	Redirect,
+	serverOnly,
+	clientSchema,
+	rejectServerOnly,
+	wireInput,
+	fromJsonBody,
 };
