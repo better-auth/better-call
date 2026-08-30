@@ -515,6 +515,10 @@ type VarFieldKeys<I> = {
 	[K in keyof I]: I[K] extends { $var: true } ? K : never;
 }[keyof I];
 
+/** Optional props put `undefined` in the key union; strip it so "no var
+ * fields" still reads as `never` and InputVarExtra stays `unknown`. */
+type VarFields<I> = Exclude<VarFieldKeys<I>, undefined>;
+
 /**
  * Extra args a fn must accept because its INPUT references vars that `PL`
  * extends. Whole-var input (`input: user`) merges at the top level; a var
@@ -525,7 +529,7 @@ export type InputVarExtra<PL, I> = I extends {
 	name: infer N extends string;
 }
 	? VarExtensionArgsFor<PL, N>
-	: [VarFieldKeys<I>] extends [never]
+	: [VarFields<I>] extends [never]
 		? unknown
 		: {
 				[K in keyof I as I[K] extends { $var: true }
@@ -547,7 +551,7 @@ export type InputVarExtraOut<PL, I> = I extends {
 	name: infer N extends string;
 }
 	? VarExtensionsFor<PL, N>
-	: [VarFieldKeys<I>] extends [never]
+	: [VarFields<I>] extends [never]
 		? unknown
 		: {
 				[K in keyof I as I[K] extends { $var: true }

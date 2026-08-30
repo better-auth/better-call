@@ -86,6 +86,34 @@ describe("omittable input", () => {
 		expectTypeOf(id).toBeCallableWith({ size: 8 });
 	});
 
+	it("optional object omit is undefined - field defaults do not run", () => {
+		// `{ optional: true }` on the object means "may be absent". An absent
+		// payload stays undefined; size's default only applies when an object
+		// was actually sent. InferInput must carry `| undefined` so
+		// `c.input.size` is not typed as a bare number.
+		const generateId = v.fn(
+			"fnt.generateId",
+			{
+				input: v.object(
+					{ size: v.number({ optional: true, default: 32 }) },
+					{ optional: true },
+				),
+				output: v.string(),
+			},
+			(c) => {
+				expectTypeOf(c.input).toEqualTypeOf<{ size: number } | undefined>();
+				if (c.input === undefined) return "missing";
+				expectTypeOf(c.input.size).toEqualTypeOf<number>();
+				return `s${c.input.size}`;
+			},
+		);
+		expect(generateId()).toBe("missing");
+		expect(generateId(undefined)).toBe("missing");
+		// An empty object is present - field defaults apply.
+		expect(generateId({})).toBe("s32");
+		expect(generateId({ size: 8 })).toBe("s8");
+	});
+
 	it("all-optional fields allow omit without { optional: true } on the object", () => {
 		const f = v.fn(
 			"fnt.opts",
