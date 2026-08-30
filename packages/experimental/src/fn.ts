@@ -8,6 +8,8 @@ import {
 import {
 	type ApplyOns,
 	collectUsable,
+	type InputVarExtra,
+	type InputVarExtraOut,
 	isFn,
 	isNamespace,
 	isOn,
@@ -214,6 +216,20 @@ export type ArgsOf<I> = I extends readonly unknown[]
 		? void
 		: InferArgs<I>;
 
+/**
+ * Call args of a declaring fn: the declared input, plus whatever mounted
+ * `v.extend` / same-name shadows add for vars that input references.
+ * Mirrors {@link ApplyOn} so `input: user` + `use: [userWithEmail]` types
+ * the door the same way a used call site would.
+ */
+export type WidenedArgs<I, ExtPL> =
+	unknown extends InputVarExtra<ExtPL, I>
+		? ArgsOf<I>
+		: Prettify<
+				([ArgsOf<I>] extends [void] ? unknown : ArgsOf<I>) &
+					InputVarExtra<ExtPL, I>
+			>;
+
 export type OptionType<
 	I,
 	O,
@@ -336,8 +352,12 @@ export type Context<
 	FnApi = Fn,
 	RO extends boolean = false,
 	Errs = NoErrors,
+	/** Modules that widen var-bound input (this fn's `use` + builder chain). */
+	ExtPL = unknown,
 > = {
-	input: InferInput<I>;
+	input: unknown extends InputVarExtraOut<ExtPL, I>
+		? InferInput<I>
+		: Prettify<InferInput<I> & InputVarExtraOut<ExtPL, I>>;
 	/**
 	 * Mint a DECLARED error - tag-checked, payload validated at creation:
 	 * `throw c.error("invalid_credentials", { attempts: 3 })`. Only tags
@@ -462,11 +482,12 @@ export interface Fn<
 					Prefix
 				>,
 				RO,
-				Er
+				Er,
+				readonly [...BasePL, ...PL]
 			>,
 		) => R,
 	): PublicFn<
-		ArgsOf<I>,
+		WidenedArgs<I, readonly [...BasePL, ...PL]>,
 		R,
 		Prefix extends "" ? string : Prefix,
 		I,
@@ -502,11 +523,12 @@ export interface Fn<
 					`${Prefix}${K}`
 				>,
 				RO,
-				Er
+				Er,
+				readonly [...BasePL, ...PL]
 			>,
 		) => R,
 	): PublicFn<
-		ArgsOf<I>,
+		WidenedArgs<I, readonly [...BasePL, ...PL]>,
 		R,
 		`${Prefix}${K}`,
 		I,

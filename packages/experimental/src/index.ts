@@ -100,6 +100,7 @@ export type {
 	OptionType,
 	ParentContext,
 	UseApi,
+	WidenedArgs,
 	WithContext,
 	WithSeed,
 } from "./fn";
@@ -109,6 +110,8 @@ export {
 	collectFns,
 	collectUsable,
 	type ExtendedArgs,
+	type InputVarExtra,
+	type InputVarExtraOut,
 	type Interceptor,
 	isFn,
 	isNamespace,
