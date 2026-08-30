@@ -15,8 +15,11 @@ export const references = <S>(
 	ref: NonNullable<FieldMeta["references"]>,
 ): S => withAttrs(schema, "db", { references: ref });
 
+export const id = <S>(schema: S): S => withAttrs(schema, "db", { id: true });
+
 export const db = {
 	unique,
 	indexed,
 	references,
+	id,
 };
