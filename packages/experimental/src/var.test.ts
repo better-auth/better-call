@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "./index";
 
 describe("vars", () => {
@@ -74,20 +74,36 @@ describe("var extensions", () => {
 	const withTag = v.extend(account, { tag: v.string() });
 
 	it("mounted extensions widen a var-bound input at runtime", () => {
-		const f = v.fn(
-			{ input: account, use: [{ account, withTag }] },
-			(c) => c.vt_account,
-		);
-		expect(f({ id: "a", tag: "vip" } as never)).toEqual({
+		const f = v.fn({ input: account, use: [{ account, withTag }] }, (c) => {
+			expectTypeOf(c.input).toEqualTypeOf<{ id: string; tag: string }>();
+			return c.vt_account;
+		});
+		expectTypeOf(f).parameter(0).toEqualTypeOf<{ id: string; tag: string }>();
+		expect(f({ id: "a", tag: "vip" })).toEqual({
 			id: "a",
 			tag: "vip",
 		});
+		// @ts-expect-error tag required once withTag is mounted
 		expect(() => f({ id: "a" })).toThrow(/vt_account/);
 	});
 
 	it("unmounted, nothing changes", () => {
-		const f = v.fn({ input: account, use: [{ account }] }, (c) => c.vt_account);
+		const f = v.fn({ input: account, use: [{ account }] }, (c) => {
+			expectTypeOf(c.input).toEqualTypeOf<{ id: string }>();
+			return c.vt_account;
+		});
+		expectTypeOf(f).parameter(0).toEqualTypeOf<{ id: string }>();
 		expect(f({ id: "a" })).toEqual({ id: "a" });
+	});
+
+	it("builder-mounted extensions widen a later input: var the same way", () => {
+		const s = v.fn({ use: [{ account, withTag }] });
+		const f = s.fn({ input: account }, (c) => {
+			expectTypeOf(c.input).toEqualTypeOf<{ id: string; tag: string }>();
+			return c.input;
+		});
+		expectTypeOf(f).parameter(0).toEqualTypeOf<{ id: string; tag: string }>();
+		expect(f({ id: "b", tag: "gold" })).toEqual({ id: "b", tag: "gold" });
 	});
 });
 

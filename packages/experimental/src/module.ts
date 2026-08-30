@@ -538,6 +538,28 @@ export type InputVarExtra<PL, I> = I extends {
 					: unknown;
 			};
 
+/**
+ * Same merge as {@link InputVarExtra}, on the PARSED side - what the
+ * handler sees on `c.input` after mounted extensions have been applied.
+ */
+export type InputVarExtraOut<PL, I> = I extends {
+	$var: true;
+	name: infer N extends string;
+}
+	? VarExtensionsFor<PL, N>
+	: [VarFieldKeys<I>] extends [never]
+		? unknown
+		: {
+				[K in keyof I as I[K] extends { $var: true }
+					? K
+					: never]: I[K] extends {
+					$var: true;
+					name: infer N extends string;
+				}
+					? VarExtensionsFor<PL, N>
+					: unknown;
+			};
+
 /* ------------------------------- extension -------------------------------- */
 
 type ExtEntryArgs<M, K extends string> = M extends unknown
