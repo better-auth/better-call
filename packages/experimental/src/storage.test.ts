@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	memoryAdapter,
 	resolveModelFields,
@@ -6,6 +6,7 @@ import {
 	v,
 } from "./index";
 import { db, indexed, references, unique } from "./plugins/db";
+import type { WhereOps } from "./storage";
 
 describe("v.storage", () => {
 	it("many instances of a var: CRUD in the var's shape", async () => {
@@ -477,5 +478,96 @@ describe("v.storage", () => {
 		const db = v.storage(spy, { alias: named });
 		await db.alias.create({ id: "1" });
 		expect(models).toEqual(["stg_named"]);
+	});
+});
+
+describe("storage collection var widening", () => {
+	const user = v.var("stg_wuser", {
+		default: null,
+		schema: v.object({ id: v.string() }),
+	});
+	const userWithEmail = v.extend(user, { email: v.string() });
+	const store = v.storage(memoryAdapter(), { user });
+
+	it("a scoped db var re-resolves findOne/create against mounted v.extend", async () => {
+		const db = v.var("stg_wdb", {
+			default: store as typeof store | undefined,
+		});
+		const run = v.fn({ use: [{ user, userWithEmail, db }] }, async (c) => {
+			expectTypeOf(c.stg_wuser)
+				.exclude<null>()
+				.toEqualTypeOf<{ id: string; email: string }>();
+			const created = await c.stg_wdb.user.create({
+				id: "1",
+				email: "a@b.c",
+			});
+			expectTypeOf(created).toEqualTypeOf<{
+				id: string;
+				email: string;
+			}>();
+			const found = await c.stg_wdb.user.findOne({ email: "a@b.c" });
+			expectTypeOf(found).toEqualTypeOf<{
+				id: string;
+				email: string;
+			} | null>();
+			return { found, created };
+		});
+		const out = await run();
+		expect(out.created).toEqual({ id: "1", email: "a@b.c" });
+		expect(out.found).toEqual({ id: "1", email: "a@b.c" });
+	});
+
+	it("use: [{ db }] mounts storage and widens collections the same way", async () => {
+		const run = v.fn(
+			{ use: [{ user, userWithEmail, db: store }] },
+			async (c) => {
+				const found = await c.db.user.findOne({ email: "x@y.z" });
+				expectTypeOf(found).toEqualTypeOf<{
+					id: string;
+					email: string;
+				} | null>();
+				const many = await c.db.user.findMany({ email: "x@y.z" });
+				expectTypeOf(many).toEqualTypeOf<{ id: string; email: string }[]>();
+				const updated = await c.db.user.update({ email: "x@y.z" }, { id: "2" });
+				expectTypeOf(updated).toEqualTypeOf<{
+					id: string;
+					email: string;
+				} | null>();
+				return c.db.user.create({ id: "2", email: "x@y.z" });
+			},
+		);
+		expect(await run()).toEqual({ id: "2", email: "x@y.z" });
+	});
+
+	it("a customized re-export in scope widens collection rows too", async () => {
+		const base = v.var("stg_custom_user", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const full = base.customize({
+			schema: (t) => t.add({ email: t.string() }),
+		});
+		const db = v.storage(memoryAdapter(), { user: base });
+		v.fn({ use: [{ base, full, db }] }, async (c) => {
+			const row = await c.db.user.findOne({ email: "a@b.c" });
+			expectTypeOf(row).toEqualTypeOf<{ id: string; email: string } | null>();
+			const created = await c.db.user.create({ id: "1", email: "a@b.c" });
+			expectTypeOf(created).toEqualTypeOf<{ id: string; email: string }>();
+		});
+	});
+
+	it("a scope mounting nothing on the model leaves Where alone", () => {
+		const plain = v.var("stg_plain_user", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const db = v.storage(memoryAdapter(), { user: plain });
+		v.fn({ use: [{ plain, db }] }, async (c) => {
+			expectTypeOf(c.db.user.findOne).parameter(0).toEqualTypeOf<{
+				id?: string | WhereOps<string>;
+			}>();
+			// @ts-expect-error email is not on the base model
+			await c.db.user.findOne({ email: "nope" });
+		});
 	});
 });

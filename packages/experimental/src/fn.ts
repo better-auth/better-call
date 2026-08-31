@@ -350,7 +350,9 @@ export type UseApi<U> = Prettify<
 			any
 		>
 			? BoundFn<U[K]>
-			: UseApi<U[K]>;
+			: U[K] extends { $models: object }
+				? U[K]
+				: UseApi<U[K]>;
 	} & { [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -370,7 +372,9 @@ type ReadUseApi<U> = Prettify<
 			? P extends readonly []
 				? BoundFn<U[K]>
 				: `writes "${P[number] & string}" - not callable from a readonly fn`
-			: ReadUseApi<U[K]>;
+			: U[K] extends { $models: object }
+				? U[K]
+				: ReadUseApi<U[K]>;
 	} & { readonly [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -869,6 +873,16 @@ const defineFn = (
 						enumerable: true,
 						configurable: true,
 					});
+					continue;
+				}
+				// Storage mounts whole - do not walk `$models` as a namespace.
+				if (
+					typeof used === "object" &&
+					used !== null &&
+					"$models" in used &&
+					typeof (used as { $adapter?: unknown }).$adapter === "function"
+				) {
+					target[name] = override !== undefined ? override : used;
 					continue;
 				}
 				if (!isFn(used)) {

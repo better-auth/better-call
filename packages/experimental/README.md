@@ -81,6 +81,16 @@ app.fn("auth.x", async (c) => {
 });
 ```
 
+The same scope rewrite applies to **`v.storage` collections**: `c.db.user.findOne({ email })` / `findMany` / `update` (and their return types) re-resolve against mounted extensions — no mirror helpers on the db schema.
+
+```ts
+const store = v.storage(memoryAdapter(), { user }); // user is still { id }
+const app = v.fn({ use: [{ user, userWithEmail, db: store }] });
+app.fn("auth.x", async (c) => {
+  await c.db.user.findOne({ email: "a@b.c" }); // Where includes email HERE
+});
+```
+
 ### errors
 
 Errors are the third contract door: input validates on entry, output on exit, errors at throw. A fn declares its failures as `tag -> payload schema`; `c.error` only accepts declared tags and validates the payload at mint:

@@ -140,6 +140,7 @@ export {
 } from "./schema";
 export type {
 	ResolvedVars,
+	RowInScope,
 	ScopeOf,
 	VarName,
 	VarScope,
@@ -151,6 +152,7 @@ export {
 	type FieldMeta,
 	type FindManyOptions,
 	fieldsFromSchema,
+	isStorage,
 	type ModelConfig,
 	matchesWhere,
 	memoryAdapter,

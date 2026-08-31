@@ -1,5 +1,6 @@
 import type { FnDefination } from "./fn";
 import { type InferArgs, type InferInput, isVar, type vTypes } from "./schema";
+import type { WidenSchemaFns } from "./scope";
 import type {
 	LiteralString,
 	Members,
@@ -7,6 +8,10 @@ import type {
 	UnionToIntersection,
 } from "./types";
 import type { VarDefination } from "./var";
+
+/** Storage (or a slice): anything carrying `$models`. Kept opaque in
+ * {@link ModuleFns} so collections stay on `c.db`, not walked as groups. */
+type StorageLike = { $models: object };
 
 export type Interceptor = (c: any, next: () => Promise<any>) => any;
 
@@ -98,11 +103,13 @@ export type Module = Record<string, unknown> & {
 };
 
 /** A module member that can NEST other members: a plain record that is
- * not itself branded. Fn defs are callable, so they never match. */
+ * not itself branded. Fn defs are callable, so they never match. Storage
+ * stays opaque (collections are not a nested module group). */
 type GroupMember<V> = V extends
 	| { $var: true }
 	| { $on: true }
 	| { $varExtend: true }
+	| StorageLike
 	| ((...args: any[]) => any)
 	| readonly unknown[]
 	? never
@@ -158,13 +165,17 @@ type FnEntries<M, D extends number = 3> = {
 		? K
 		: M[K] extends VarDefination<any, any, any, any>
 			? K
-			: [GroupFns<M[K], GroupDepth[D]>] extends [never]
-				? never
-				: K]: M[K] extends FnDefination<any, any, any, any, any, any>
+			: M[K] extends StorageLike
+				? K
+				: [GroupFns<M[K], GroupDepth[D]>] extends [never]
+					? never
+					: K]: M[K] extends FnDefination<any, any, any, any, any, any>
 		? M[K]
 		: M[K] extends VarDefination<any, any, any, any>
 			? M[K]
-			: GroupFns<M[K], GroupDepth[D]>;
+			: M[K] extends StorageLike
+				? M[K]
+				: GroupFns<M[K], GroupDepth[D]>;
 };
 
 /** Fns and vars a module exports, keyed by EXPORT name. A plain-record
@@ -217,8 +228,8 @@ export const collectFns = (
 /**
  * A plain-record member that GROUPS other members - not itself branded
  * (fn, var, on entry, var extension) but holding at least one such member,
- * transitively. Storages and other `$`-surfaced objects fail the member
- * test and stay opaque values.
+ * transitively. Storages stay opaque values (their `$models` are not a
+ * nested module group).
  */
 export const isNamespace = (
 	value: unknown,
@@ -229,6 +240,13 @@ export const isNamespace = (
 	const proto = Object.getPrototypeOf(value);
 	if (proto !== Object.prototype && proto !== null) return false;
 	if (isVar(value) || isOn(value) || isVarExtension(value)) return false;
+	// Storage: `$models` + `$adapter` - not a namespace of module members.
+	if (
+		"$models" in value &&
+		typeof (value as { $adapter?: unknown }).$adapter === "function"
+	) {
+		return false;
+	}
 	return Object.values(value).some(
 		(m) =>
 			isFn(m) || isVar(m) || isOn(m) || isVarExtension(m) || isNamespace(m),
@@ -240,15 +258,21 @@ export const isNamespace = (
  * namespaces: `use: [{ cookie: { setCookie } }]` lands the fn on
  * `c.cookie.setCookie`. A var member becomes an ALIAS under its export
  * name (`{ cookie: { options: cookieOptions } }` -> `c.cookie.options`
- * reads/writes the var). Groups holding nothing (however deep) drop out.
+ * reads/writes the var). Storage mounts whole (`c.db.user.findOne`).
+ * Groups holding nothing (however deep) drop out.
  */
 export const collectUsable = (
 	modules: readonly Module[],
 ): Record<string, unknown> => {
+	const isStorageValue = (value: unknown) =>
+		typeof value === "object" &&
+		value !== null &&
+		"$models" in value &&
+		typeof (value as { $adapter?: unknown }).$adapter === "function";
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
-			if (isFn(value) || isVar(value)) {
+			if (isFn(value) || isVar(value) || isStorageValue(value)) {
 				out[name] = value;
 			} else if (isNamespace(value)) {
 				const nested = walk(value);
@@ -586,19 +610,23 @@ export type ExtendedArgs<PL, K extends string> = UnionToIntersection<
 /**
  * Rewrite a fn's type with the input extensions the module set `PL`
  * mounts on it. This is how a plugin's extra field becomes REQUIRED at
- * the call site, even though the fn itself never declared it.
+ * the call site, even though the fn itself never declared it. Storage
+ * members get the same scope rewrite as a db var's value ({@link
+ * WidenSchemaFns}): collections re-resolve row/`Where` types against
+ * mounted `v.extend` / customize.
  */
-export type ApplyOn<F, PL> =
-	F extends FnDefination<
-		infer A,
-		infer R,
-		infer K,
-		infer I,
-		infer P,
-		infer Er,
-		infer W,
-		infer O
-	>
+export type ApplyOn<F, PL> = F extends StorageLike
+	? WidenSchemaFns<F, PL>
+	: F extends FnDefination<
+				infer A,
+				infer R,
+				infer K,
+				infer I,
+				infer P,
+				infer Er,
+				infer W,
+				infer O
+			>
 		? unknown extends ExtendedArgs<PL, K & string> & InputVarExtra<PL, I>
 			? F
 			: FnDefination<
