@@ -9,9 +9,14 @@ import type {
 } from "./types";
 import type { VarDefination } from "./var";
 
-/** Storage (or a slice): anything carrying `$models`. Kept opaque in
- * {@link ModuleFns} so collections stay on `c.db`, not walked as groups. */
-type StorageLike = { $models: object };
+/** Storage (or a slice): `$models` plus callable `$adapter`. Kept opaque
+ * in {@link ModuleFns} so collections stay on `c.db`, not walked as groups.
+ * Matches runtime detection (`$adapter` required) so a plain namespace that
+ * happens to have a `$models` key is still walked for nested fns/vars. */
+type StorageLike = {
+	$models: object;
+	$adapter: (...args: never[]) => unknown;
+};
 
 export type Interceptor = (c: any, next: () => Promise<any>) => any;
 
