@@ -440,6 +440,9 @@ export interface Fn<
 	 * CAN be validated for - the value is a function, and a plain closure
 	 * gets the declared input checked at its door on every call.
 	 *
+	 * `optional` / `default` work like on `v.string()` etc., so a prop in
+	 * `v.object({...})` can be a fn type and still omittable.
+	 *
 	 * This exists apart from a handler-less `v.fn({ input, output })` for
 	 * INLINE use: `v.fn`'s handler overloads return a callable, which makes
 	 * TypeScript defer any inline `v.fn(...)` call inside another generic
@@ -447,10 +450,22 @@ export interface Fn<
 	 * `v.var` then loses its shape inference entirely. `v.fn.type` returns a
 	 * plain carrier, so it composes inline anywhere.
 	 */
-	readonly type: <I = unknown, O = unknown>(signature?: {
+	readonly type: <
+		I = unknown,
+		O = unknown,
+		D = never,
+		Opt extends boolean = false,
+	>(signature?: {
 		input?: I;
 		output?: O;
-	}) => { readonly $fnSchema: { input?: I; output?: O } };
+		default?: D;
+		optional?: Opt;
+	}) => { readonly $fnSchema: { input?: I; output?: O } } & ([Opt] extends [
+		true,
+	]
+		? { readonly optional: true }
+		: unknown) &
+		([D] extends [never] ? unknown : { readonly default: D });
 
 	/* ---- a handler TERMINATES: these four produce a callable fn ---- */
 	<R>(
@@ -1372,8 +1387,19 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 	// (see `isFnSchema`).
 	return Object.assign(build, {
 		$fnSchema: { input: base.input, output: base.output },
-		type: (signature: { input?: unknown; output?: unknown } = {}) => ({
+		type: (
+			signature: {
+				input?: unknown;
+				output?: unknown;
+				optional?: boolean;
+				default?: unknown;
+			} = {},
+		) => ({
 			$fnSchema: { input: signature.input, output: signature.output },
+			...(signature.optional ? { optional: true as const } : {}),
+			...(signature.default !== undefined
+				? { default: signature.default }
+				: {}),
 		}),
 	});
 };
