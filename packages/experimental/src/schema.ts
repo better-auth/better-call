@@ -729,17 +729,18 @@ type ObjectFn = {
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			optional: true;
-			default: DefineOutput<S>;
+			// Defaults are validated as inputs, so they use ArgsShape.
+			default: ArgsShape<S>;
 		},
-	): TypeDefination<ArgsShape<S>, O, DefineOutput<S>>;
+	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & { optional: true },
 	): TypeDefination<ArgsShape<S>, OutOf<O, never, true>, undefined>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
-		options: TypeOptions<DefineOutput<S>, O> & { default: DefineOutput<S> },
-	): TypeDefination<ArgsShape<S>, O, DefineOutput<S>>;
+		options: TypeOptions<DefineOutput<S>, O> & { default: ArgsShape<S> },
+	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options?: TypeOptions<DefineOutput<S>, O>,
@@ -750,16 +751,20 @@ type ObjectFn = {
 type ArrayFn = {
 	<E, O = FieldOut<E>[]>(
 		element: E,
-		options: ArrayOptions<E, O> & { optional: true; default: FieldOut<E>[] },
-	): TypeDefination<FieldIn<E>[], O, FieldOut<E>[]>;
+		options: ArrayOptions<E, O> & {
+			optional: true;
+			// Defaults are validated as inputs, so they use FieldIn.
+			default: FieldIn<E>[];
+		},
+	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
 		options: ArrayOptions<E, O> & { optional: true },
 	): TypeDefination<FieldIn<E>[], OutOf<O, never, true>, undefined>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
-		options: ArrayOptions<E, O> & { default: FieldOut<E>[] },
-	): TypeDefination<FieldIn<E>[], O, FieldOut<E>[]>;
+		options: ArrayOptions<E, O> & { default: FieldIn<E>[] },
+	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
 		options?: ArrayOptions<E, O>,

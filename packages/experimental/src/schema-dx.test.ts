@@ -63,4 +63,17 @@ describe("other vTypes type-arg + optional DX", () => {
 			{ kind: "a" | "b" } | undefined
 		>();
 	});
+
+	it("object and array defaults are typed as inputs", () => {
+		const obj = v.object(
+			{ n: v.string({ transform: (s) => Number(s) }) },
+			{ default: { n: "5" } },
+		);
+		expectTypeOf<InferOutput<typeof obj>>().toEqualTypeOf<{ n: number }>();
+
+		const arr = v.array(v.string({ transform: (s) => Number(s) }), {
+			default: ["5"],
+		});
+		expectTypeOf<InferOutput<typeof arr>>().toEqualTypeOf<number[]>();
+	});
 });
