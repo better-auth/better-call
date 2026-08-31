@@ -1,6 +1,6 @@
 import { matchesTarget, type OnEntry } from "./module";
 import { asType, attrsOf, isVar } from "./schema";
-import type { ValueOfVar, VarDefination } from "./var";
+import type { NameOfVar, ValueOfVar, VarDefination } from "./var";
 
 /* ---------------------------------- where ---------------------------------- */
 
@@ -136,8 +136,11 @@ export type FindManyOptions<R> = {
 
 /** One model's CRUD surface. `create` is generic so a row EXTENDED by a
  * mounted module (an account with a password field) keeps its extra
- * fields through the round-trip. */
-export type Collection<R> = {
+ * fields through the round-trip outside a widened scope. Inside a scope
+ * that mounts `v.extend` / same-name customize on the model var, {@link
+ * WidenSchemaFns} rewrites `R` (see `$modelVar`) the same way it widens
+ * `v.fn.type({ input: user })`. */
+export type Collection<R, N extends string = string> = {
 	create: <T extends R>(data: T) => Promise<T>;
 	findOne: (where: Where<R>) => Promise<R | null>;
 	findMany: (where?: Where<R>, options?: FindManyOptions<R>) => Promise<R[]>;
@@ -157,6 +160,13 @@ export type Collection<R> = {
 		where: Where<R>,
 		increments: Partial<Record<keyof R & string, number>>,
 	) => Promise<R | null>;
+	/**
+	 * Phantom: the model var's name. Scope resolution reads it to WIDEN
+	 * `R` with everything the scope mounts on that var - same role as
+	 * `$fnVar` on fn schemas. Optional, so plain collection objects still
+	 * satisfy the type.
+	 */
+	readonly $modelVar?: [N];
 };
 
 /**
@@ -387,6 +397,9 @@ type SchemaOf<T> = T extends { $var: true }
 
 type RowOf<T> = NonNullable<ValueOfVar<SchemaOf<T>>>;
 
+/** Declared name of the var behind a model input - brands the collection. */
+type ModelVarName<T> = NameOfVar<SchemaOf<T>> & string;
+
 export type StorageModels = Record<string, ModelInput>;
 
 export type StorageOp =
@@ -425,8 +438,15 @@ export type StorageTarget<M> =
 	| `*.${StorageOp}`;
 
 export type Storage<M extends StorageModels> = {
-	[K in keyof M]: Collection<RowOf<M[K]>>;
+	[K in keyof M]: Collection<RowOf<M[K]>, ModelVarName<M[K]>>;
 } & StorageApi<M>;
+
+/** Duck-type a storage instance - `$models` plus the `$adapter` method. */
+export const isStorage = (value: unknown): value is Storage<StorageModels> =>
+	typeof value === "object" &&
+	value !== null &&
+	"$models" in value &&
+	typeof (value as { $adapter?: unknown }).$adapter === "function";
 
 /** The customization surface, `$`-prefixed so model keys never collide. */
 export type StorageApi<M extends StorageModels> = {

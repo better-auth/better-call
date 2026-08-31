@@ -132,11 +132,14 @@ type WithFns<U> = {
  * is what `v.fn` returns, and stays declaration-emit safe. */
 export type WithContext<RV, U> = { [K in keyof RV]?: RV[K] } & WithFns<U>;
 
-/** Storage (or the FnEntries slice of one): anything carrying `$models`.
- * Nested under a module as `{ db }`, it must not flow into `.with` seeds -
- * model schemas alone blow past declaration serialize limits. ModuleFns
- * drops `$adapter`/`$on`/collections, so duck-typing `$models` alone. */
-type StorageLike = { $models: object };
+/** Storage (or the FnEntries slice of one): `$models` plus callable
+ * `$adapter`. Nested under a module as `{ db }`, it must not flow into
+ * `.with` seeds - model schemas alone blow past declaration serialize
+ * limits. ModuleFns keeps collections; WithSeed still drops storage. */
+type StorageLike = {
+	$models: object;
+	$adapter: (...args: never[]) => unknown;
+};
 
 /** Flatten `use` members to `.with` overrides: bound call signatures, var
  * alias values, nested groups. Storage is dropped (mount-only). */
@@ -350,7 +353,9 @@ export type UseApi<U> = Prettify<
 			any
 		>
 			? BoundFn<U[K]>
-			: UseApi<U[K]>;
+			: U[K] extends StorageLike
+				? U[K]
+				: UseApi<U[K]>;
 	} & { [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -370,7 +375,9 @@ type ReadUseApi<U> = Prettify<
 			? P extends readonly []
 				? BoundFn<U[K]>
 				: `writes "${P[number] & string}" - not callable from a readonly fn`
-			: ReadUseApi<U[K]>;
+			: U[K] extends StorageLike
+				? U[K]
+				: ReadUseApi<U[K]>;
 	} & { readonly [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -869,6 +876,16 @@ const defineFn = (
 						enumerable: true,
 						configurable: true,
 					});
+					continue;
+				}
+				// Storage mounts whole - do not walk `$models` as a namespace.
+				if (
+					typeof used === "object" &&
+					used !== null &&
+					"$models" in used &&
+					typeof (used as { $adapter?: unknown }).$adapter === "function"
+				) {
+					target[name] = override !== undefined ? override : used;
 					continue;
 				}
 				if (!isFn(used)) {
