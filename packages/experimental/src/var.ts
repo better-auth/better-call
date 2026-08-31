@@ -31,6 +31,12 @@ export interface VarDefination<
 	$source?: Source;
 	/** Whole-var plugin attributes (field attrs live on the schema). */
 	$attrs?: AttrBag;
+	/**
+	 * Object contributions from `use` modules merge instead of replacing:
+	 * same-name var defaults and same-export-key namespaces shallow-merge
+	 * onto this value (storage default + helpers). Writes accumulate too.
+	 */
+	$merge?: boolean;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;
@@ -74,6 +80,7 @@ export const makeVar = (name: string, options: any = {}): any => {
 		schema,
 		...(options.attrs !== undefined ? { $attrs: options.attrs } : {}),
 		$accessor: options.accessor === true,
+		$merge: options.merge === true,
 		$derive: options.derive,
 		customize: (opts: any) =>
 			makeVar(name, {
@@ -117,7 +124,7 @@ export type Cell = {
 	derive?: { source: string; get: (value: any) => any };
 	/** A direct write to a derived var shadows its computation. */
 	shadowed: boolean;
-	/** Record var: `set()` merges instead of replacing. */
+	/** Record / merge var: `set()` merges instead of replacing. */
 	accumulate: boolean;
 };
 
@@ -132,7 +139,7 @@ export const getCell = (cells: Cells, name: string): Cell => {
 		value: def?.$derive ? undefined : def?.$accessor ? {} : def?.default,
 		derive: def?.$derive,
 		shadowed: false,
-		accumulate: def?.$accessor === true,
+		accumulate: def?.$accessor === true || def?.$merge === true,
 	};
 	cells[name] = cell;
 	return cell;
@@ -275,6 +282,38 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
 /* ---------------------------------- scope ---------------------------------- */
 
 /**
+ * Merge-var reads expose a shallow view that binds any `$fn` member into
+ * this context - helpers contributed via `use` call like usable fns.
+ */
+export const viewMergeVar = (
+	name: string,
+	value: unknown,
+	ctx: unknown,
+): unknown => {
+	const def = varRegistry.get(name);
+	if (!def?.$merge || value == null || typeof value !== "object") return value;
+	return new Proxy(value as object, {
+		get: (t, prop, receiver) => {
+			const member = Reflect.get(t, prop, receiver);
+			if (
+				typeof member !== "function" ||
+				(member as { $fn?: boolean }).$fn !== true
+			) {
+				return member;
+			}
+			const usedArity = (member as { $arity?: number }).$arity;
+			return usedArity === undefined
+				? (i?: unknown) => (member as any)(i, ctx)
+				: (...args: unknown[]) => {
+						const padded = args.slice(0, usedArity);
+						while (padded.length < usedArity) padded.push(undefined);
+						return (member as any)(...padded, ctx);
+					};
+		},
+	});
+};
+
+/**
  * The fn context for one frame: `base` carries the fixed surface (input,
  * error, fn, types, the bound `use` fns, internal symbols) and EVERY
  * other property is a var - read it directly (`c.session.userId`) and
@@ -285,12 +324,13 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
  */
 export const contextScope = (frame: Frame, base: object): any =>
 	new Proxy(base, {
-		get: (t, prop, receiver) =>
-			prop in t
-				? Reflect.get(t, prop, receiver)
-				: typeof prop === "string"
-					? readVarThrough(frame, prop)
-					: undefined,
+		get: (t, prop, receiver) => {
+			if (prop in t) return Reflect.get(t, prop, receiver);
+			if (typeof prop === "string") {
+				return viewMergeVar(prop, readVarThrough(frame, prop), receiver);
+			}
+			return undefined;
+		},
 		set: (t, prop, value, receiver) => {
 			if (typeof prop !== "string" || prop in t) {
 				return Reflect.set(t, prop, value, receiver);

@@ -16,9 +16,12 @@ interface V {
 	fn: Fn;
 	var: <N extends LiteralString, S = undefined, D = undefined>(
 		name: N,
-		options?: { default?: D; schema?: S },
+		options?: { default?: D; schema?: S; merge?: boolean },
 		// A default the schema already covers (e.g. `{}` against an
 		// all-optional shape) is absorbed; `default: null` still unions in.
+		// `merge: true` - object contributions from `use` modules (same-name
+		// defaults, same-key namespaces) shallow-merge onto the value;
+		// writes accumulate the same way.
 	) => VarDefination<
 		N,
 		[S] extends [undefined]

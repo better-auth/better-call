@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { v } from "./index";
+import { memoryAdapter, v } from "./index";
 
 describe("vars", () => {
 	const note = v.var("vt_note", { default: "" });
@@ -122,5 +122,51 @@ describe("record vars", () => {
 			return c.vt_draft;
 		});
 		await expect(entry()).resolves.toEqual({ title: "hi", body: "there" });
+	});
+});
+
+describe("merge vars", () => {
+	it("use modules merge helpers onto a storage default under the same key", async () => {
+		const row = v.var("vt_merge_row", {
+			default: null,
+			schema: v.object({ id: v.string(), tag: v.string() }),
+		});
+		const store = v.storage(memoryAdapter(), { row });
+		const db = v.var("vt_merge_db", {
+			merge: true,
+			default: store,
+		});
+		const byTag = v.fn(
+			"vt.merge.byTag",
+			{
+				input: { tag: v.string() },
+				use: [{ db, row }],
+			},
+			async (c) => c.vt_merge_db.row.findMany({ tag: c.input.tag }),
+		);
+		const core = { db, row };
+		const plugin = { db: { byTag } };
+		const entry = v.fn({ use: [core, plugin] }, async (c) => {
+			await c.vt_merge_db.row.create({ id: "1", tag: "a" });
+			await c.vt_merge_db.row.create({ id: "2", tag: "b" });
+			return c.vt_merge_db.byTag({ tag: "a" });
+		});
+		await expect(entry()).resolves.toEqual([{ id: "1", tag: "a" }]);
+	});
+
+	it("later use module wins on a conflicting helper key", async () => {
+		const base = v.var("vt_merge_obj", {
+			merge: true,
+			default: { n: 0, from: "base" },
+		});
+		const first = v.fn("vt.merge.first", () => "first");
+		const second = v.fn("vt.merge.second", () => "second");
+		const entry = v.fn(
+			{
+				use: [{ obj: base }, { obj: { who: first } }, { obj: { who: second } }],
+			},
+			(c) => c.vt_merge_obj.who(),
+		);
+		expect(entry()).toBe("second");
 	});
 });

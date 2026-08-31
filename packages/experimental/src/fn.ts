@@ -7,6 +7,7 @@ import {
 } from "./error";
 import {
 	type ApplyOns,
+	collectMergeSeeds,
 	collectUsable,
 	type InputVarExtra,
 	type InputVarExtraOut,
@@ -43,9 +44,11 @@ import {
 	type Cells,
 	contextScope,
 	type Frame,
+	getCell,
 	readVar,
 	readVarThrough,
 	type VarDefination,
+	viewMergeVar,
 	writeVar,
 } from "./var";
 
@@ -664,6 +667,7 @@ const defineFn = (
 	for (const mod of modules) scanMembers(mod);
 
 	const usable = collectUsable(modules);
+	const mergeSeeds = collectMergeSeeds(modules);
 
 	// A tuple input means POSITIONAL args: the callable takes one arg per
 	// declared position, then the parent context.
@@ -726,6 +730,15 @@ const defineFn = (
 			: callArgs[0];
 		const parent: any = tupleInput ? callArgs[tupleInput.length] : callArgs[1];
 		const cells: Cells = parent?.[STORE] ?? {};
+		// Root scope: fold merge-var contributions from `use` into cells
+		// before anything reads them (storage default + helper namespaces).
+		if (!parent?.[STORE]) {
+			for (const [name, value] of Object.entries(mergeSeeds)) {
+				const cell = getCell(cells, name);
+				cell.value = value;
+				cell.accumulate = true;
+			}
+		}
 		// The lock travels the whole subtree: once any frame above is
 		// readonly, every write below throws - handlers, nested fns,
 		// interceptors, input-var seeding, all of it.
@@ -886,7 +899,8 @@ const defineFn = (
 				if (isVar(used)) {
 					const varName = (used as { name: string }).name;
 					Object.defineProperty(target, name, {
-						get: () => readVarThrough(frame, varName),
+						get: () =>
+							viewMergeVar(varName, readVarThrough(frame, varName), ctx),
 						set: (value: unknown) => writeVar(frame, varName, value),
 						enumerable: true,
 						configurable: true,

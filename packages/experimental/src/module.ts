@@ -265,6 +265,10 @@ export const isNamespace = (
  * name (`{ cookie: { options: cookieOptions } }` -> `c.cookie.options`
  * reads/writes the var). Storage mounts whole (`c.db.user.findOne`).
  * Groups holding nothing (however deep) drop out.
+ *
+ * A `merge: true` var keeps its slot when a later module exports a
+ * namespace under the same key - those helpers are folded into the var
+ * value by {@link collectMergeSeeds}, not bound as a rival namespace.
  */
 export const collectUsable = (
 	modules: readonly Module[],
@@ -274,6 +278,14 @@ export const collectUsable = (
 		value !== null &&
 		"$models" in value &&
 		typeof (value as { $adapter?: unknown }).$adapter === "function";
+	const isMergeVar = (value: unknown) =>
+		isVar(value) && (value as { $merge?: boolean }).$merge === true;
+	const isGroup = (value: unknown) =>
+		value !== null &&
+		typeof value === "object" &&
+		!isFn(value) &&
+		!isVar(value) &&
+		!isStorageValue(value);
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
@@ -286,9 +298,103 @@ export const collectUsable = (
 		}
 		return out;
 	};
+	const assign = (
+		target: Record<string, unknown>,
+		name: string,
+		value: unknown,
+	) => {
+		const existing = target[name];
+		if (isMergeVar(existing) && isGroup(value)) return;
+		if (isMergeVar(value) && isGroup(existing)) {
+			target[name] = value;
+			return;
+		}
+		if (isGroup(existing) && isGroup(value)) {
+			const group = { ...(existing as Record<string, unknown>) };
+			for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+				assign(group, k, v);
+			}
+			target[name] = group;
+			return;
+		}
+		target[name] = value;
+	};
 	const fns: Record<string, unknown> = {};
-	for (const mod of resolveModules(modules)) Object.assign(fns, walk(mod));
+	for (const mod of resolveModules(modules)) {
+		for (const [name, value] of Object.entries(walk(mod))) {
+			assign(fns, name, value);
+		}
+	}
 	return fns;
+};
+
+/**
+ * Initial values for `merge: true` vars: walk `use` modules in order and
+ * shallow-merge (1) each merge-var's `default` and (2) namespaces exported
+ * under the same key as a merge var. Later leaf keys win.
+ */
+export const collectMergeSeeds = (
+	modules: readonly Module[],
+): Record<string, unknown> => {
+	const resolved = resolveModules(modules);
+	const seeds: Record<string, unknown> = {};
+	const keyToVar = new Map<string, string>();
+
+	const isMergeVar = (
+		value: unknown,
+	): value is VarDefination<string, unknown> & {
+		$merge: true;
+		default?: unknown;
+		name: string;
+	} => isVar(value) && (value as { $merge?: boolean }).$merge === true;
+
+	const mergeInto = (name: string, contribution: unknown) => {
+		if (contribution === undefined) return;
+		const current = seeds[name];
+		if (
+			contribution !== null &&
+			typeof contribution === "object" &&
+			!Array.isArray(contribution) &&
+			current !== null &&
+			typeof current === "object" &&
+			!Array.isArray(current)
+		) {
+			seeds[name] = {
+				...(current as Record<string, unknown>),
+				...(contribution as Record<string, unknown>),
+			};
+		} else {
+			seeds[name] = contribution;
+		}
+	};
+
+	const index = (mod: Record<string, unknown>) => {
+		for (const [key, value] of Object.entries(mod)) {
+			if (isMergeVar(value)) {
+				keyToVar.set(key, value.name);
+			} else if (isNamespace(value)) {
+				index(value);
+			}
+		}
+	};
+	for (const mod of resolved) index(mod);
+
+	const contribute = (mod: Record<string, unknown>) => {
+		for (const [key, value] of Object.entries(mod)) {
+			if (isMergeVar(value)) {
+				mergeInto(value.name, value.default);
+				continue;
+			}
+			if (isNamespace(value)) {
+				const varName = keyToVar.get(key);
+				if (varName) mergeInto(varName, value);
+				else contribute(value);
+			}
+		}
+	};
+	for (const mod of resolved) contribute(mod);
+
+	return seeds;
 };
 
 export const isOn = (value: any): value is OnEntry<string> =>
