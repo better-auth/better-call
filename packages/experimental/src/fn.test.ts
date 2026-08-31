@@ -518,6 +518,33 @@ describe("fn as input schema", () => {
 		);
 	});
 
+	it("v.fn.type({ optional: true }) is omittable in an object shape", () => {
+		const hooks = v.object({
+			onCreate: v.fn.type({
+				input: { id: v.string() },
+				optional: true,
+			}),
+			onDelete: v.fn.type({ input: { id: v.string() } }),
+		});
+		const run = v.fn({ input: hooks }, (c) => {
+			expectTypeOf(c.input.onCreate).toEqualTypeOf<
+				((input: { id: string }) => any) | undefined
+			>();
+			expectTypeOf(c.input.onDelete).toEqualTypeOf<
+				(input: { id: string }) => any
+			>();
+			return c.input.onCreate?.({ id: "1" }) ?? "skipped";
+		});
+		// Required sibling stays required - omit onCreate only.
+		expect(run({ onDelete: () => null })).toBe("skipped");
+		expect(
+			run({
+				onDelete: () => null,
+				onCreate: (i) => i.id,
+			}),
+		).toBe("1");
+	});
+
 	it("customize toolkit carries fn", () => {
 		const base = v.var("fnt_custom", { schema: v.object({}) });
 		const widened = base.customize({

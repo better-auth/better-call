@@ -237,7 +237,7 @@ export const outputContract = (
 type FieldOut<F> = F extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnOut<FI, FO> & FnVarBrand<FI>
+		? FnSchemaOut<F, SchemaFnOut<FI, FO> & FnVarBrand<FI>>
 		: F extends TypeDefination<any, any, any>
 			? OutputOf<F>
 			: F extends Record<string, unknown>
@@ -255,19 +255,36 @@ type FieldIn<F> = F extends { $var: true; schema?: infer S }
 				: never;
 
 /**
+ * `optional: true` on `v.fn.type` widens the same way a type's `optional`
+ * does: absent without a default means the value may be `undefined`.
+ */
+type FnSchemaOut<F, Fn> = F extends { optional: true }
+	? F extends { default: infer _D }
+		? Fn
+		: Fn | undefined
+	: Fn;
+
+/**
  * A field's declared default, looked through a var to its schema. Only a
  * TYPE's default counts - a var's own default is its initial value, not a
  * licence to omit the input. The `$fnSchema` guard mirrors `asType`'s
  * ordering: a bare `v.fn` is CALLABLE, and any callable duck-matches
  * TypeDefination (`.name` comes with every function), which would read a
- * phantom default off it and wrongly mark the field optional.
+ * phantom default off it and wrongly mark the field optional. `v.fn.type`
+ * may still declare `optional` / `default` on the carrier itself.
  */
 type DefaultOf<F> = F extends { $var: true; schema?: infer S }
 	? NonNullable<S> extends TypeDefination<any, any, infer D>
 		? D
 		: never
 	: F extends { $fnSchema: unknown }
-		? never
+		? F extends { optional: true }
+			? F extends { default: infer D }
+				? D
+				: undefined
+			: F extends { default: infer D }
+				? D
+				: never
 		: F extends TypeDefination<any, any, infer D>
 			? D
 			: never;
@@ -318,8 +335,11 @@ export const isType = (value: any): value is TypeDefination<any, any> =>
  * branded too, so bare `v.fn` reads as "any function". */
 export const isFnSchema = (
 	value: any,
-): value is { $fnSchema: { input?: unknown; output?: unknown } } =>
-	typeof value?.$fnSchema === "object" && value.$fnSchema !== null;
+): value is {
+	$fnSchema: { input?: unknown; output?: unknown };
+	optional?: boolean;
+	default?: unknown;
+} => typeof value?.$fnSchema === "object" && value.$fnSchema !== null;
 
 export const asType = (value: any): TypeDefination<any, any> =>
 	// A var's own `name` ("user") would duck-match isType, so unwrap first -
@@ -327,7 +347,12 @@ export const asType = (value: any): TypeDefination<any, any> =>
 	isVar(value)
 		? asType(value.schema ?? {})
 		: isFnSchema(value)
-			? { name: "function", fnInput: value.$fnSchema.input }
+			? ({
+					name: "function",
+					fnInput: value.$fnSchema.input,
+					...(value.optional ? { optional: true } : {}),
+					...(value.default !== undefined ? { default: value.default } : {}),
+				} as TypeDefination<any, any>)
 			: isType(value)
 				? value
 				: { name: "object", shape: value };
