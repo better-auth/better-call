@@ -46,13 +46,14 @@ export type TypeOptions<T, O> = {
 	transform?: (value: T) => O;
 };
 
-type WithDefault<D> = { default?: D };
-
-type WithOptional<Opt> = { optional?: Opt };
-
 /**
  * `optional` widens the output; `default` keeps it narrow because a value
  * is always produced. Declaring both means optional to send, never absent.
+ *
+ * Helpers select among these via option-shape overloads rather than `Opt` /
+ * `D` type parameters: providing a partial type argument (e.g.
+ * `v.string<"a" | "b">`) would lock remaining params to their defaults, so
+ * `{ optional: true }` would fail to type-check.
  */
 type OutOf<O, D, Opt> = [Opt] extends [true]
 	? [D] extends [never]
@@ -60,19 +61,13 @@ type OutOf<O, D, Opt> = [Opt] extends [true]
 		: O
 	: O;
 
-/** Either marker makes the key omittable in `InferArgs`. */
-type DefOf<D, Opt> = [Opt] extends [true]
-	? [D] extends [never]
-		? undefined
-		: D
-	: D;
-
 /**
  * Recover a type's output `O`. Plain `infer O` from
  * `TypeDefination<any, infer O, …>` drops `| undefined` because `output?`
  * is optional and TypeScript attributes the undefined to the property.
- * When DefOf is `undefined` (optional, no default), put `| undefined`
- * back so handlers see the same absence validate produces at runtime.
+ * When the third type arg is `undefined` (optional, no default), put
+ * `| undefined` back so handlers see the same absence validate produces
+ * at runtime.
  */
 type OutputOf<F> =
 	F extends TypeDefination<any, infer O, infer D>
@@ -655,67 +650,167 @@ const build = (name: string, options: any, extra?: any): any => ({
 	...options,
 });
 
+/**
+ * Call signatures for the type helpers. Option-shape overloads replace
+ * `Opt` / `D` type parameters so a partial type argument (literal narrowing)
+ * does not lock `optional` / `default` to their defaults.
+ */
+type StringFn = {
+	<const E extends string, O = E>(
+		options: StringOptions<E, O> & { optional: true; default: string },
+	): TypeDefination<E, O, string>;
+	<const E extends string, O = E>(
+		options: StringOptions<E, O> & { optional: true },
+	): TypeDefination<E, OutOf<O, never, true>, undefined>;
+	<const E extends string, O = E>(
+		options: StringOptions<E, O> & { default: string },
+	): TypeDefination<E, O, string>;
+	<const E extends string, O = E>(
+		options?: StringOptions<E, O>,
+	): TypeDefination<E, O, never>;
+};
+
+type NumberFn = {
+	<O = number>(
+		options: NumberOptions<O> & { optional: true; default: number },
+	): TypeDefination<number, O, number>;
+	<O = number>(
+		options: NumberOptions<O> & { optional: true },
+	): TypeDefination<number, OutOf<O, never, true>, undefined>;
+	<O = number>(
+		options: NumberOptions<O> & { default: number },
+	): TypeDefination<number, O, number>;
+	<O = number>(options?: NumberOptions<O>): TypeDefination<number, O, never>;
+};
+
+type BooleanFn = {
+	<O = boolean>(
+		options: TypeOptions<boolean, O> & { optional: true; default: boolean },
+	): TypeDefination<boolean, O, boolean>;
+	<O = boolean>(
+		options: TypeOptions<boolean, O> & { optional: true },
+	): TypeDefination<boolean, OutOf<O, never, true>, undefined>;
+	<O = boolean>(
+		options: TypeOptions<boolean, O> & { default: boolean },
+	): TypeDefination<boolean, O, boolean>;
+	<O = boolean>(
+		options?: TypeOptions<boolean, O>,
+	): TypeDefination<boolean, O, never>;
+};
+
+type DateFn = {
+	<O = Date>(
+		options: TypeOptions<Date, O> & { optional: true; default: Date },
+	): TypeDefination<Date, O, Date>;
+	<O = Date>(
+		options: TypeOptions<Date, O> & { optional: true },
+	): TypeDefination<Date, OutOf<O, never, true>, undefined>;
+	<O = Date>(
+		options: TypeOptions<Date, O> & { default: Date },
+	): TypeDefination<Date, O, Date>;
+	<O = Date>(options?: TypeOptions<Date, O>): TypeDefination<Date, O, never>;
+};
+
+type AnyFn = {
+	<T = unknown>(
+		options: TypeOptions<T, T> & { optional: true; default: T },
+	): TypeDefination<T, T, T>;
+	<T = unknown>(
+		options: TypeOptions<T, T> & { optional: true },
+	): TypeDefination<T, OutOf<T, never, true>, undefined>;
+	<T = unknown>(
+		options: TypeOptions<T, T> & { default: T },
+	): TypeDefination<T, T, T>;
+	<T = unknown>(options?: TypeOptions<T, T>): TypeDefination<T, T, never>;
+};
+
+type ObjectFn = {
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options: TypeOptions<DefineOutput<S>, O> & {
+			optional: true;
+			// Defaults are validated as inputs, so they use ArgsShape.
+			default: ArgsShape<S>;
+		},
+	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options: TypeOptions<DefineOutput<S>, O> & { optional: true },
+	): TypeDefination<ArgsShape<S>, OutOf<O, never, true>, undefined>;
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options: TypeOptions<DefineOutput<S>, O> & { default: ArgsShape<S> },
+	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options?: TypeOptions<DefineOutput<S>, O>,
+	): TypeDefination<ArgsShape<S>, O, never>;
+	(): TypeDefination<Record<string, any>, Record<string, any>>;
+};
+
+type ArrayFn = {
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options: ArrayOptions<E, O> & {
+			optional: true;
+			// Defaults are validated as inputs, so they use FieldIn.
+			default: FieldIn<E>[];
+		},
+	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options: ArrayOptions<E, O> & { optional: true },
+	): TypeDefination<FieldIn<E>[], OutOf<O, never, true>, undefined>;
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options: ArrayOptions<E, O> & { default: FieldIn<E>[] },
+	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options?: ArrayOptions<E, O>,
+	): TypeDefination<FieldIn<E>[], O, never>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]> & {
+			optional: true;
+			default: any[];
+		},
+	): TypeDefination<any[], any[], any[]>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]> & { optional: true },
+	): TypeDefination<any[], any[] | undefined, undefined>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]> & { default: any[] },
+	): TypeDefination<any[], any[], any[]>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]>,
+	): TypeDefination<any[], any[], never>;
+};
+
 export const vTypes = {
 	/** An `enum` narrows both sides to the literal union: `v.string({
 	 * enum: ["a", "b"] })` types as `"a" | "b"`, not `string`. */
-	string: <
-		const E extends string = string,
-		O = E,
-		D = never,
-		Opt extends boolean = false,
-	>(
-		options?: StringOptions<E, O> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<E, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("string", options),
-	number: <O = number, D = never, Opt extends boolean = false>(
-		options?: NumberOptions<O> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<number, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("number", options),
-	boolean: <O = boolean, D = never, Opt extends boolean = false>(
-		options?: TypeOptions<boolean, O> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<boolean, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("boolean", options),
+	string: ((options?: any) => build("string", options)) as StringFn,
+	number: ((options?: any) => build("number", options)) as NumberFn,
+	boolean: ((options?: any) => build("boolean", options)) as BooleanFn,
 	/** A Date INSTANCE - checked with `instanceof`, never parsed. */
-	date: <O = Date, D = never, Opt extends boolean = false>(
-		options?: TypeOptions<Date, O> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<Date, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("date", options),
+	date: ((options?: any) => build("date", options)) as DateFn,
 	/** Passthrough - validated as-is, never coerced or stripped. */
-	any: <T = unknown, D = never, Opt extends boolean = false>(
-		options?: TypeOptions<T, T> & WithDefault<D> & WithOptional<Opt>,
-	): TypeDefination<T, OutOf<T, D, Opt>, DefOf<D, Opt>> =>
-		build("any", options),
+	any: ((options?: any) => build("any", options)) as AnyFn,
 	/** With a SHAPE every field validates; with NO shape (`v.object()`)
 	 * any object passes, as-is. */
-	object: <
-		S = undefined,
-		O = DefineOutput<S>,
-		D = never,
-		Opt extends boolean = false,
-	>(
-		shape?: S,
-		options?: TypeOptions<DefineOutput<S>, O> &
-			WithDefault<D> &
-			WithOptional<Opt>,
-		// Args use ArgsShape, not DefineInput, so a defaulted field inside
-		// an object is optional to send there too.
-	): [S] extends [undefined]
-		? TypeDefination<Record<string, any>, Record<string, any>>
-		: TypeDefination<ArgsShape<S>, OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("object", options, shape === undefined ? {} : { shape }),
+	object: ((shape?: any, options?: any) =>
+		build("object", options, shape === undefined ? {} : { shape })) as ObjectFn,
 	/** With an ELEMENT every item validates - all failures report
 	 * together, like object fields; with NO element (`v.array()`) any
 	 * array passes, as-is. `min`/`max`/`length` count items. */
-	array: <
-		E = undefined,
-		O = FieldOut<E>[],
-		D = never,
-		Opt extends boolean = false,
-	>(
-		element?: E,
-		options?: ArrayOptions<E, O> & WithDefault<D> & WithOptional<Opt>,
-	): [E] extends [undefined]
-		? TypeDefination<any[], OutOf<any[], D, Opt>, DefOf<D, Opt>>
-		: TypeDefination<FieldIn<E>[], OutOf<O, D, Opt>, DefOf<D, Opt>> =>
-		build("array", options, element === undefined ? {} : { shape: element }),
-} satisfies Record<string, (...args: any[]) => TypeDefination<any, any>>;
+	array: ((element?: any, options?: any) =>
+		build(
+			"array",
+			options,
+			element === undefined ? {} : { shape: element },
+		)) as ArrayFn,
+};
