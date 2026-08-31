@@ -392,12 +392,14 @@ describe("v.storage", () => {
 		const item = v.var("stg_attr_meta", {
 			default: null,
 			schema: v.object({
-				id: v.string(),
+				id: db.id(v.string({})),
 				email: db.unique(db.indexed(v.string())),
 				ownerId: db.references(v.string(), {
 					model: "owner",
 					field: "id",
 				}),
+				createdAt: v.date({ default: () => new Date() }),
+				updatedAt: v.date({ default: () => new Date() }),
 			}),
 		});
 		const fromSchema = v.storage(memoryAdapter(), {
@@ -406,6 +408,7 @@ describe("v.storage", () => {
 		const fields = (
 			fromSchema.$models.item as { fields?: Record<string, unknown> }
 		).fields;
+		expect(fields?.id).toEqual({ id: true });
 		expect(fields?.email).toEqual({ unique: true, index: true });
 		expect(fields?.ownerId).toEqual({
 			references: { model: "owner", field: "id" },
@@ -443,7 +446,7 @@ describe("v.storage", () => {
 		});
 	});
 
-	it("indexed and references wrappers write $attrs.db", () => {
+	it("indexed, references, and id wrappers write $attrs.db", () => {
 		expect(indexed(v.string())).toMatchObject({
 			$attrs: { db: { index: true } },
 		});
@@ -455,6 +458,9 @@ describe("v.storage", () => {
 					references: { model: "u", field: "id", onDelete: "cascade" },
 				},
 			},
+		});
+		expect(db.id(v.string({}))).toMatchObject({
+			$attrs: { db: { id: true } },
 		});
 	});
 

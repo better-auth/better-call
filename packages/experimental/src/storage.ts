@@ -293,9 +293,11 @@ type AnyVar = VarDefination<any, any, any, any>;
 /** Persistence facts about one field the ROW SHAPE can't say - consumed by
  * schema generators and adapters, never acted on by the runtime. (Read
  * shaping like redaction is a `$on` hook, not metadata.) Prefer declaring
- * these via `db.unique` / `db.indexed` / `db.references` on the field
- * schema; `ModelConfig.fields` remains an override. */
+ * these via `db.unique` / `db.indexed` / `db.references` / `db.id` on the
+ * field schema; `ModelConfig.fields` remains an override. */
 export type FieldMeta = {
+	/** Primary key for this model. */
+	id?: boolean;
 	/** No two rows share a value. */
 	unique?: boolean;
 	/** Worth an index. */

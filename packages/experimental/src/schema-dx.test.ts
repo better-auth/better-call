@@ -1,6 +1,7 @@
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "./index";
-import type { InferOutput, InferType } from "./schema";
+import type { InferArgs, InferOutput, InferType } from "./schema";
+import { validate } from "./schema";
 
 describe("v.string type-arg + optional DX", () => {
 	it("narrowed type param works with optional: true", () => {
@@ -75,5 +76,52 @@ describe("other vTypes type-arg + optional DX", () => {
 			default: ["5"],
 		});
 		expectTypeOf<InferOutput<typeof arr>>().toEqualTypeOf<number[]>();
+	});
+});
+
+describe("factory defaults", () => {
+	it("v.date({ default: () => new Date() }) is omittable and fresh each time", () => {
+		const schema = v.object({
+			id: v.string({}),
+			createdAt: v.date({ default: () => new Date(1000) }),
+			updatedAt: v.date({ default: () => new Date(2000) }),
+		});
+		expectTypeOf<InferArgs<typeof schema>>().toEqualTypeOf<{
+			id: string;
+			createdAt?: Date;
+			updatedAt?: Date;
+		}>();
+		expectTypeOf<InferOutput<typeof schema>>().toEqualTypeOf<{
+			id: string;
+			createdAt: Date;
+			updatedAt: Date;
+		}>();
+
+		const a = validate(schema, { id: "1" }, "row");
+		const b = validate(schema, { id: "2" }, "row");
+		expect(a.createdAt).toEqual(new Date(1000));
+		expect(a.updatedAt).toEqual(new Date(2000));
+		// Distinct instances - not one shared Date reused across validates.
+		expect(a.createdAt).not.toBe(b.createdAt);
+	});
+
+	it("literal defaults still work; an explicit value wins", () => {
+		const field = v.date({ default: new Date(0) });
+		expect(validate(field, undefined, "at")).toEqual(new Date(0));
+		expect(validate(field, new Date(9), "at")).toEqual(new Date(9));
+	});
+
+	it("object/array factory defaults mint a fresh value", () => {
+		const obj = v.object({ n: v.number() }, { default: () => ({ n: 1 }) });
+		const a = validate(obj, undefined, "o");
+		const b = validate(obj, undefined, "o");
+		expect(a).toEqual({ n: 1 });
+		expect(a).not.toBe(b);
+
+		const arr = v.array(v.string(), { default: () => ["x"] });
+		const xs = validate(arr, undefined, "a");
+		const ys = validate(arr, undefined, "a");
+		expect(xs).toEqual(["x"]);
+		expect(xs).not.toBe(ys);
 	});
 });

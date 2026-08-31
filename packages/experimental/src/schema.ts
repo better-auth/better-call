@@ -33,8 +33,10 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	/** `function` types only: the declared input of the expected fn -
 	 * plain closures get it validated at their door on every call. */
 	fnInput?: unknown;
-	/** Used when the incoming value is `undefined`. */
-	default?: D;
+	/** Used when the incoming value is `undefined`. A zero-arg function
+	 * is called (fresh value per validate) except on `function` schemas,
+	 * where the default IS the fn. */
+	default?: D | (() => D);
 	/** When true, `undefined` passes straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
@@ -515,8 +517,15 @@ export const validate = (
 	// object with no default treats omit as `{}` so all-optional fields
 	// can be left off the call without a dummy payload.
 	if (value === undefined) {
-		if (def.default !== undefined) value = def.default;
-		else if (def.optional) return undefined;
+		if (def.default !== undefined) {
+			// Factories produce a fresh value each time - needed for Date /
+			// object / array defaults. Skip on `function` schemas: there the
+			// default IS the fn.
+			value =
+				typeof def.default === "function" && def.name !== "function"
+					? (def.default as () => unknown)()
+					: def.default;
+		} else if (def.optional) return undefined;
 		else if (def.name === "object" && def.shape !== undefined) value = {};
 	}
 	// A var used as an input field validates against its own schema. An
@@ -650,6 +659,10 @@ const build = (name: string, options: any, extra?: any): any => ({
 	...options,
 });
 
+/** A default may be the value itself or a factory that mints it fresh on
+ * each validate - `() => new Date()`, `() => []`, …. */
+type DefaultInput<T> = T | (() => T);
+
 /**
  * Call signatures for the type helpers. Option-shape overloads replace
  * `Opt` / `D` type parameters so a partial type argument (literal narrowing)
@@ -657,13 +670,16 @@ const build = (name: string, options: any, extra?: any): any => ({
  */
 type StringFn = {
 	<const E extends string, O = E>(
-		options: StringOptions<E, O> & { optional: true; default: string },
+		options: StringOptions<E, O> & {
+			optional: true;
+			default: DefaultInput<string>;
+		},
 	): TypeDefination<E, O, string>;
 	<const E extends string, O = E>(
 		options: StringOptions<E, O> & { optional: true },
 	): TypeDefination<E, OutOf<O, never, true>, undefined>;
 	<const E extends string, O = E>(
-		options: StringOptions<E, O> & { default: string },
+		options: StringOptions<E, O> & { default: DefaultInput<string> },
 	): TypeDefination<E, O, string>;
 	<const E extends string, O = E>(
 		options?: StringOptions<E, O>,
@@ -672,26 +688,32 @@ type StringFn = {
 
 type NumberFn = {
 	<O = number>(
-		options: NumberOptions<O> & { optional: true; default: number },
+		options: NumberOptions<O> & {
+			optional: true;
+			default: DefaultInput<number>;
+		},
 	): TypeDefination<number, O, number>;
 	<O = number>(
 		options: NumberOptions<O> & { optional: true },
 	): TypeDefination<number, OutOf<O, never, true>, undefined>;
 	<O = number>(
-		options: NumberOptions<O> & { default: number },
+		options: NumberOptions<O> & { default: DefaultInput<number> },
 	): TypeDefination<number, O, number>;
 	<O = number>(options?: NumberOptions<O>): TypeDefination<number, O, never>;
 };
 
 type BooleanFn = {
 	<O = boolean>(
-		options: TypeOptions<boolean, O> & { optional: true; default: boolean },
+		options: TypeOptions<boolean, O> & {
+			optional: true;
+			default: DefaultInput<boolean>;
+		},
 	): TypeDefination<boolean, O, boolean>;
 	<O = boolean>(
 		options: TypeOptions<boolean, O> & { optional: true },
 	): TypeDefination<boolean, OutOf<O, never, true>, undefined>;
 	<O = boolean>(
-		options: TypeOptions<boolean, O> & { default: boolean },
+		options: TypeOptions<boolean, O> & { default: DefaultInput<boolean> },
 	): TypeDefination<boolean, O, boolean>;
 	<O = boolean>(
 		options?: TypeOptions<boolean, O>,
@@ -700,26 +722,29 @@ type BooleanFn = {
 
 type DateFn = {
 	<O = Date>(
-		options: TypeOptions<Date, O> & { optional: true; default: Date },
+		options: TypeOptions<Date, O> & {
+			optional: true;
+			default: DefaultInput<Date>;
+		},
 	): TypeDefination<Date, O, Date>;
 	<O = Date>(
 		options: TypeOptions<Date, O> & { optional: true },
 	): TypeDefination<Date, OutOf<O, never, true>, undefined>;
 	<O = Date>(
-		options: TypeOptions<Date, O> & { default: Date },
+		options: TypeOptions<Date, O> & { default: DefaultInput<Date> },
 	): TypeDefination<Date, O, Date>;
 	<O = Date>(options?: TypeOptions<Date, O>): TypeDefination<Date, O, never>;
 };
 
 type AnyFn = {
 	<T = unknown>(
-		options: TypeOptions<T, T> & { optional: true; default: T },
+		options: TypeOptions<T, T> & { optional: true; default: DefaultInput<T> },
 	): TypeDefination<T, T, T>;
 	<T = unknown>(
 		options: TypeOptions<T, T> & { optional: true },
 	): TypeDefination<T, OutOf<T, never, true>, undefined>;
 	<T = unknown>(
-		options: TypeOptions<T, T> & { default: T },
+		options: TypeOptions<T, T> & { default: DefaultInput<T> },
 	): TypeDefination<T, T, T>;
 	<T = unknown>(options?: TypeOptions<T, T>): TypeDefination<T, T, never>;
 };
@@ -730,7 +755,7 @@ type ObjectFn = {
 		options: TypeOptions<DefineOutput<S>, O> & {
 			optional: true;
 			// Defaults are validated as inputs, so they use ArgsShape.
-			default: ArgsShape<S>;
+			default: DefaultInput<ArgsShape<S>>;
 		},
 	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
@@ -739,7 +764,9 @@ type ObjectFn = {
 	): TypeDefination<ArgsShape<S>, OutOf<O, never, true>, undefined>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
-		options: TypeOptions<DefineOutput<S>, O> & { default: ArgsShape<S> },
+		options: TypeOptions<DefineOutput<S>, O> & {
+			default: DefaultInput<ArgsShape<S>>;
+		},
 	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
@@ -754,7 +781,7 @@ type ArrayFn = {
 		options: ArrayOptions<E, O> & {
 			optional: true;
 			// Defaults are validated as inputs, so they use FieldIn.
-			default: FieldIn<E>[];
+			default: DefaultInput<FieldIn<E>[]>;
 		},
 	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
 	<E, O = FieldOut<E>[]>(
@@ -763,7 +790,7 @@ type ArrayFn = {
 	): TypeDefination<FieldIn<E>[], OutOf<O, never, true>, undefined>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
-		options: ArrayOptions<E, O> & { default: FieldIn<E>[] },
+		options: ArrayOptions<E, O> & { default: DefaultInput<FieldIn<E>[]> },
 	): TypeDefination<FieldIn<E>[], O, FieldIn<E>[]>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
@@ -773,7 +800,7 @@ type ArrayFn = {
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & {
 			optional: true;
-			default: any[];
+			default: DefaultInput<any[]>;
 		},
 	): TypeDefination<any[], any[], any[]>;
 	(
@@ -782,7 +809,9 @@ type ArrayFn = {
 	): TypeDefination<any[], any[] | undefined, undefined>;
 	(
 		element?: undefined,
-		options?: ArrayOptions<undefined, any[]> & { default: any[] },
+		options?: ArrayOptions<undefined, any[]> & {
+			default: DefaultInput<any[]>;
+		},
 	): TypeDefination<any[], any[], any[]>;
 	(
 		element?: undefined,
