@@ -147,3 +147,65 @@ describe("email normalization", () => {
 		expect(validate(field, " A@B.CO ", "email")).toBe("user:a@b.co");
 	});
 });
+
+describe("v.union", () => {
+	it("parses string | number; rejects neither", () => {
+		const field = v.union([v.string(), v.number()]);
+		expect(validate(field, "hi", "x")).toBe("hi");
+		expect(validate(field, 3, "x")).toBe(3);
+		expect(() => validate(field, true, "x")).toThrow(/expected/);
+		expectTypeOf<InferType<typeof field>>().toEqualTypeOf<string | number>();
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<string | number>();
+		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<string | number>();
+	});
+
+	it("first matching object arm wins, including its transform", () => {
+		const field = v.union([
+			v.object({
+				kind: v.string({ enum: ["a"] }),
+				n: v.string({ transform: (s) => Number(s) }),
+			}),
+			v.object({
+				kind: v.string({ enum: ["b"] }),
+				ok: v.boolean(),
+			}),
+		]);
+		expect(validate(field, { kind: "a", n: "9" }, "x")).toEqual({
+			kind: "a",
+			n: 9,
+		});
+		expect(validate(field, { kind: "b", ok: true }, "x")).toEqual({
+			kind: "b",
+			ok: true,
+		});
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
+			{ kind: "a"; n: number } | { kind: "b"; ok: boolean }
+		>();
+	});
+
+	it("optional and default behave like other types", () => {
+		const optional = v.union([v.string(), v.number()], { optional: true });
+		expect(validate(optional, undefined, "x")).toBeUndefined();
+		expectTypeOf<InferOutput<typeof optional>>().toEqualTypeOf<
+			string | number | undefined
+		>();
+
+		const withDefault = v.union([v.string(), v.number()], { default: 0 });
+		expect(validate(withDefault, undefined, "x")).toBe(0);
+		expectTypeOf<InferOutput<typeof withDefault>>().toEqualTypeOf<
+			string | number
+		>();
+	});
+
+	it("aggregates issues from every failing branch", () => {
+		const field = v.union([v.string({ min: 2 }), v.number({ min: 10 })]);
+		try {
+			validate(field, "x", "u");
+			expect.unreachable();
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(Error);
+			const err = thrown as { issues: { message: string }[] };
+			expect(err.issues.length).toBeGreaterThanOrEqual(2);
+		}
+	});
+});

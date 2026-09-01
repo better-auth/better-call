@@ -72,6 +72,7 @@ interface V {
 	date: (typeof vTypes)["date"];
 	object: (typeof vTypes)["object"];
 	array: (typeof vTypes)["array"];
+	union: (typeof vTypes)["union"];
 	any: (typeof vTypes)["any"];
 }
 

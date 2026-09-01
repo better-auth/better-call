@@ -43,6 +43,12 @@ export const clientSchema = <S>(schema: S): S => {
 	if (def.name === "array" && def.shape !== undefined) {
 		return { ...def, shape: clientSchema(def.shape) } as S;
 	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		return {
+			...def,
+			shape: (def.shape as unknown[]).map((option) => clientSchema(option)),
+		} as S;
+	}
 	return schema;
 };
 
@@ -82,6 +88,12 @@ export const rejectServerOnly = (
 	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
 		for (let i = 0; i < value.length; i++) {
 			rejectServerOnly(def.shape, value[i], `${path}[${i}]`);
+		}
+		return;
+	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		for (const option of def.shape as unknown[]) {
+			rejectServerOnly(option, value, path);
 		}
 	}
 };

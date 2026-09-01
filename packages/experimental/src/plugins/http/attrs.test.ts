@@ -101,4 +101,41 @@ describe("http field attrs", () => {
 			ValidationError,
 		);
 	});
+
+	it("clientSchema and rejectServerOnly recurse into union arms", () => {
+		const schema = v.union([
+			v.object({
+				kind: v.string({ enum: ["user"] }),
+				id: v.string(),
+				role: serverOnly(v.string()),
+			}),
+			v.object({
+				kind: v.string({ enum: ["anon"] }),
+				token: v.string(),
+			}),
+		]);
+		const projected = asType(clientSchema(schema));
+		const arms = projected.shape as unknown[];
+		expect(arms).toHaveLength(2);
+		expect(Object.keys(asType(arms[0]).shape as object).sort()).toEqual([
+			"id",
+			"kind",
+		]);
+		expect(Object.keys(asType(arms[1]).shape as object).sort()).toEqual([
+			"kind",
+			"token",
+		]);
+
+		expect(() =>
+			rejectServerOnly(schema, { kind: "user", id: "1", role: "admin" }),
+		).toThrow(/server-only/);
+		expect(wireInput(schema, { kind: "anon", token: "t" })).toEqual({
+			kind: "anon",
+			token: "t",
+		});
+		expect(wireInput(schema, { kind: "user", id: "1" })).toEqual({
+			kind: "user",
+			id: "1",
+		});
+	});
 });

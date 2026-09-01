@@ -98,6 +98,12 @@ type StringOptions<E extends string, O> = TypeOptions<E, O> &
 type ArrayOptions<E, O> = TypeOptions<FieldOut<E>[], O> &
 	Pick<Rules, "min" | "max" | "length" | "check">;
 
+type UnionOptions<T extends readonly unknown[], O> = TypeOptions<
+	FieldOut<T[number]>,
+	O
+> &
+	Pick<Rules, "check">;
+
 type NumberOptions<O> = TypeOptions<number, O> &
 	Pick<Rules, "min" | "max" | "int" | "check"> & {
 		enum?: readonly number[];
@@ -648,6 +654,39 @@ export const validate = (
 		}
 		return def.transform ? def.transform(parsed) : parsed;
 	}
+	if (def.name === "union") {
+		// Try each option in order - first success wins. All failures
+		// report together so callers see every branch's issues.
+		const options = def.shape;
+		if (!Array.isArray(options) || options.length === 0) {
+			throw new ValidationError(path, "expected a non-empty union");
+		}
+		const issues: Issue[] = [];
+		let parsed: unknown;
+		let matched = false;
+		for (const member of options) {
+			try {
+				parsed = validate(asType(member), value, path);
+				matched = true;
+				break;
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				issues.push(...thrown.issues);
+			}
+		}
+		if (!matched) {
+			const firstIssue = issues[0];
+			if (firstIssue) {
+				throw new ValidationError(firstIssue.path, firstIssue.message, issues);
+			}
+			throw new ValidationError(
+				path,
+				`expected union, received ${typeOf(value)}`,
+			);
+		}
+		applyRules(def, parsed, path);
+		return def.transform ? def.transform(parsed) : parsed;
+	}
 	if (typeOf(value) !== def.name) {
 		throw new ValidationError(
 			path,
@@ -830,6 +869,30 @@ type ArrayFn = {
 	): TypeDefination<any[], any[], never>;
 };
 
+type UnionFn = {
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options: UnionOptions<T, O> & {
+			optional: true;
+			default: DefaultInput<FieldIn<T[number]>>;
+		},
+	): TypeDefination<FieldIn<T[number]>, O, FieldIn<T[number]>>;
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options: UnionOptions<T, O> & { optional: true },
+	): TypeDefination<FieldIn<T[number]>, OutOf<O, never, true>, undefined>;
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options: UnionOptions<T, O> & {
+			default: DefaultInput<FieldIn<T[number]>>;
+		},
+	): TypeDefination<FieldIn<T[number]>, O, FieldIn<T[number]>>;
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options?: UnionOptions<T, O>,
+	): TypeDefination<FieldIn<T[number]>, O, never>;
+};
+
 export const vTypes = {
 	/** An `enum` narrows both sides to the literal union: `v.string({
 	 * enum: ["a", "b"] })` types as `"a" | "b"`, not `string`. */
@@ -853,4 +916,8 @@ export const vTypes = {
 			options,
 			element === undefined ? {} : { shape: element },
 		)) as ArrayFn,
+	/** Try each option in order - first successful parse wins. All
+	 * failing branches report together when none match. */
+	union: ((members: any, options?: any) =>
+		build("union", options, { shape: members })) as UnionFn,
 };
