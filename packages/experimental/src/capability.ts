@@ -301,7 +301,7 @@ export type Challenge = {
 	subject: string;
 	holder: string;
 	caps: Cap[];
-	goal?: string;
+	goal?: string | null;
 	status: "pending" | "approved" | "denied";
 };
 
@@ -336,7 +336,7 @@ export type Authority = {
 	decide?: (request: {
 		subject: string;
 		caps: Cap[];
-		goal?: string;
+		goal?: string | null;
 	}) => "approve" | "challenge" | "deny";
 	/** Delegation and attestation lifetime, seconds. */
 	ttl?: number;

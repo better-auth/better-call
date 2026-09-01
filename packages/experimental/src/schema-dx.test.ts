@@ -288,6 +288,72 @@ describe("v.union", () => {
 		expect(() => validate(v.string(), null, "x")).toThrow(/expected string/);
 	});
 
+	it("default: null is optional to send and produces null", () => {
+		const callbackUrl = v.string({ optional: true, default: null });
+		expect(validate(callbackUrl, undefined, "x")).toBeNull();
+		expect(validate(callbackUrl, null, "x")).toBeNull();
+		expect(validate(callbackUrl, "https://ok", "x")).toBe("https://ok");
+		expectTypeOf<InferOutput<typeof callbackUrl>>().toEqualTypeOf<
+			string | null
+		>();
+		expectTypeOf<InferArgs<typeof callbackUrl>>().toEqualTypeOf<
+			string | null
+		>();
+
+		const bare = v.string({ default: null });
+		expect(validate(bare, undefined, "x")).toBeNull();
+		expectTypeOf<InferOutput<typeof bare>>().toEqualTypeOf<string | null>();
+
+		const shaped = v.object({
+			callbackUrl: v.string({ optional: true, default: null }),
+			n: v.number({ default: null }),
+		});
+		expect(validate(shaped, {}, "x")).toEqual({
+			callbackUrl: null,
+			n: null,
+		});
+		expectTypeOf<InferOutput<typeof shaped>>().toEqualTypeOf<{
+			callbackUrl: string | null;
+			n: number | null;
+		}>();
+		expectTypeOf<InferArgs<typeof shaped>>().toEqualTypeOf<{
+			callbackUrl?: string | null;
+			n?: number | null;
+		}>();
+
+		expect(
+			validate(v.number({ optional: true, default: null }), undefined, "n"),
+		).toBeNull();
+		expect(validate(v.boolean({ default: null }), undefined, "b")).toBeNull();
+		expect(
+			validate(v.any({ optional: true, default: null }), undefined, "a"),
+		).toBeNull();
+		expect(
+			validate(
+				v.object({ x: v.string() }, { optional: true, default: null }),
+				undefined,
+				"o",
+			),
+		).toBeNull();
+		expect(
+			validate(
+				v.array(v.string(), { optional: true, default: null }),
+				undefined,
+				"arr",
+			),
+		).toBeNull();
+		expect(
+			validate(
+				v.union([v.string(), v.number()], { optional: true, default: null }),
+				undefined,
+				"u",
+			),
+		).toBeNull();
+		expect(
+			validate(v.date({ optional: true, default: null }), undefined, "d"),
+		).toBeNull();
+	});
+
 	it("aggregates issues from every failing branch", () => {
 		const field = v.union([v.string({ min: 2 }), v.number({ min: 10 })]);
 		try {
@@ -336,7 +402,7 @@ describe("v.union", () => {
 		const find = v.fn(
 			"union.find",
 			{ output: v.union([user, null]) },
-			(_c) => null,
+			(_c): { id: string } | null => null,
 		);
 		expectTypeOf(find).returns.toEqualTypeOf<{ id: string } | null>();
 		expect(find()).toBeNull();

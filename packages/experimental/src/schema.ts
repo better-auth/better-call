@@ -54,7 +54,8 @@ export type TypeOptions<T, O> = {
 /**
  * `optional` widens the output with `| undefined | null`; `default` keeps
  * it narrow because a value is always produced. Declaring both means
- * optional to send, never absent.
+ * optional to send, never absent. `default: null` is the exception that
+ * still unions `| null` into the output - absence produces null.
  *
  * Helpers select among these via option-shape overloads rather than `Opt` /
  * `D` type parameters: providing a partial type argument (e.g.
@@ -73,7 +74,8 @@ type OutOf<O, D, Opt> = [Opt] extends [true]
  * is optional and TypeScript attributes the undefined to the property.
  * When the third type arg is `undefined` (optional, no default), put
  * `| undefined | null` back so handlers see the same absence validate
- * produces at runtime.
+ * produces at runtime. When the default itself is `null`, put `| null`
+ * back the same way.
  */
 type OutputOf<F> =
 	F extends TypeDefination<any, infer O, infer D>
@@ -81,7 +83,9 @@ type OutputOf<F> =
 			? O
 			: undefined extends D
 				? O | undefined | null
-				: O
+				: null extends D
+					? O | null
+					: O
 		: never;
 
 type StringOptions<E extends string, O> = TypeOptions<E, O> &
@@ -256,25 +260,49 @@ type FieldOut<F> = F extends { $var: true; schema?: infer S }
 type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
-		? SchemaFnIn<FI, FO> & FnVarBrand<FI>
+		? FnSchemaIn<F, SchemaFnIn<FI, FO> & FnVarBrand<FI>>
 		: F extends TypeDefination<infer T, any, infer D>
 			? undefined extends D
 				? T | null
-				: T
+				: null extends D
+					? T | null
+					: T
 			: F extends Record<string, unknown>
 				? ArgsShape<F>
 				: F;
 
 /**
+ * Input-side twin of {@link FnSchemaOut}: optional fn-typed fields accept
+ * `null` the same way `v.string({ optional: true })` does.
+ */
+type FnSchemaIn<F, Fn> = F extends { optional: true }
+	? F extends { default: infer D }
+		? null extends D
+			? Fn | null
+			: Fn
+		: Fn | null
+	: F extends { default: infer D }
+		? null extends D
+			? Fn | null
+			: Fn
+		: Fn;
+
+/**
  * `optional: true` on `v.fn.type` widens the same way a type's `optional`
  * does: absent without a default means the value may be `undefined` or
- * `null`.
+ * `null`. A `default: null` still unions `| null` into the output.
  */
 type FnSchemaOut<F, Fn> = F extends { optional: true }
-	? F extends { default: infer _D }
-		? Fn
+	? F extends { default: infer D }
+		? null extends D
+			? Fn | null
+			: Fn
 		: Fn | undefined | null
-	: Fn;
+	: F extends { default: infer D }
+		? null extends D
+			? Fn | null
+			: Fn
+		: Fn;
 
 /**
  * A field's declared default, looked through a var to its schema. Only a
@@ -338,7 +366,9 @@ export type InferArgs<I> = I extends { $var: true; schema?: infer S }
 			: I extends TypeDefination<infer T, any, infer D>
 				? undefined extends D
 					? T | null
-					: T
+					: null extends D
+						? T | null
+						: T
 				: ArgsShape<I>;
 
 export const isType = (value: any): value is TypeDefination<any, any> =>
@@ -562,6 +592,9 @@ export const validate = (
 				typeof def.default === "function" && def.name !== "function"
 					? (def.default as () => unknown)()
 					: def.default;
+			// `default: null` IS the value - do not type-check it as the
+			// field type (a string schema's null default is still null).
+			if (value === null) return null;
 		} else if (def.optional) return value;
 		else if (def.name === "object" && def.shape !== undefined) value = {};
 	}
@@ -738,6 +771,10 @@ const build = (name: string, options: any, extra?: any): any => ({
  * each validate - `() => new Date()`, `() => []`, …. */
 type DefaultInput<T> = T | (() => T);
 
+/** `default: null` (or a factory that returns it) - absence produces null,
+ * and the output type unions `| null` in. */
+type NullDefault = null | (() => null);
+
 /**
  * Call signatures for the type helpers. Option-shape overloads replace
  * `Opt` / `D` type parameters so a partial type argument (literal narrowing)
@@ -747,12 +784,21 @@ type StringFn = {
 	<const E extends string, O = E>(
 		options: StringOptions<E, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<E, O | null, null>;
+	<const E extends string, O = E>(
+		options: StringOptions<E, O> & {
+			optional: true;
 			default: DefaultInput<string>;
 		},
 	): TypeDefination<E, O, string>;
 	<const E extends string, O = E>(
 		options: StringOptions<E, O> & { optional: true },
 	): TypeDefination<E, OutOf<O, never, true>, undefined>;
+	<const E extends string, O = E>(
+		options: StringOptions<E, O> & { default: NullDefault },
+	): TypeDefination<E, O | null, null>;
 	<const E extends string, O = E>(
 		options: StringOptions<E, O> & { default: DefaultInput<string> },
 	): TypeDefination<E, O, string>;
@@ -765,12 +811,21 @@ type NumberFn = {
 	<O = number>(
 		options: NumberOptions<O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<number, O | null, null>;
+	<O = number>(
+		options: NumberOptions<O> & {
+			optional: true;
 			default: DefaultInput<number>;
 		},
 	): TypeDefination<number, O, number>;
 	<O = number>(
 		options: NumberOptions<O> & { optional: true },
 	): TypeDefination<number, OutOf<O, never, true>, undefined>;
+	<O = number>(
+		options: NumberOptions<O> & { default: NullDefault },
+	): TypeDefination<number, O | null, null>;
 	<O = number>(
 		options: NumberOptions<O> & { default: DefaultInput<number> },
 	): TypeDefination<number, O, number>;
@@ -781,12 +836,21 @@ type BooleanFn = {
 	<O = boolean>(
 		options: TypeOptions<boolean, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<boolean, O | null, null>;
+	<O = boolean>(
+		options: TypeOptions<boolean, O> & {
+			optional: true;
 			default: DefaultInput<boolean>;
 		},
 	): TypeDefination<boolean, O, boolean>;
 	<O = boolean>(
 		options: TypeOptions<boolean, O> & { optional: true },
 	): TypeDefination<boolean, OutOf<O, never, true>, undefined>;
+	<O = boolean>(
+		options: TypeOptions<boolean, O> & { default: NullDefault },
+	): TypeDefination<boolean, O | null, null>;
 	<O = boolean>(
 		options: TypeOptions<boolean, O> & { default: DefaultInput<boolean> },
 	): TypeDefination<boolean, O, boolean>;
@@ -799,12 +863,21 @@ type DateFn = {
 	<O = Date>(
 		options: TypeOptions<Date, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<Date, O | null, null>;
+	<O = Date>(
+		options: TypeOptions<Date, O> & {
+			optional: true;
 			default: DefaultInput<Date>;
 		},
 	): TypeDefination<Date, O, Date>;
 	<O = Date>(
 		options: TypeOptions<Date, O> & { optional: true },
 	): TypeDefination<Date, OutOf<O, never, true>, undefined>;
+	<O = Date>(
+		options: TypeOptions<Date, O> & { default: NullDefault },
+	): TypeDefination<Date, O | null, null>;
 	<O = Date>(
 		options: TypeOptions<Date, O> & { default: DefaultInput<Date> },
 	): TypeDefination<Date, O, Date>;
@@ -813,11 +886,20 @@ type DateFn = {
 
 type AnyFn = {
 	<T = unknown>(
+		options: TypeOptions<T, T> & {
+			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<T, T | null, null>;
+	<T = unknown>(
 		options: TypeOptions<T, T> & { optional: true; default: DefaultInput<T> },
 	): TypeDefination<T, T, T>;
 	<T = unknown>(
 		options: TypeOptions<T, T> & { optional: true },
 	): TypeDefination<T, OutOf<T, never, true>, undefined>;
+	<T = unknown>(
+		options: TypeOptions<T, T> & { default: NullDefault },
+	): TypeDefination<T, T | null, null>;
 	<T = unknown>(
 		options: TypeOptions<T, T> & { default: DefaultInput<T> },
 	): TypeDefination<T, T, T>;
@@ -837,6 +919,13 @@ type ObjectFn = {
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<ArgsShape<S>, O | null, null>;
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options: TypeOptions<DefineOutput<S>, O> & {
+			optional: true;
 			default: ObjectDefault<S>;
 		},
 	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
@@ -844,6 +933,12 @@ type ObjectFn = {
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & { optional: true },
 	): TypeDefination<ArgsShape<S>, OutOf<O, never, true>, undefined>;
+	<S, O = DefineOutput<S>>(
+		shape: S,
+		options: TypeOptions<DefineOutput<S>, O> & {
+			default: NullDefault;
+		},
+	): TypeDefination<ArgsShape<S>, O | null, null>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
@@ -862,6 +957,13 @@ type ArrayFn = {
 		element: E,
 		options: ArrayOptions<E, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<FieldIn<E>[], O | null, null>;
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options: ArrayOptions<E, O> & {
+			optional: true;
 			// Defaults are validated as inputs, so they use FieldIn.
 			default: DefaultInput<FieldIn<E>[]>;
 		},
@@ -870,6 +972,10 @@ type ArrayFn = {
 		element: E,
 		options: ArrayOptions<E, O> & { optional: true },
 	): TypeDefination<FieldIn<E>[], OutOf<O, never, true>, undefined>;
+	<E, O = FieldOut<E>[]>(
+		element: E,
+		options: ArrayOptions<E, O> & { default: NullDefault },
+	): TypeDefination<FieldIn<E>[], O | null, null>;
 	<E, O = FieldOut<E>[]>(
 		element: E,
 		options: ArrayOptions<E, O> & { default: DefaultInput<FieldIn<E>[]> },
@@ -882,6 +988,13 @@ type ArrayFn = {
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<any[], any[] | null, null>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]> & {
+			optional: true;
 			default: DefaultInput<any[]>;
 		},
 	): TypeDefination<any[], any[], any[]>;
@@ -889,6 +1002,12 @@ type ArrayFn = {
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & { optional: true },
 	): TypeDefination<any[], any[] | undefined | null, undefined>;
+	(
+		element?: undefined,
+		options?: ArrayOptions<undefined, any[]> & {
+			default: NullDefault;
+		},
+	): TypeDefination<any[], any[] | null, null>;
 	(
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & {
@@ -906,6 +1025,13 @@ type UnionFn = {
 		members: T,
 		options: UnionOptions<T, O> & {
 			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<FieldIn<T[number]>, O | null, null>;
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options: UnionOptions<T, O> & {
+			optional: true;
 			default: DefaultInput<FieldIn<T[number]>>;
 		},
 	): TypeDefination<FieldIn<T[number]>, O, FieldIn<T[number]>>;
@@ -913,6 +1039,12 @@ type UnionFn = {
 		members: T,
 		options: UnionOptions<T, O> & { optional: true },
 	): TypeDefination<FieldIn<T[number]>, OutOf<O, never, true>, undefined>;
+	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
+		members: T,
+		options: UnionOptions<T, O> & {
+			default: NullDefault;
+		},
+	): TypeDefination<FieldIn<T[number]>, O | null, null>;
 	<const T extends readonly [unknown, ...unknown[]], O = FieldOut<T[number]>>(
 		members: T,
 		options: UnionOptions<T, O> & {
