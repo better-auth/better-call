@@ -125,3 +125,25 @@ describe("factory defaults", () => {
 		expect(xs).not.toBe(ys);
 	});
 });
+
+describe("email normalization", () => {
+	it("trims and lowercases before validating", () => {
+		const field = v.string({ email: true });
+		expect(validate(field, "  Foo@Bar.COM  ", "email")).toBe("foo@bar.com");
+	});
+
+	it("still rejects malformed addresses after normalize", () => {
+		const field = v.string({ email: true });
+		expect(() => validate(field, "  not-an-email  ", "email")).toThrow(
+			/expected an email address/,
+		);
+	});
+
+	it("user transform receives the normalized value", () => {
+		const field = v.string({
+			email: true,
+			transform: (s) => `user:${s}`,
+		});
+		expect(validate(field, " A@B.CO ", "email")).toBe("user:a@b.co");
+	});
+});
