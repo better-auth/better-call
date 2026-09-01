@@ -341,9 +341,63 @@ type UseVarKeys<U> = {
 	[K in keyof U]: U[K] extends VarDefination<any, any, any, any> ? K : never;
 }[keyof U];
 
-/** A var alias' surface: the var's VALUE, read and written in place. */
+/**
+ * VarDefination surface keys. ModuleFns intersects a merge var with
+ * same-key namespace helpers (`VarDef & { createUser }`); stripping these
+ * leaves the helper group for {@link UseApi}.
+ */
+type VarSurfaceKeys =
+	| "$var"
+	| "name"
+	| "default"
+	| "schema"
+	| "type"
+	| "$source"
+	| "$attrs"
+	| "$merge"
+	| "customize";
+
+type MergeHelpersOnVar<V> = Omit<V, VarSurfaceKeys>;
+
+/** Bound helpers intersected onto a merge var in ModuleFns, if any. */
+type UseApiMergeExtras<V> = V extends { $merge: true }
+	? [keyof MergeHelpersOnVar<V>] extends [never]
+		? never
+		: UseApi<MergeHelpersOnVar<V>>
+	: never;
+
+/**
+ * A var alias' surface: the var's VALUE, plus same-key namespace helpers
+ * when the var is `merge: true` (mirrors {@link collectMergeSeeds} /
+ * {@link viewMergeVar}).
+ */
 type UseVarValue<V> =
-	V extends VarDefination<any, infer T, any, any> ? T : never;
+	V extends VarDefination<any, infer T, any, any>
+		? UseApiMergeExtras<V> extends infer H
+			? [H] extends [never]
+				? T
+				: Prettify<T & H>
+			: T
+		: never;
+
+/**
+ * Fold merge-var helpers from the usable map `U` onto scope values keyed
+ * by DECLARED name (so `c.vt_merge_db.byTag` types when the export key
+ * was `db`).
+ */
+type MergeIntoScope<RV, U> = {
+	[K in keyof RV]: HelpersForDeclaredName<K & string, U> extends infer H
+		? [H] extends [never]
+			? RV[K]
+			: Prettify<RV[K] & H>
+		: RV[K];
+};
+
+type HelpersForDeclaredName<N extends string, U> = {
+	[K in keyof U]: U[K] extends VarDefination<N, any, any, any>
+		? UseApiMergeExtras<U[K]>
+		: never;
+}[keyof U];
 
 export type UseApi<U> = Prettify<
 	{
@@ -416,7 +470,12 @@ export type Context<
 	types: typeof vTypes;
 } & /** Every var in scope, directly on `c`: read `c.session`, write by
  * plain assignment (`c.session = {...}`). Every var is a readonly
- * property on a readonly fn. */ VarScope<RV, Required, RO> &
+ * property on a readonly fn. Merge vars also expose same-key helpers
+ * folded from `U` (declared-name access). */ VarScope<
+	MergeIntoScope<RV, U>,
+	Required,
+	RO
+> &
 	/** Fns from `use`, directly on `c` and already threaded with this
 	 * context: `c.createUser({...})`. */
 	(RO extends true ? ReadUseApi<U> : UseApi<U>);

@@ -35,8 +35,10 @@ export interface VarDefination<
 	 * Object contributions from `use` modules merge instead of replacing:
 	 * same-name var defaults and same-export-key namespaces shallow-merge
 	 * onto this value (storage default + helpers). Writes accumulate too.
+	 * `v.var(..., { merge: true })` brands this as `true` so context types
+	 * fold same-key helpers onto the value.
 	 */
-	$merge?: boolean;
+	$merge?: true | boolean;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;

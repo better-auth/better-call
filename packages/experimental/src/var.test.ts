@@ -165,8 +165,48 @@ describe("merge vars", () => {
 			{
 				use: [{ obj: base }, { obj: { who: first } }, { obj: { who: second } }],
 			},
-			(c) => c.vt_merge_obj.who(),
+			// Conflicting same-key helpers collapse to `never` under
+			// UnionToIntersection; runtime still last-wins via collectMergeSeeds.
+			(c) => (c.vt_merge_obj as { who: () => string }).who(),
 		);
 		expect(entry()).toBe("second");
+	});
+
+	it("same-key namespace helpers are typed on the merge var", async () => {
+		const db = v.var("db", {
+			merge: true,
+			default: { storage: true as const },
+		});
+		const createUser = v.fn(
+			"db.create_user",
+			{
+				input: { id: v.string() },
+				output: v.object({ id: v.string() }),
+			},
+			(c) => c.input,
+		);
+		const e = v.fn("auth.", {
+			use: [{ db }, { db: { createUser } }] as const,
+		});
+		const signUp = e.fn("sign_up", async (c) => {
+			expectTypeOf(c.db).toHaveProperty("storage");
+			expectTypeOf(c.db).toHaveProperty("createUser");
+			expectTypeOf(c.db.createUser).toBeCallableWith({ id: "1" });
+			return c.db.createUser({ id: "1" });
+		});
+		await expect(signUp()).resolves.toEqual({ id: "1" });
+	});
+
+	it("helpers are typed on the declared name when export key differs", async () => {
+		const store = v.var("vt_alias_db", {
+			merge: true,
+			default: { storage: true as const },
+		});
+		const ping = v.fn("vt.alias.ping", () => "pong" as const);
+		v.fn({ use: [{ db: store }, { db: { ping } }] as const }, (c) => {
+			expectTypeOf(c.vt_alias_db).toHaveProperty("ping");
+			expectTypeOf(c.db).toHaveProperty("ping");
+			return c.vt_alias_db.ping();
+		});
 	});
 });

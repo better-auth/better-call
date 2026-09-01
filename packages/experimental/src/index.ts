@@ -14,21 +14,28 @@ import {
 
 interface V {
 	fn: Fn;
-	var: <N extends LiteralString, S = undefined, D = undefined>(
+	var: <
+		N extends LiteralString,
+		S = undefined,
+		D = undefined,
+		const M extends boolean | undefined = undefined,
+	>(
 		name: N,
-		options?: { default?: D; schema?: S; merge?: boolean },
+		options?: { default?: D; schema?: S; merge?: M },
 		// A default the schema already covers (e.g. `{}` against an
 		// all-optional shape) is absorbed; `default: null` still unions in.
 		// `merge: true` - object contributions from `use` modules (same-name
 		// defaults, same-key namespaces) shallow-merge onto the value;
-		// writes accumulate the same way.
+		// writes accumulate the same way. Brand `$merge: true` so scope
+		// types can fold those helpers onto the var.
 	) => VarDefination<
 		N,
 		[S] extends [undefined]
 			? D
 			: InferInput<S> | ([D] extends [InferInput<S>] ? never : D),
 		S
-	>;
+	> &
+		(M extends true ? { $merge: true } : unknown);
 	/** A var you accumulate into: `set()` merges instead of replacing. */
 	record: <N extends LiteralString, S = undefined>(
 		name: N,
