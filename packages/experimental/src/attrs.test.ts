@@ -27,7 +27,7 @@ describe("schema $attrs", () => {
 		const email = withAttrs(v.string({ email: true }), "db", {
 			unique: true,
 		});
-		expect(validate(email, "a@b.c", "email")).toBe("a@b.c");
+		expect(validate(email, "a@b.co", "email")).toBe("a@b.co");
 		expect(() => validate(email, "nope", "email")).toThrow(ValidationError);
 	});
 

@@ -9,6 +9,7 @@ export type Rules = {
 	/** Strings only: exact length. */
 	length?: number;
 	regex?: RegExp;
+	/** Strings only. Trims and lowercases before the format check. */
 	email?: boolean;
 	url?: boolean;
 	startsWith?: string;
@@ -428,7 +429,12 @@ export const typeOf = (value: unknown) =>
 
 export const isVar = (value: any): boolean => value?.$var === true;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Zod's email regex
+// The author has written about this explicitly: trying to accept every technically valid email address leads to overly complex,
+// hard-to-maintain, and sometimes ReDoS-vulnerable regexes that still reject real-world addresses people actually use.
+// Zod prioritizes a practical filter that works well for the vast majority of real user-entered emails.
+const EMAIL =
+	/^(?!\.)(?!.*\.\.)([a-z0-9_'+\-.]*)[a-z0-9_+-]@([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}$/;
 
 const fail = (path: string, message: string): never => {
 	throw new ValidationError(path, message);
@@ -647,6 +653,11 @@ export const validate = (
 			path,
 			`expected ${def.name}, received ${typeOf(value)}`,
 		);
+	}
+	// Canonicalize before rules so padded / mixed-case addresses pass the
+	// email regex and handlers always see the normalized form.
+	if (def.email && typeof value === "string") {
+		value = value.trim().toLowerCase();
 	}
 	applyRules(def, value, path);
 	return def.transform ? def.transform(value) : value;
