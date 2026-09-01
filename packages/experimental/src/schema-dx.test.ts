@@ -8,7 +8,7 @@ describe("v.string type-arg + optional DX", () => {
 		const field = v.string<"a" | "b">({ optional: true });
 		expectTypeOf<InferType<typeof field>>().toEqualTypeOf<"a" | "b">();
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			"a" | "b" | undefined
+			"a" | "b" | undefined | null
 		>();
 	});
 
@@ -40,42 +40,46 @@ describe("other vTypes type-arg + optional DX", () => {
 	it("v.any with type param accepts optional: true", () => {
 		const field = v.any<{ id: string }>({ optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			{ id: string } | undefined
+			{ id: string } | undefined | null
 		>();
 	});
 
 	it("v.number accepts optional: true without a type param", () => {
 		const field = v.number({ optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			number | undefined
+			number | undefined | null
 		>();
 	});
 
 	it("v.number with output type param accepts optional: true", () => {
 		const field = v.number<number>({ optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			number | undefined
+			number | undefined | null
 		>();
 	});
 
 	it("v.boolean/date accept optional: true", () => {
 		const b = v.boolean({ optional: true });
 		const d = v.date({ optional: true });
-		expectTypeOf<InferOutput<typeof b>>().toEqualTypeOf<boolean | undefined>();
-		expectTypeOf<InferOutput<typeof d>>().toEqualTypeOf<Date | undefined>();
+		expectTypeOf<InferOutput<typeof b>>().toEqualTypeOf<
+			boolean | undefined | null
+		>();
+		expectTypeOf<InferOutput<typeof d>>().toEqualTypeOf<
+			Date | undefined | null
+		>();
 	});
 
 	it("v.array with element accepts optional: true", () => {
 		const field = v.array(v.string<"a" | "b">(), { optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			("a" | "b")[] | undefined
+			("a" | "b")[] | undefined | null
 		>();
 	});
 
 	it("v.object with shape accepts optional: true", () => {
 		const field = v.object({ kind: v.string<"a" | "b">() }, { optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
-			{ kind: "a" | "b" } | undefined
+			{ kind: "a" | "b" } | undefined | null
 		>();
 	});
 
@@ -108,9 +112,9 @@ describe("other vTypes type-arg + optional DX", () => {
 			{ optional: true, default: {} },
 		);
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<{
-			password: { hash?: string; verify?: string };
+			password: { hash?: string | null; verify?: string | null };
 			minPasswordLength: number;
-			maxPasswordLength?: number;
+			maxPasswordLength?: number | null;
 		}>();
 	});
 
@@ -251,8 +255,9 @@ describe("v.union", () => {
 	it("optional and default behave like other types", () => {
 		const optional = v.union([v.string(), v.number()], { optional: true });
 		expect(validate(optional, undefined, "x")).toBeUndefined();
+		expect(validate(optional, null, "x")).toBeNull();
 		expectTypeOf<InferOutput<typeof optional>>().toEqualTypeOf<
-			string | number | undefined
+			string | number | undefined | null
 		>();
 
 		const withDefault = v.union([v.string(), v.number()], { default: 0 });
@@ -260,6 +265,27 @@ describe("v.union", () => {
 		expectTypeOf<InferOutput<typeof withDefault>>().toEqualTypeOf<
 			string | number
 		>();
+	});
+
+	it("optional accepts null the same way as undefined", () => {
+		const field = v.string({ optional: true });
+		expect(validate(field, null, "x")).toBeNull();
+		expect(validate(field, undefined, "x")).toBeUndefined();
+		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<string | null>();
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
+			string | undefined | null
+		>();
+
+		const withDefault = v.string({ optional: true, default: "hi" });
+		expect(validate(withDefault, null, "x")).toBe("hi");
+		expect(validate(withDefault, undefined, "x")).toBe("hi");
+
+		const shaped = v.object({
+			name: v.string({ optional: true }),
+		});
+		expect(validate(shaped, { name: null }, "x")).toEqual({ name: null });
+		expect(validate(shaped, {}, "x")).toEqual({});
+		expect(() => validate(v.string(), null, "x")).toThrow(/expected string/);
 	});
 
 	it("aggregates issues from every failing branch", () => {

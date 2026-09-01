@@ -38,7 +38,7 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	 * is called (fresh value per validate) except on `function` schemas,
 	 * where the default IS the fn. */
 	default?: D | (() => D);
-	/** When true, `undefined` passes straight through unvalidated. */
+	/** When true, `undefined` and `null` pass straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
 	/** Opaque plugin attributes - ignored by validate / Infer*. */
@@ -52,8 +52,9 @@ export type TypeOptions<T, O> = {
 };
 
 /**
- * `optional` widens the output; `default` keeps it narrow because a value
- * is always produced. Declaring both means optional to send, never absent.
+ * `optional` widens the output with `| undefined | null`; `default` keeps
+ * it narrow because a value is always produced. Declaring both means
+ * optional to send, never absent.
  *
  * Helpers select among these via option-shape overloads rather than `Opt` /
  * `D` type parameters: providing a partial type argument (e.g.
@@ -62,7 +63,7 @@ export type TypeOptions<T, O> = {
  */
 type OutOf<O, D, Opt> = [Opt] extends [true]
 	? [D] extends [never]
-		? O | undefined
+		? O | undefined | null
 		: O
 	: O;
 
@@ -71,15 +72,15 @@ type OutOf<O, D, Opt> = [Opt] extends [true]
  * `TypeDefination<any, infer O, …>` drops `| undefined` because `output?`
  * is optional and TypeScript attributes the undefined to the property.
  * When the third type arg is `undefined` (optional, no default), put
- * `| undefined` back so handlers see the same absence validate produces
- * at runtime.
+ * `| undefined | null` back so handlers see the same absence validate
+ * produces at runtime.
  */
 type OutputOf<F> =
 	F extends TypeDefination<any, infer O, infer D>
 		? [D] extends [never]
 			? O
 			: undefined extends D
-				? O | undefined
+				? O | undefined | null
 				: O
 		: never;
 
@@ -256,20 +257,23 @@ type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
 		? SchemaFnIn<FI, FO> & FnVarBrand<FI>
-		: F extends TypeDefination<infer T, any, any>
-			? T
+		: F extends TypeDefination<infer T, any, infer D>
+			? undefined extends D
+				? T | null
+				: T
 			: F extends Record<string, unknown>
 				? ArgsShape<F>
 				: F;
 
 /**
  * `optional: true` on `v.fn.type` widens the same way a type's `optional`
- * does: absent without a default means the value may be `undefined`.
+ * does: absent without a default means the value may be `undefined` or
+ * `null`.
  */
 type FnSchemaOut<F, Fn> = F extends { optional: true }
 	? F extends { default: infer _D }
 		? Fn
-		: Fn | undefined
+		: Fn | undefined | null
 	: Fn;
 
 /**
@@ -331,8 +335,10 @@ export type InferArgs<I> = I extends { $var: true; schema?: infer S }
 		? SchemaFnIn<FI, FO> & FnVarBrand<FI>
 		: I extends readonly unknown[]
 			? { -readonly [K in keyof I]: InferArgs<I[K]> }
-			: I extends TypeDefination<infer T, any, any>
-				? T
+			: I extends TypeDefination<infer T, any, infer D>
+				? undefined extends D
+					? T | null
+					: T
 				: ArgsShape<I>;
 
 export const isType = (value: any): value is TypeDefination<any, any> =>
@@ -542,11 +548,12 @@ export const validate = (
 	value: unknown,
 	path: string,
 ): any => {
-	// `undefined` falls back to the declared default before anything else,
-	// then to `optional`, which passes it through untouched. A shaped
-	// object with no default treats omit as `{}` so all-optional fields
-	// can be left off the call without a dummy payload.
-	if (value === undefined) {
+	// `undefined` / (when optional) `null` fall back to the declared
+	// default before anything else, then to `optional`, which passes the
+	// absence through untouched. A shaped object with no default treats
+	// omit as `{}` so all-optional fields can be left off the call without
+	// a dummy payload. Non-optional `null` falls through to the type check.
+	if (value === undefined || (value === null && def.optional)) {
 		if (def.default !== undefined) {
 			// Factories produce a fresh value each time - needed for Date /
 			// object / array defaults. Skip on `function` schemas: there the
@@ -555,7 +562,7 @@ export const validate = (
 				typeof def.default === "function" && def.name !== "function"
 					? (def.default as () => unknown)()
 					: def.default;
-		} else if (def.optional) return undefined;
+		} else if (def.optional) return value;
 		else if (def.name === "object" && def.shape !== undefined) value = {};
 	}
 	// A var used as an input field validates against its own schema. An
@@ -881,7 +888,7 @@ type ArrayFn = {
 	(
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & { optional: true },
-	): TypeDefination<any[], any[] | undefined, undefined>;
+	): TypeDefination<any[], any[] | undefined | null, undefined>;
 	(
 		element?: undefined,
 		options?: ArrayOptions<undefined, any[]> & {

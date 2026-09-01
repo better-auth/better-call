@@ -88,9 +88,9 @@ describe("omittable input", () => {
 
 	it("optional object omit is undefined - field defaults do not run", () => {
 		// `{ optional: true }` on the object means "may be absent". An absent
-		// payload stays undefined; size's default only applies when an object
-		// was actually sent. InferInput must carry `| undefined` so
-		// `c.input.size` is not typed as a bare number.
+		// payload stays undefined/null; size's default only applies when an
+		// object was actually sent. InferInput must carry `| undefined | null`
+		// so `c.input.size` is not typed as a bare number.
 		const generateId = v.fn(
 			"fnt.generateId",
 			{
@@ -101,14 +101,17 @@ describe("omittable input", () => {
 				output: v.string(),
 			},
 			(c) => {
-				expectTypeOf(c.input).toEqualTypeOf<{ size: number } | undefined>();
-				if (c.input === undefined) return "missing";
+				expectTypeOf(c.input).toEqualTypeOf<
+					{ size: number } | undefined | null
+				>();
+				if (c.input == null) return "missing";
 				expectTypeOf(c.input.size).toEqualTypeOf<number>();
 				return `s${c.input.size}`;
 			},
 		);
 		expect(generateId()).toBe("missing");
 		expect(generateId(undefined)).toBe("missing");
+		expect(generateId(null)).toBe("missing");
 		// An empty object is present - field defaults apply.
 		expect(generateId({})).toBe("s32");
 		expect(generateId({ size: 8 })).toBe("s8");
@@ -528,7 +531,7 @@ describe("fn as input schema", () => {
 		});
 		const run = v.fn({ input: hooks }, (c) => {
 			expectTypeOf(c.input.onCreate).toEqualTypeOf<
-				((input: { id: string }) => any) | undefined
+				((input: { id: string }) => any) | undefined | null
 			>();
 			expectTypeOf(c.input.onDelete).toEqualTypeOf<
 				(input: { id: string }) => any
@@ -537,6 +540,7 @@ describe("fn as input schema", () => {
 		});
 		// Required sibling stays required - omit onCreate only.
 		expect(run({ onDelete: () => null })).toBe("skipped");
+		expect(run({ onDelete: () => null, onCreate: null })).toBe("skipped");
 		expect(
 			run({
 				onDelete: () => null,
