@@ -47,6 +47,8 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 
 export type TypeOptions<T, O> = {
 	transform?: (value: T) => O;
+	/** Accepted on every helper; overloads refine the output when `true`. */
+	optional?: boolean;
 };
 
 /**
@@ -815,13 +817,20 @@ type AnyFn = {
 	<T = unknown>(options?: TypeOptions<T, T>): TypeDefination<T, T, never>;
 };
 
+/**
+ * Object defaults may be partial: nested fields still run through
+ * validate (so their own defaults apply). An empty `{}` is always
+ * fine at the type level - parent `optional` / `default` must not
+ * demand that every required child be listed in the default.
+ */
+type ObjectDefault<S> = DefaultInput<Partial<ArgsShape<S>>>;
+
 type ObjectFn = {
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			optional: true;
-			// Defaults are validated as inputs, so they use ArgsShape.
-			default: DefaultInput<ArgsShape<S>>;
+			default: ObjectDefault<S>;
 		},
 	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
@@ -831,7 +840,7 @@ type ObjectFn = {
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
-			default: DefaultInput<ArgsShape<S>>;
+			default: ObjectDefault<S>;
 		},
 	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(

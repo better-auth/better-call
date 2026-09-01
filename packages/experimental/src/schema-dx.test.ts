@@ -44,11 +44,25 @@ describe("other vTypes type-arg + optional DX", () => {
 		>();
 	});
 
+	it("v.number accepts optional: true without a type param", () => {
+		const field = v.number({ optional: true });
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
+			number | undefined
+		>();
+	});
+
 	it("v.number with output type param accepts optional: true", () => {
 		const field = v.number<number>({ optional: true });
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
 			number | undefined
 		>();
+	});
+
+	it("v.boolean/date accept optional: true", () => {
+		const b = v.boolean({ optional: true });
+		const d = v.date({ optional: true });
+		expectTypeOf<InferOutput<typeof b>>().toEqualTypeOf<boolean | undefined>();
+		expectTypeOf<InferOutput<typeof d>>().toEqualTypeOf<Date | undefined>();
 	});
 
 	it("v.array with element accepts optional: true", () => {
@@ -76,6 +90,57 @@ describe("other vTypes type-arg + optional DX", () => {
 			default: ["5"],
 		});
 		expectTypeOf<InferOutput<typeof arr>>().toEqualTypeOf<number[]>();
+	});
+
+	it("object optional + empty default allows required children", () => {
+		const field = v.object(
+			{
+				password: v.object(
+					{
+						hash: v.string({ optional: true }),
+						verify: v.string({ optional: true }),
+					},
+					{ optional: true, default: {} },
+				),
+				minPasswordLength: v.number(),
+				maxPasswordLength: v.number({ optional: true }),
+			},
+			{ optional: true, default: {} },
+		);
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<{
+			password: { hash?: string; verify?: string };
+			minPasswordLength: number;
+			maxPasswordLength?: number;
+		}>();
+	});
+
+	it("password-options style extend with required number fields", () => {
+		const options = v.var("options", { schema: v.object({}), default: {} });
+		const passwordOptions = v.extend(options, {
+			emailAndPassword: v.object(
+				{
+					password: v.object(
+						{
+							hash: v.fn.type({
+								input: { password: v.string() },
+								output: v.string(),
+								optional: true,
+							}),
+							verify: v.fn.type({
+								input: { password: v.string(), hash: v.string() },
+								output: v.boolean(),
+								optional: true,
+							}),
+						},
+						{ optional: true, default: {} },
+					),
+					minPasswordLength: v.number(),
+					maxPasswordLength: v.number(),
+				},
+				{ optional: true, default: {} },
+			),
+		});
+		expectTypeOf(passwordOptions).not.toBeNever();
 	});
 });
 
