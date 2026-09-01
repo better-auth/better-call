@@ -116,10 +116,11 @@ type NoErrors = Record<never, never>;
 
 /** The `use` half of `.with`: fn overrides by name, recursing into
  * GROUPS so a nested binding can be overridden too. A var alias takes a
- * SEED for the var it points at. */
+ * SEED for the var it points at. Overrides only need the call signature
+ * (plain mocks), not `.try`. */
 type WithFns<U> = {
 	[K in keyof U]?: U[K] extends FnDefination<any, any, any, any, any, any>
-		? BoundFn<U[K]>
+		? BoundFnCall<U[K]>
 		: U[K] extends VarDefination<any, infer T, any, any>
 			? T
 			: WithFns<U[K]>;
@@ -145,12 +146,13 @@ type StorageLike = {
 };
 
 /** Flatten `use` members to `.with` overrides: bound call signatures, var
- * alias values, nested groups. Storage is dropped (mount-only). */
+ * alias values, nested groups. Storage is dropped (mount-only). Overrides
+ * only need the call signature (plain mocks), not `.try`. */
 type WithFnsSeed<U> = {
 	[K in keyof U as U[K] extends StorageLike
 		? never
 		: K]?: U[K] extends FnDefination<any, any, any, any, any, any>
-		? BoundFn<U[K]>
+		? BoundFnCall<U[K]>
 		: U[K] extends VarDefination<any, infer T, any, any>
 			? T
 			: WithFnsSeed<U[K]>;
@@ -321,19 +323,33 @@ export type OptionType<
 	use?: PL;
 };
 
-/** A used fn, with the parent context already applied. A tuple-input fn
- * keeps its positional signature. Omittable inputs match {@link CallArgs}. */
-type BoundFn<F> =
+/** Call args of a used fn: parent context is already applied, so no
+ * trailing parent slot - only the declared input (positional or object). */
+type BoundArgs<A, I> = I extends readonly unknown[]
+	? A extends readonly unknown[]
+		? [...A]
+		: never
+	: [A] extends [void]
+		? []
+		: InputOmittable<A, I> extends true
+			? [input?: A]
+			: [input: A];
+
+/** Call signature only - what `.with` overrides may supply (plain mocks
+ * included). {@link BoundFn} adds `.try` for real mounted bindings. */
+type BoundFnCall<F> =
 	F extends FnDefination<infer A, infer R, string, infer I, any, any>
-		? I extends readonly unknown[]
-			? A extends readonly unknown[]
-				? (...args: [...A]) => R
-				: never
-			: [A] extends [void]
-				? () => R
-				: InputOmittable<A, I> extends true
-					? (input?: A) => R
-					: (input: A) => R
+		? (...args: BoundArgs<A, I>) => R
+		: never;
+
+/** A used fn, with the parent context already applied. Same call shape as
+ * {@link BoundFnCall}, plus `.try` so mounted members keep the declared-
+ * error result API of the original fn. */
+type BoundFn<F> =
+	F extends FnDefination<infer A, infer R, string, infer I, any, infer Er>
+		? BoundFnCall<F> & {
+				try(...args: BoundArgs<A, I>): TryResult<R, Er>;
+			}
 		: never;
 
 /** Keys of a usable map whose member is a VAR alias. */
@@ -948,6 +964,27 @@ const defineFn = (
 		// writes the var, hooks and readonly lock included). A tuple-input
 		// fn gets its args padded to full arity so the context always lands
 		// in the parent slot, however many args the caller actually passed.
+		/** Bind a used fn (or fn override) to this context, keeping `.try`. */
+		const bindUsedFn = (used: any) => {
+			const usedArity = used.$arity as number | undefined;
+			const invoke = (...args: unknown[]) => {
+				if (usedArity === undefined) {
+					return used(args[0], ctx);
+				}
+				const padded = args.slice(0, usedArity);
+				while (padded.length < usedArity) padded.push(undefined);
+				return used(...padded, ctx);
+			};
+			invoke.try = (...args: unknown[]) => {
+				if (usedArity === undefined) {
+					return used.try(args[0], ctx);
+				}
+				const padded = args.slice(0, usedArity);
+				while (padded.length < usedArity) padded.push(undefined);
+				return used.try(...padded, ctx);
+			};
+			return invoke;
+		};
 		const bindUsable = (
 			target: any,
 			map: Record<string, unknown>,
@@ -987,22 +1024,13 @@ const defineFn = (
 					continue;
 				}
 				// A `.with` override REPLACES the binding - a fn override still
-				// joins this context, a plain function is called as given.
+				// joins this context (and keeps `.try`), a plain function is
+				// called as given.
 				if (override !== undefined) {
-					target[name] = isFn(override)
-						? (i?: unknown) => (override as any)(i, ctx)
-						: override;
+					target[name] = isFn(override) ? bindUsedFn(override) : override;
 					continue;
 				}
-				const usedArity = (used as { $arity?: number }).$arity;
-				target[name] =
-					usedArity === undefined
-						? (i?: unknown) => (used as any)(i, ctx)
-						: (...args: unknown[]) => {
-								const padded = args.slice(0, usedArity);
-								while (padded.length < usedArity) padded.push(undefined);
-								return (used as any)(...padded, ctx);
-							};
+				target[name] = bindUsedFn(used);
 			}
 		};
 		bindUsable(base, usable, withFns);

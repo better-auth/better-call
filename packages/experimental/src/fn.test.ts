@@ -226,9 +226,10 @@ describe("scope", () => {
 		});
 		const read = v.fn("fnt.grp.read", { use: [core] }, (c) => c.fnt_session);
 		const entry = v.fn({ use: [core, { sess: { set, read } }] }, async (c) => {
-			expectTypeOf(c.sess.read).toEqualTypeOf<
+			expectTypeOf(c.sess.read).toMatchTypeOf<
 				() => { userId: string } | null
 			>();
+			expectTypeOf(c.sess.read.try).toBeCallableWith();
 			await c.sess.set();
 			return c.sess.read();
 		});
@@ -787,6 +788,31 @@ describe(".try", () => {
 
 	it("contract violations still throw too", () => {
 		expect(() => guard.try({ n: "x" } as never)).toThrow(ValidationError);
+	});
+
+	it("a used fn keeps .try when mounted via use", () => {
+		const entry = v.fn({ use: [{ guard }] }, (c) => {
+			expectTypeOf(c.guard.try).toBeCallableWith({ n: 2 });
+			const ok = c.guard.try({ n: 2 });
+			expect(ok).toEqual({ ok: true, value: 4 });
+			const bad = c.guard.try({ n: 99 });
+			expect(bad.ok).toBe(false);
+			if (!bad.ok) {
+				expect(bad.error.tag).toBe("too_big");
+				expectTypeOf(bad.error.data).toEqualTypeOf<{ max: number }>();
+			}
+			return bad;
+		});
+		entry();
+	});
+
+	it("a grouped used fn keeps .try under its namespace", () => {
+		const entry = v.fn({ use: [{ tools: { guard } }] }, (c) =>
+			c.tools.guard.try({ n: 99 }),
+		);
+		const bad = entry();
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) expect(bad.error.tag).toBe("too_big");
 	});
 });
 
