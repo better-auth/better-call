@@ -208,4 +208,46 @@ describe("v.union", () => {
 			expect(err.issues.length).toBeGreaterThanOrEqual(2);
 		}
 	});
+
+	it("preserves bare null (and other literals) in the inferred union", () => {
+		const user = v.var("union_user", {
+			schema: v.object({ id: v.string(), name: v.string() }),
+		});
+		const field = v.union([user, null]);
+		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<{
+			id: string;
+			name: string;
+		} | null>();
+		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<{
+			id: string;
+			name: string;
+		} | null>();
+		expect(validate(field, null, "x")).toBeNull();
+		expect(validate(field, { id: "1", name: "a" }, "x")).toEqual({
+			id: "1",
+			name: "a",
+		});
+
+		const literals = v.union([null, "idle", 0] as const);
+		expectTypeOf<InferOutput<typeof literals>>().toEqualTypeOf<
+			null | "idle" | 0
+		>();
+		expect(validate(literals, null, "x")).toBeNull();
+		expect(validate(literals, "idle", "x")).toBe("idle");
+		expect(validate(literals, 0, "x")).toBe(0);
+		expect(() => validate(literals, "busy", "x")).toThrow(/expected/);
+	});
+
+	it("fn output: v.union([var, null]) accepts a handler that returns null", () => {
+		const user = v.var("union_out_user", {
+			schema: v.object({ id: v.string() }),
+		});
+		const find = v.fn(
+			"union.find",
+			{ output: v.union([user, null]) },
+			(_c) => null,
+		);
+		expectTypeOf(find).returns.toEqualTypeOf<{ id: string } | null>();
+		expect(find()).toBeNull();
+	});
 });

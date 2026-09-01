@@ -229,14 +229,16 @@ export const outputContract = (
 };
 
 /**
- * One input field, in four flavours:
+ * One input field, in five flavours:
  *  - a `v.var()`, whose shape comes from the var's own `schema`
  *  - a handler-less `v.fn(...)` builder, which types the field as a FN
  *  - a type from `v.string()` / `v.object()` / ...
  *  - a bare nested record, which recurses
+ *  - anything else (e.g. `null`, `"lit"`) kept as itself - so
+ *    `v.union([user, null])` infers `User | null`, not just `User`
  *
- * The record case has to come last: a TypeDefination is itself a record,
- * and so is a builder.
+ * The record case has to come after TypeDefination: a TypeDefination is
+ * itself a record, and so is a builder.
  */
 type FieldOut<F> = F extends { $var: true; schema?: infer S }
 	? InferInput<NonNullable<S>>
@@ -246,7 +248,7 @@ type FieldOut<F> = F extends { $var: true; schema?: infer S }
 			? OutputOf<F>
 			: F extends Record<string, unknown>
 				? Prettify<{ [K in keyof F]: FieldOut<F[K]> }>
-				: never;
+				: F;
 
 type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	? InferArgs<NonNullable<S>>
@@ -256,7 +258,7 @@ type FieldIn<F> = F extends { $var: true; schema?: infer S }
 			? T
 			: F extends Record<string, unknown>
 				? ArgsShape<F>
-				: never;
+				: F;
 
 /**
  * `optional: true` on `v.fn.type` widens the same way a type's `optional`
@@ -359,7 +361,21 @@ export const asType = (value: any): TypeDefination<any, any> =>
 				} as TypeDefination<any, any>)
 			: isType(value)
 				? value
-				: { name: "object", shape: value };
+				: // Bare literals in `v.union([schema, null])` / `["a", "b"]`:
+					// map to a type whose `name` matches `typeOf`, with `enum`
+					// pinning the exact value for string/number/boolean.
+					value === null
+					? ({ name: "null" } as TypeDefination<null, null>)
+					: value === undefined
+						? ({ name: "undefined" } as TypeDefination<undefined, undefined>)
+						: typeof value === "string" ||
+								typeof value === "number" ||
+								typeof value === "boolean"
+							? ({
+									name: typeof value,
+									enum: [value],
+								} as TypeDefination<any, any>)
+							: { name: "object", shape: value };
 
 /**
  * Replace the whole `$attrs` bag. On a var, rebinds `customize` so a later
