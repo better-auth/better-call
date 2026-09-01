@@ -78,7 +78,7 @@ describe("omittable input", () => {
 				),
 				output: v.string(),
 			},
-			(c) => (c.input === undefined ? "none" : `s${c.input.size}`),
+			(c) => (c.input == null ? "none" : `s${c.input.size}`),
 		);
 		expect(id()).toBe("none");
 		expect(id({ size: 8 })).toBe("s8");
@@ -588,14 +588,14 @@ describe("fn schema var widening", () => {
 			expectTypeOf(u).exclude<null>().toEqualTypeOf<{
 				id: string;
 				email: string;
-				name?: string;
+				name?: string | null;
 			}>();
 			const d = c.fnt_wdb;
 			expectTypeOf(d)
 				.exclude<undefined>()
 				.toHaveProperty("createUser")
 				.parameter(0)
-				.toEqualTypeOf<{ id: string; email: string; name?: string }>();
+				.toEqualTypeOf<{ id: string; email: string; name?: string | null }>();
 			return d?.createUser({ id: "1", email: "a@b.c" });
 		});
 		const impl = { createUser: async (i: { id: string }) => i };
