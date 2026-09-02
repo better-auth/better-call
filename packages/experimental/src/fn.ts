@@ -39,7 +39,7 @@ import {
 	vTypes,
 } from "./schema";
 import type { ResolvedVars, ScopeOf, VarName, VarScope } from "./scope";
-import type { LiteralString, Prettify } from "./types";
+import type { LiteralString, Prettify, UnionToIntersection } from "./types";
 import {
 	type Cells,
 	contextScope,
@@ -101,6 +101,34 @@ export type FnErrors<F> =
 	F extends FnDefination<any, any, any, any, any, infer Er>
 		? FnErrorsOf<Er>
 		: never;
+
+/**
+ * Tag -> payload schemas from every used fn, nested groups included.
+ * Empty `$errors` maps contribute `never` so they don't widen the set.
+ */
+type ErrorsFromUse<U> = {
+	[K in keyof U]: U[K] extends FnDefination<any, any, any, any, any, infer Er>
+		? [keyof Er & string] extends [never]
+			? never
+			: Er
+		: U[K] extends StorageLike
+			? never
+			: U[K] extends VarDefination<any, any, any, any>
+				? ErrorsFromUse<MergeHelpersOnVar<U[K]>>
+				: ErrorsFromUse<U[K]>;
+}[keyof U];
+
+/**
+ * Public error channel: own `errors` plus every used fn's effective set.
+ * Own tags win on clash. Call sites (`.try`, `FnErrors`) see this; `c.error`
+ * still only mints tags declared on this fn.
+ */
+type EffectiveErrors<Own extends Record<string, unknown>, U> = Prettify<
+	Own &
+		([ErrorsFromUse<U>] extends [never]
+			? unknown
+			: UnionToIntersection<ErrorsFromUse<U>>)
+>;
 
 /** Non-distributive `never` guard first: a naked `R extends Promise`
  * distributes over `never` into `never`, and `[never] extends [Promise<_>]`
@@ -224,11 +252,13 @@ export interface FnDefination<
 	/** The declared contract, retained AS WRITTEN for runtime
 	 * introspection (tool cards, docs renderers): the raw input/output
 	 * schemas, error tag map, and required vars. Optional so structural
-	 * `extends FnDefination` checks keep passing for hand-built fns. */
+	 * `extends FnDefination` checks keep passing for hand-built fns.
+	 * `errors` is the effective map (own ⊕ used), so tag keys stay
+	 * literal for hosts that narrow on them. */
 	readonly $schema?: {
 		input?: unknown;
 		output?: unknown;
-		errors?: Record<string, unknown>;
+		errors?: Er;
 		requires?: readonly string[];
 		/** Declared idempotence - same args, same result, safe to repeat. */
 		idempotent?: boolean;
@@ -278,10 +308,11 @@ export type OptionType<
 	/**
 	 * The fn's DECLARED failures: tag -> payload schema. The THIRD
 	 * contract door - input validates on entry, output on exit, errors at
-	 * `throw c.error(tag, data)`. Once declared, any UNTAGGED throw
-	 * escaping the body is a defect and comes out as `UnexpectedError` -
-	 * callers can tell a domain refusal from a bug without string
-	 * matching.
+	 * `throw c.error(tag, data)`. The PUBLIC error set also inherits every
+	 * used fn's errors (own tags win on clash); `.try` / `$schema.errors`
+	 * expose that union. `c.error` still only mints tags listed here.
+	 * Having any effective error (own or inherited) wraps untagged throws
+	 * as `UnexpectedError`.
 	 */
 	errors?: Er;
 	/**
@@ -622,7 +653,7 @@ export interface Fn<
 		Prefix extends "" ? string : Prefix,
 		I,
 		P,
-		Er,
+		EffectiveErrors<Er, ApplyOns<ModuleFns<PL>, PL> & BaseFns>,
 		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
 		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
 		O
@@ -663,7 +694,7 @@ export interface Fn<
 		`${Prefix}${K}`,
 		I,
 		P,
-		Er,
+		EffectiveErrors<Er, ApplyOns<ModuleFns<PL>, PL> & BaseFns>,
 		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
 		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
 		O
@@ -751,14 +782,22 @@ const defineFn = (
 		: undefined;
 
 	// Declared errors: tag -> payload schema, the THIRD contract door
-	// (input on entry, output on exit, errors at throw). Declaring any
-	// also flips the defect rule on: untagged throws come out wrapped.
+	// (input on entry, output on exit, errors at throw). The PUBLIC set
+	// also inherits every used fn's `$schema.errors` (own wins on clash);
+	// inheriting any flips the defect rule on for this frame too.
 	const declaredErrors = options.errors as Record<string, unknown> | undefined;
+	const inheritedErrors = collectErrorsFromUsable(usable);
+	const effectiveErrors =
+		Object.keys(inheritedErrors).length || declaredErrors
+			? { ...inheritedErrors, ...(declaredErrors ?? {}) }
+			: undefined;
 
 	// Only the VALIDATION half of the output contract is checked on exit -
 	// a `{ def }`-only output is a documented promise, never a check.
 	const outputValidation = outputContract(options.output).validation;
-	const errorTypes = declaredErrors
+	// Mint path: only tags THIS fn declared. Inherited tags are outcomes
+	// callers may observe, not ones this body invents via `c.error`.
+	const ownErrorTypes = declaredErrors
 		? Object.fromEntries(
 				Object.entries(declaredErrors).map(([tag, schema]) => [
 					tag,
@@ -930,11 +969,11 @@ const defineFn = (
 			// Mint a declared error: tag must be declared, payload validates
 			// at creation - an error is a contract too.
 			error: (tag: string, data?: unknown) => {
-				const schema = errorTypes?.[tag];
+				const schema = ownErrorTypes?.[tag];
 				if (!schema) {
 					throw new ValidationError(
 						`${key}.errors.${tag}`,
-						errorTypes
+						ownErrorTypes
 							? `"${tag}" is not a declared error of "${key}"`
 							: `"${key}" declares no errors`,
 					);
@@ -1084,10 +1123,10 @@ const defineFn = (
 		};
 
 		// Errors crossing this frame: tagged errors and defects collect the
-		// TRAIL (origin fn first, then every frame outward). Once a fn
-		// declares `errors`, anything untagged escaping its body is a
-		// DEFECT - wrapped with the cause kept - so a domain refusal and a
-		// bug are never the same shape.
+		// TRAIL (origin fn first, then every frame outward). Once a fn has
+		// an effective error set (own or inherited from `use`), anything
+		// untagged escaping its body is a DEFECT - wrapped with the cause
+		// kept - so a domain refusal and a bug are never the same shape.
 		const decorate = (thrown: unknown): unknown => {
 			// Redirects and other transport control must cross frames that
 			// declare `errors` without becoming UnexpectedError.
@@ -1098,7 +1137,7 @@ const defineFn = (
 				}
 				return thrown;
 			}
-			return errorTypes ? new UnexpectedError(thrown, key) : thrown;
+			return effectiveErrors ? new UnexpectedError(thrown, key) : thrown;
 		};
 
 		const run = () => {
@@ -1225,13 +1264,34 @@ const defineFn = (
 		$schema: {
 			...(options.input !== undefined ? { input: options.input } : {}),
 			...(options.output !== undefined ? { output: options.output } : {}),
-			...(declaredErrors ? { errors: declaredErrors } : {}),
+			...(effectiveErrors ? { errors: effectiveErrors } : {}),
 			...(options.requires?.length
 				? { requires: options.requires as readonly string[] }
 				: {}),
 			...(options.idempotent === true ? { idempotent: true } : {}),
 		},
 	});
+};
+
+/** Deep-walk a usable map; fold each fn's `$schema.errors` (already
+ * effective for that fn). Later siblings overwrite earlier on tag clash;
+ * the caller spreads own declarations on top. */
+const collectErrorsFromUsable = (
+	usable: Record<string, unknown>,
+): Record<string, unknown> => {
+	const out: Record<string, unknown> = {};
+	const walk = (node: Record<string, unknown>) => {
+		for (const value of Object.values(node)) {
+			if (isFn(value)) {
+				const errors = value.$schema?.errors;
+				if (errors) Object.assign(out, errors);
+			} else if (isNamespace(value)) {
+				walk(value);
+			}
+		}
+	};
+	walk(usable);
+	return out;
 };
 
 /* --------------------------------- create --------------------------------- */

@@ -39,7 +39,7 @@ export class FnError<
 	toJSON() {
 		return {
 			name: this.name,
-			tag: this.tag,
+			tag: this.tag as Tag,
 			data: this.data,
 			trail: this.trail,
 		};

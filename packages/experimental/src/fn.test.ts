@@ -730,6 +730,93 @@ describe("declared errors", () => {
 		}
 	});
 
+	it("a parent inherits used-fn errors on .try and $schema", () => {
+		const loadUser = v.fn(
+			"fnt.loadUser",
+			{
+				input: { id: v.string() },
+				errors: { not_found: { id: v.string() } },
+			},
+			(c) => {
+				throw c.error("not_found", { id: c.input.id });
+			},
+		);
+		const updateProfile = v.fn(
+			"fnt.updateProfile",
+			{
+				use: [{ loadUser }],
+				input: { id: v.string(), name: v.string() },
+			},
+			(c) => {
+				c.loadUser({ id: c.input.id });
+				return { name: c.input.name };
+			},
+		);
+
+		expect(updateProfile.$schema?.errors).toEqual({
+			not_found: { id: expect.anything() },
+		});
+		expectTypeOf<
+			keyof NonNullable<NonNullable<typeof updateProfile.$schema>["errors"]>
+		>().toEqualTypeOf<"not_found">();
+
+		const bad = updateProfile.try({ id: "missing", name: "Ada" });
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) {
+			expect(bad.error.tag).toBe("not_found");
+			expect(bad.error.data).toEqual({ id: "missing" });
+			expect(bad.error.trail).toEqual(["fnt.loadUser", "fnt.updateProfile"]);
+			expectTypeOf(bad.error.tag).toEqualTypeOf<"not_found">();
+			expectTypeOf(bad.error.data).toEqualTypeOf<{ id: string }>();
+		}
+	});
+
+	it("inherited errors flip defect wrapping without a local errors map", () => {
+		const inner = v.fn("fnt.inheritInner", { errors: { nope: {} } }, (c) => {
+			throw c.error("nope");
+		});
+		const outer = v.fn("fnt.inheritOuter", { use: [{ inner }] }, () => {
+			throw new TypeError("bug");
+		});
+		expect(() => outer()).toThrow(UnexpectedError);
+	});
+
+	it("own error tags win over inherited ones on $schema", () => {
+		const inner = v.fn(
+			"fnt.clashInner",
+			{ errors: { denied: { from: v.string() } } },
+			(c) => {
+				throw c.error("denied", { from: "inner" });
+			},
+		);
+		const outer = v.fn(
+			"fnt.clashOuter",
+			{
+				use: [{ inner }],
+				errors: { denied: { from: v.number() } },
+			},
+			(c) => {
+				throw c.error("denied", { from: 1 });
+			},
+		);
+		expect(outer.$schema?.errors?.denied).toEqual({ from: expect.anything() });
+		const bad = outer.try();
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) expect(bad.error.data).toEqual({ from: 1 });
+	});
+
+	it("namespaced use still inherits errors", () => {
+		const loadUser = v.fn("fnt.nsLoad", { errors: { not_found: {} } }, (c) => {
+			throw c.error("not_found");
+		});
+		const entry = v.fn("fnt.nsEntry", { use: [{ tools: { loadUser } }] }, (c) =>
+			c.tools.loadUser(),
+		);
+		const bad = entry.try();
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) expectTypeOf(bad.error.tag).toEqualTypeOf<"not_found">();
+	});
+
 	it("tagged errors serialize as data - they survive a wire", () => {
 		try {
 			guard({ n: 99 });
