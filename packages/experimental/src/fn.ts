@@ -1,5 +1,6 @@
 import {
 	ControlFlow,
+	captureCallerStack,
 	FnError,
 	type Issue,
 	UnexpectedError,
@@ -1217,10 +1218,29 @@ const defineFn = (
 			return run();
 		};
 
-		return thenMaybe(
-			thenMaybe(thenMaybe(parseInput(), applyInputExtensions), seedInputVars),
-			runWithParsed,
-		);
+		try {
+			const result = thenMaybe(
+				thenMaybe(thenMaybe(parseInput(), applyInputExtensions), seedInputVars),
+				runWithParsed,
+			);
+			if (isThenable(result)) {
+				return result.then(
+					(value) => value,
+					(thrown) => {
+						if (thrown instanceof ValidationError) {
+							captureCallerStack(thrown, callable);
+						}
+						throw thrown;
+					},
+				);
+			}
+			return result;
+		} catch (thrown) {
+			if (thrown instanceof ValidationError) {
+				captureCallerStack(thrown, callable);
+			}
+			throw thrown;
+		}
 	};
 
 	/** `.try`: declared errors as a value, everything else still throws. */

@@ -1,3 +1,4 @@
+import { captureCallerStack, ValidationError } from "./error";
 import { createRandomStringGenerator } from "./helpers/random";
 import { matchesTarget, type OnEntry } from "./module";
 import { asType, attrsOf, type InferArgs, isVar, validate } from "./schema";
@@ -645,15 +646,28 @@ const buildStorage = <M extends StorageModels>(
 		const def = isVar(input) ? input : (input as ModelConfig).schema;
 		const name = (def as { name: string }).name;
 		const collection = {
-			create: (data: unknown) => {
-				const row = prepareCreate(
-					schemaOfModel(input),
-					(data ?? {}) as Record<string, unknown>,
-					`${key}.create`,
-				);
-				return Promise.resolve(row).then((prepared) =>
-					run(key, name, "create", [prepared]),
-				);
+			create(data: unknown) {
+				try {
+					const row = prepareCreate(
+						schemaOfModel(input),
+						(data ?? {}) as Record<string, unknown>,
+						`${key}.create`,
+					);
+					return Promise.resolve(row).then(
+						(prepared) => run(key, name, "create", [prepared]),
+						(thrown) => {
+							if (thrown instanceof ValidationError) {
+								captureCallerStack(thrown, collection.create);
+							}
+							throw thrown;
+						},
+					);
+				} catch (thrown) {
+					if (thrown instanceof ValidationError) {
+						captureCallerStack(thrown, collection.create);
+					}
+					throw thrown;
+				}
 			},
 			findOne: (where: unknown) => run(key, name, "findOne", [where]),
 			findMany: (where?: unknown, options?: unknown) =>

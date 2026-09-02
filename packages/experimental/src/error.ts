@@ -5,6 +5,47 @@ export type Issue = {
 	received?: string;
 };
 
+/**
+ * Rewrite `error.stack` so it starts at the caller of `boundary`, hiding
+ * frames inside that boundary (schema assemble, fn internals, …). No-op
+ * when `Error.captureStackTrace` is unavailable.
+ */
+export const captureCallerStack = <E extends Error>(
+	error: E,
+	boundary: (...args: never[]) => unknown,
+): E => {
+	const capture = (
+		Error as ErrorConstructor & {
+			captureStackTrace?: (
+				target: object,
+				constructorOpt?: (...args: never[]) => unknown,
+			) => void;
+		}
+	).captureStackTrace;
+	if (typeof capture === "function") {
+		capture(error, boundary);
+	}
+	return error;
+};
+
+/** Drop frames that live inside better-call so the first useful frame is
+ * the caller's code (the `fn(...)` / `db.create(...)` line). */
+const scrubLibraryFrames = (error: Error) => {
+	const stack = error.stack;
+	if (!stack) return;
+	const lines = stack.split("\n");
+	const head = lines[0];
+	if (head === undefined) return;
+	const frames = lines.slice(1).filter((line) => !isLibraryFrame(line));
+	if (frames.length === 0) return;
+	error.stack = [head, ...frames].join("\n");
+};
+
+const isLibraryFrame = (line: string) =>
+	/node_modules[/\\]\.bun[/\\]better-call@/.test(line) ||
+	/node_modules[/\\]better-call[/\\]/.test(line) ||
+	/[/\\]packages[/\\]experimental[/\\](?:src|dist)[/\\]/.test(line);
+
 /** A contract violation - input, output, requires, provides. Carries
  * EVERY issue found in the pass that threw it, not just the first;
  * `message` lists them all. */
@@ -25,6 +66,7 @@ export class ValidationError extends Error {
 		this.name = "ValidationError";
 		this.path = all[0]?.path ?? path;
 		this.issues = all;
+		scrubLibraryFrames(this);
 	}
 	toJSON() {
 		return {

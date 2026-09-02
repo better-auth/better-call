@@ -1024,4 +1024,22 @@ describe("multi-issue validation", () => {
 			]);
 		}
 	});
+
+	it("stack points at the call site, not schema internals", () => {
+		const f = v.fn(
+			"fnt.stack",
+			{ input: { email: v.string({ email: true }) } },
+			(c) => c.input,
+		);
+		try {
+			f({ email: "something" });
+			expect.unreachable();
+		} catch (thrown) {
+			const err = thrown as ValidationError;
+			expect(err.stack).toBeDefined();
+			expect(err.stack).toMatch(/fn\.test\.ts/);
+			expect(err.stack).not.toMatch(/[/\\]schema\.ts/);
+			expect(err.stack).not.toMatch(/[/\\]fn\.ts:/);
+		}
+	});
 });

@@ -97,6 +97,7 @@ export const v: V = {
 
 export {
 	ControlFlow,
+	captureCallerStack,
 	FnError,
 	type Issue,
 	UnexpectedError,
