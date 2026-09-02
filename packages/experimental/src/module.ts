@@ -646,6 +646,25 @@ export type VarArgsInScope<PL, K extends string> = VarExtensionArgsFor<PL, K> &
 		? unknown
 		: UnionToIntersection<VarShadowArgsEntry<Members<PL>, K>>);
 
+/** Parsed-side counterpart of {@link VarArgsInScope}: `v.extend` fields
+ * plus every same-name var declaration's `InferInput` (customize shadows). */
+type VarShadowValueEntry<M, K extends string> = M extends unknown
+	? {
+			[P in keyof M]: M[P] extends VarDefination<K, any, infer S, any>
+				? unknown extends S
+					? never
+					: [NonNullable<S>] extends [never]
+						? never
+						: InferInput<NonNullable<S>>
+				: never;
+		}[keyof M]
+	: never;
+
+export type VarValuesInScope<PL, K extends string> = VarExtensionsFor<PL, K> &
+	([VarShadowValueEntry<Members<PL>, K>] extends [never]
+		? unknown
+		: UnionToIntersection<VarShadowValueEntry<Members<PL>, K>>);
+
 type VarFieldKeys<I> = {
 	[K in keyof I]: I[K] extends { $var: true } ? K : never;
 }[keyof I];
@@ -656,14 +675,16 @@ type VarFields<I> = Exclude<VarFieldKeys<I>, undefined>;
 
 /**
  * Extra args a fn must accept because its INPUT references vars that `PL`
- * extends. Whole-var input (`input: user`) merges at the top level; a var
- * used as a field widens that field. `unknown` when nothing applies.
+ * mutates - `v.extend` and same-name `customize` shadows (see
+ * {@link VarArgsInScope}). Whole-var input (`input: user`) merges at the
+ * top level; a var used as a field widens that field. `unknown` when
+ * nothing applies.
  */
 export type InputVarExtra<PL, I> = I extends {
 	$var: true;
 	name: infer N extends string;
 }
-	? VarExtensionArgsFor<PL, N>
+	? VarArgsInScope<PL, N>
 	: [VarFields<I>] extends [never]
 		? unknown
 		: {
@@ -673,19 +694,20 @@ export type InputVarExtra<PL, I> = I extends {
 					$var: true;
 					name: infer N extends string;
 				}
-					? VarExtensionArgsFor<PL, N>
+					? VarArgsInScope<PL, N>
 					: unknown;
 			};
 
 /**
  * Same merge as {@link InputVarExtra}, on the PARSED side - what the
- * handler sees on `c.input` after mounted extensions have been applied.
+ * handler sees on `c.input` after mounted extensions / customize shadows
+ * have been applied.
  */
 export type InputVarExtraOut<PL, I> = I extends {
 	$var: true;
 	name: infer N extends string;
 }
-	? VarExtensionsFor<PL, N>
+	? VarValuesInScope<PL, N>
 	: [VarFields<I>] extends [never]
 		? unknown
 		: {
@@ -695,7 +717,7 @@ export type InputVarExtraOut<PL, I> = I extends {
 					$var: true;
 					name: infer N extends string;
 				}
-					? VarExtensionsFor<PL, N>
+					? VarValuesInScope<PL, N>
 					: unknown;
 			};
 
@@ -721,10 +743,11 @@ export type ExtendedArgs<PL, K extends string> = UnionToIntersection<
 /**
  * Rewrite a fn's type with the input extensions the module set `PL`
  * mounts on it. This is how a plugin's extra field becomes REQUIRED at
- * the call site, even though the fn itself never declared it. Storage
- * members get the same scope rewrite as a db var's value ({@link
- * WidenSchemaFns}): collections re-resolve row/`Where` types against
- * mounted `v.extend` / customize.
+ * the call site, even though the fn itself never declared it. Var-bound
+ * inputs also pick up `v.extend` / same-name `customize` via
+ * {@link InputVarExtra}. Storage members get the same scope rewrite as a
+ * db var's value ({@link WidenSchemaFns}): collections re-resolve
+ * row/`Where` types against mounted `v.extend` / customize.
  */
 export type ApplyOn<F, PL> = F extends StorageLike
 	? WidenSchemaFns<F, PL>

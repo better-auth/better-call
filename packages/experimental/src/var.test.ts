@@ -105,6 +105,77 @@ describe("var extensions", () => {
 		expectTypeOf(f).parameter(0).toEqualTypeOf<{ id: string; tag: string }>();
 		expect(f({ id: "b", tag: "gold" })).toEqual({ id: "b", tag: "gold" });
 	});
+
+	it("a customized re-export widens a declaring fn's var-bound input", () => {
+		const accountFull = account.customize({
+			schema: (t) => t.add({ tag: t.string() }),
+		});
+		const f = v.fn({ input: account, use: [{ account, accountFull }] }, (c) => {
+			expectTypeOf(c.input).toEqualTypeOf<{ id: string; tag: string }>();
+			return c.input;
+		});
+		expectTypeOf(f).parameter(0).toEqualTypeOf<{ id: string; tag: string }>();
+		expect(f({ id: "c", tag: "pro" })).toEqual({ id: "c", tag: "pro" });
+		// @ts-expect-error tag required once accountFull is mounted
+		expect(() => f({ id: "c" })).toThrow(/vt_account/);
+	});
+
+	it("parent-mounted extensions widen a used endpoint defined earlier", () => {
+		const create = v.fn(
+			"vt.create_account",
+			{ input: account, use: [{ account }] },
+			(c) => c.input,
+		);
+		const flat = v.fn({ use: [{ create, withTag }] }, (c) => {
+			expectTypeOf(c.create)
+				.parameter(0)
+				.toEqualTypeOf<{ id: string; tag: string }>();
+			return c.create({ id: "d", tag: "flat" });
+		});
+		expect(flat()).toEqual({ id: "d", tag: "flat" });
+		expect(() =>
+			v.fn({ use: [{ create, withTag }] }, (c) =>
+				c.create({ id: "d" } as never),
+			)(),
+		).toThrow(/vt_account/);
+
+		const builder = v.fn({ use: [{ withTag }] });
+		const nested = builder.fn({ use: [{ create }] }, (c) => {
+			expectTypeOf(c.create)
+				.parameter(0)
+				.toEqualTypeOf<{ id: string; tag: string }>();
+			return c.create({ id: "e", tag: "nested" });
+		});
+		expect(nested()).toEqual({ id: "e", tag: "nested" });
+		expect(() =>
+			builder.fn({ use: [{ create }] }, (c) =>
+				c.create({ id: "e" } as never),
+			)(),
+		).toThrow(/vt_account/);
+	});
+
+	it("parent-mounted customize widens a used endpoint the same way", () => {
+		const accountFull = account.customize({
+			schema: (t) => t.add({ tag: t.string() }),
+		});
+		const create = v.fn(
+			"vt.create_account_full",
+			{ input: account, use: [{ account }] },
+			(c) => c.input,
+		);
+		const run = v.fn({ use: [{ create, accountFull }] }, (c) => {
+			expectTypeOf(c.create)
+				.parameter(0)
+				.toEqualTypeOf<{ id: string; tag: string }>();
+			return c.create({ id: "f", tag: "custom" });
+		});
+		expect(run()).toEqual({ id: "f", tag: "custom" });
+		expect(() =>
+			v.fn({ use: [{ create, accountFull }] }, (c) =>
+				c.create({ id: "f" } as never),
+			)(),
+		).toThrow(/vt_account/);
+	});
 });
 
 describe("record vars", () => {
