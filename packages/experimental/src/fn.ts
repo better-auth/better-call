@@ -1007,36 +1007,40 @@ const defineFn = (
 		};
 
 		const runWithParsed = (parsed: unknown) => {
+			// Mint a declared error: tag must be declared, payload validates
+			// at creation - an error is a contract too. Stack points at the
+			// `c.error(...)` call in the handler, not at this mint helper.
+			const mintError = (tag: string, data?: unknown) => {
+				const schema = errorTypes?.[tag];
+				if (!schema) {
+					throw new ValidationError(
+						`${key}.errors.${tag}`,
+						errorTypes
+							? `"${tag}" is not a declared error of "${key}"`
+							: `"${key}" declares no errors`,
+					);
+				}
+				// HTTP status lives on the ORIGINAL declaration (`http.err`);
+				// `asType` copies enumerable fields only, so read it there.
+				const meta = (
+					declaredErrors?.[tag] as
+						| Record<symbol, { status?: number } | undefined>
+						| undefined
+				)?.[Symbol.for("better-call:http.err")];
+				const err = new FnError(
+					tag,
+					validate(schema, data ?? {}, `${key}.errors.${tag}`),
+					key,
+					meta?.status,
+				);
+				return captureCallerStack(err, mintError);
+			};
+
 			// The context's FIXED surface; everything not on it is a var, read
 			// and written straight on `c` through the proxy below.
 			const base: any = {
 				input: parsed,
-				// Mint a declared error: tag must be declared, payload validates
-				// at creation - an error is a contract too.
-				error: (tag: string, data?: unknown) => {
-					const schema = errorTypes?.[tag];
-					if (!schema) {
-						throw new ValidationError(
-							`${key}.errors.${tag}`,
-							errorTypes
-								? `"${tag}" is not a declared error of "${key}"`
-								: `"${key}" declares no errors`,
-						);
-					}
-					// HTTP status lives on the ORIGINAL declaration (`http.err`);
-					// `asType` copies enumerable fields only, so read it there.
-					const meta = (
-						declaredErrors?.[tag] as
-							| Record<symbol, { status?: number } | undefined>
-							| undefined
-					)?.[Symbol.for("better-call:http.err")];
-					return new FnError(
-						tag,
-						validate(schema, data ?? {}, `${key}.errors.${tag}`),
-						key,
-						meta?.status,
-					);
-				},
+				error: mintError,
 				[STORE]: cells,
 				[ACTIVE]: active,
 				[EXTS]: exts,
@@ -1190,6 +1194,7 @@ const defineFn = (
 				// Redirects and other transport control must cross frames that
 				// declare `errors` without becoming UnexpectedError.
 				if (thrown instanceof ControlFlow) return thrown;
+				if (thrown instanceof ValidationError) return thrown;
 				if (thrown instanceof FnError || thrown instanceof UnexpectedError) {
 					if (thrown.trail[thrown.trail.length - 1] !== key) {
 						thrown.trail.push(key);

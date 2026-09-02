@@ -25,11 +25,12 @@ export const captureCallerStack = <E extends Error>(
 	if (typeof capture === "function") {
 		capture(error, boundary);
 	}
+	scrubLibraryFrames(error);
 	return error;
 };
 
 /** Drop frames that live inside better-call so the first useful frame is
- * the caller's code (the `fn(...)` / `db.create(...)` line). */
+ * the caller's code (the `c.error(...)` / `fn(...)` / `db.create(...)` line). */
 const scrubLibraryFrames = (error: Error) => {
 	const stack = error.stack;
 	if (!stack) return;
@@ -37,14 +38,16 @@ const scrubLibraryFrames = (error: Error) => {
 	const head = lines[0];
 	if (head === undefined) return;
 	const frames = lines.slice(1).filter((line) => !isLibraryFrame(line));
-	if (frames.length === 0) return;
-	error.stack = [head, ...frames].join("\n");
+	error.stack = frames.length > 0 ? [head, ...frames].join("\n") : head;
 };
 
 const isLibraryFrame = (line: string) =>
 	/node_modules[/\\]\.bun[/\\]better-call@/.test(line) ||
 	/node_modules[/\\]better-call[/\\]/.test(line) ||
-	/[/\\]packages[/\\]experimental[/\\](?:src|dist)[/\\]/.test(line);
+	// Local package sources only - keep this package's own `*.test.*` frames
+	/[/\\]packages[/\\]experimental[/\\](?:src|dist)[/\\](?!.*\.test\.)/.test(
+		line,
+	);
 
 /** A contract violation - input, output, requires, provides. Carries
  * EVERY issue found in the pass that threw it, not just the first;
@@ -103,6 +106,7 @@ export class FnError<
 		this.name = "FnError";
 		this.trail = [fn];
 		if (status !== undefined) this.status = status;
+		scrubLibraryFrames(this);
 	}
 	toJSON() {
 		return {
@@ -131,6 +135,7 @@ export class UnexpectedError extends Error {
 		);
 		this.name = "UnexpectedError";
 		this.trail = [fn];
+		scrubLibraryFrames(this);
 	}
 	toJSON() {
 		const cause = this.cause;

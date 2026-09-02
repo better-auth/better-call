@@ -702,6 +702,10 @@ describe("declared errors", () => {
 			expect(thrown).toBeInstanceOf(UnexpectedError);
 			expect((thrown as UnexpectedError).cause).toBeInstanceOf(TypeError);
 			expect((thrown as Error).message).toMatch(/fnt\.buggy: unexpected/);
+			const err = thrown as UnexpectedError;
+			expect(err.stack).toMatch(/fn\.test\.ts/);
+			expect(err.stack).not.toMatch(/[/\\]fn\.ts:/);
+			expect((err.cause as Error).stack).toMatch(/fn\.test\.ts/);
 		}
 	});
 
@@ -815,6 +819,18 @@ describe("declared errors", () => {
 				data: { max: 10 },
 				trail: ["fnt.guard"],
 			});
+		}
+	});
+
+	it("FnError stack points at the c.error call site", () => {
+		try {
+			guard({ n: 99 });
+			expect.unreachable();
+		} catch (thrown) {
+			const err = thrown as FnError;
+			expect(err).toBeInstanceOf(FnError);
+			expect(err.stack).toMatch(/fn\.test\.ts/);
+			expect(err.stack).not.toMatch(/[/\\]fn\.ts:/);
 		}
 	});
 });

@@ -123,7 +123,7 @@ err.issues;
 
 At the HTTP edge (`createHandler` / `handler`), `ValidationError` becomes `400` with that JSON body, `FnError` uses `http.err` status (or `422`), and `UnexpectedError` becomes `500`.
 
-Validation stacks point at the call site: a bad `signUpEmail({ email: "nope" })` shows that line, not schema internals.
+Validation stacks point at the call site: a bad `signUpEmail({ email: "nope" })` shows that line, not schema internals. `FnError` / `UnexpectedError` scrub the same way - declared failures point at `c.error(...)`, defects keep the original on `cause`.
 
 ### vars
 
