@@ -281,6 +281,25 @@ export type WidenedArgs<I, ExtPL> =
 					InputVarExtra<ExtPL, I>
 			>;
 
+/** Full module chain a builder has accumulated - parent scopes first. */
+type ChainPL<
+	BasePL extends readonly Module[],
+	PL extends readonly Module[],
+> = readonly [...BasePL, ...PL];
+
+/**
+ * Used fns / groups as the call site sees them: every usable from this
+ * `use` and the builder chain, rewritten with extensions + customize
+ * shadows from the FULL parent chain (not just the child `use`).
+ * `ModuleFns<PL> & BaseFns` collapses correctly when `BaseFns` is still
+ * `unknown` on a fresh builder.
+ */
+type UsableInScope<
+	BaseFns,
+	PL extends readonly Module[],
+	BasePL extends readonly Module[],
+> = ApplyOns<ModuleFns<PL> & BaseFns, ChainPL<BasePL, PL>>;
+
 export type OptionType<
 	I,
 	O,
@@ -620,29 +639,29 @@ export interface Fn<
 		fn: (
 			ctx: Context<
 				I,
-				ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
+				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
 				WithDerived<PL, BasePL, Q[number]>,
-				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+				UsableInScope<BaseFns, PL, BasePL>,
 				Fn<
 					Base & ResolvedVars<PL>,
-					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-					readonly [...BasePL, ...PL],
+					UsableInScope<BaseFns, PL, BasePL>,
+					ChainPL<BasePL, PL>,
 					Prefix
 				>,
 				RO,
 				Er,
-				readonly [...BasePL, ...PL]
+				ChainPL<BasePL, PL>
 			>,
 		) => R,
 	): PublicFn<
-		WidenedArgs<I, readonly [...BasePL, ...PL]>,
+		WidenedArgs<I, ChainPL<BasePL, PL>>,
 		R,
 		Prefix extends "" ? string : Prefix,
 		I,
 		P,
 		Er,
-		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
-		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+		ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
+		UsableInScope<BaseFns, PL, BasePL>,
 		O
 	>;
 	<
@@ -661,29 +680,29 @@ export interface Fn<
 		fn: (
 			ctx: Context<
 				I,
-				ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
+				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
 				WithDerived<PL, BasePL, Q[number]>,
-				ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+				UsableInScope<BaseFns, PL, BasePL>,
 				Fn<
 					Base & ResolvedVars<PL>,
-					ApplyOns<ModuleFns<PL>, PL> & BaseFns,
-					readonly [...BasePL, ...PL],
+					UsableInScope<BaseFns, PL, BasePL>,
+					ChainPL<BasePL, PL>,
 					`${Prefix}${K}`
 				>,
 				RO,
 				Er,
-				readonly [...BasePL, ...PL]
+				ChainPL<BasePL, PL>
 			>,
 		) => R,
 	): PublicFn<
-		WidenedArgs<I, readonly [...BasePL, ...PL]>,
+		WidenedArgs<I, ChainPL<BasePL, PL>>,
 		R,
 		`${Prefix}${K}`,
 		I,
 		P,
 		Er,
-		ScopeOf<PL, Base, readonly [...BasePL, ...PL]>,
-		ApplyOns<ModuleFns<PL>, PL> & BaseFns,
+		ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
+		UsableInScope<BaseFns, PL, BasePL>,
 		O
 	>;
 
@@ -702,8 +721,8 @@ export interface Fn<
 		options: OptionType<I, O, P, Q, PL>,
 	): Instance<
 		Base & ResolvedVars<PL>,
-		BaseFns & ApplyOns<ModuleFns<PL>, PL>,
-		readonly [...BasePL, ...PL],
+		UsableInScope<BaseFns, PL, BasePL>,
+		ChainPL<BasePL, PL>,
 		Prefix,
 		I,
 		O
@@ -720,8 +739,8 @@ export interface Fn<
 		options: OptionType<I, O, P, Q, PL>,
 	): Instance<
 		Base & ResolvedVars<PL>,
-		BaseFns & ApplyOns<ModuleFns<PL>, PL>,
-		readonly [...BasePL, ...PL],
+		UsableInScope<BaseFns, PL, BasePL>,
+		ChainPL<BasePL, PL>,
 		`${Prefix}${K}`,
 		I,
 		O
@@ -753,14 +772,27 @@ const defineFn = (
 	// Interceptors and var extensions this fn brings, from its modules -
 	// nested GROUPS included. The SAME entry mounted twice (two views of
 	// one storage, a module and its re-export) applies once - identity
-	// dedup, like inheritance.
+	// dedup, like inheritance. Same-name `customize` re-exports are
+	// folded in as synthetic extensions so var-bound input re-validates
+	// against the shadowed schema (matching {@link VarArgsInScope}).
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
+	const seenVarShadows = new Set<unknown>();
 	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
 			if (isOn(value) && !own.includes(value)) own.push(value);
 			else if (isVarExtension(value)) ownExts.push(value);
-			else if (isNamespace(value)) scanMembers(value);
+			else if (isVar(value)) {
+				const schema = (value as { schema?: unknown }).schema;
+				if (schema === undefined || seenVarShadows.has(value)) continue;
+				seenVarShadows.add(value);
+				ownExts.push({
+					$varExtend: true,
+					name: (value as { name: string }).name,
+					schema,
+					base: value as never,
+				});
+			} else if (isNamespace(value)) scanMembers(value);
 		}
 	};
 	for (const mod of modules) scanMembers(mod);
