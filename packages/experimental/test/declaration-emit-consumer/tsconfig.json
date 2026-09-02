@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"outDir": "./out",
+		"module": "Node16",
+		"moduleResolution": "Node16",
+		"target": "ESNext",
+		"skipLibCheck": true,
+		"lib": ["esnext"]
+	},
+	"include": ["./index.ts"]
+}
