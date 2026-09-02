@@ -53,10 +53,16 @@ type WidenSchemaFn<T, PL> = T extends {
  * ResolvedVars}.
  */
 type WidenCollection<T, PL> =
-	T extends Collection<infer R, infer N>
+	T extends Collection<infer R, infer N, infer CreateIn>
 		? [R] extends [RowInScope<R, PL, N & string>]
 			? T
-			: Collection<RowInScope<R, PL, N & string>, N & string>
+			: Collection<
+					RowInScope<R, PL, N & string>,
+					N & string,
+					// Keep omittable defaults (e.g. db.id); require only newly
+					// extended keys the scope added on top of R.
+					Prettify<CreateIn & Omit<RowInScope<R, PL, N & string>, keyof R>>
+				>
 		: T;
 
 export type WidenSchemaFns<T, PL> =

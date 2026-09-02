@@ -485,6 +485,47 @@ describe("v.storage", () => {
 		await db.alias.create({ id: "1" });
 		expect(models).toEqual(["stg_named"]);
 	});
+
+	it("create applies db.id / schema defaults without a prior validate", async () => {
+		const user = v.var("stg_db_id_user", {
+			default: null,
+			schema: v.object({
+				id: db.id(v.string({})),
+				name: v.string(),
+				tag: v.string({ default: "none" }),
+			}),
+		});
+		const store = v.storage(memoryAdapter(), { user });
+
+		type CreateArg = Parameters<typeof store.user.create>[0];
+		expectTypeOf<CreateArg>().toEqualTypeOf<{
+			name: string;
+			id?: string;
+			tag?: string;
+		}>();
+
+		const created = await store.user.create({ name: "x" });
+		expect(created.name).toBe("x");
+		expect(created.tag).toBe("none");
+		expect(created.id).toHaveLength(32);
+		expect(created.id).toMatch(/^[a-zA-Z0-9]+$/);
+		expectTypeOf(created).toEqualTypeOf<{
+			id: string;
+			name: string;
+			tag: string;
+		}>();
+
+		const stored = await store.user.findOne({ id: created.id });
+		expect(stored).toEqual(created);
+
+		const explicit = await store.user.create({
+			id: "fixed",
+			name: "y",
+			tag: "kept",
+		});
+		expect(explicit).toEqual({ id: "fixed", name: "y", tag: "kept" });
+		expect(await store.user.findOne({ id: "fixed" })).toEqual(explicit);
+	});
 });
 
 describe("storage collection var widening", () => {

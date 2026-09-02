@@ -1,6 +1,10 @@
+import { createRandomStringGenerator } from "./helpers/random";
 import { matchesTarget, type OnEntry } from "./module";
-import { asType, attrsOf, isVar } from "./schema";
+import { asType, attrsOf, type InferArgs, isVar, validate } from "./schema";
+import type { Prettify } from "./types";
 import type { NameOfVar, ValueOfVar, VarDefination } from "./var";
+
+const mintStorageId = createRandomStringGenerator("a-z", "A-Z", "0-9");
 
 /* ---------------------------------- where ---------------------------------- */
 
@@ -134,14 +138,14 @@ export type FindManyOptions<R> = {
 	sortBy?: { field: keyof R & string; direction?: "asc" | "desc" };
 };
 
-/** One model's CRUD surface. `create` is generic so a row EXTENDED by a
- * mounted module (an account with a password field) keeps its extra
- * fields through the round-trip outside a widened scope. Inside a scope
- * that mounts `v.extend` / same-name customize on the model var, {@link
+/** One model's CRUD surface. `create` takes the schema's *args* shape
+ * (defaulted fields like `db.id` are omittable) and returns the full row,
+ * preserving any EXTENDED keys the caller supplied. Inside a scope that
+ * mounts `v.extend` / same-name customize on the model var, {@link
  * WidenSchemaFns} rewrites `R` (see `$modelVar`) the same way it widens
  * `v.fn.type({ input: user })`. */
-export type Collection<R, N extends string = string> = {
-	create: <T extends R>(data: T) => Promise<T>;
+export type Collection<R, N extends string = string, CreateIn = R> = {
+	create: <T extends CreateIn>(data: T) => Promise<Prettify<R & T>>;
 	findOne: (where: Where<R>) => Promise<R | null>;
 	findMany: (where?: Where<R>, options?: FindManyOptions<R>) => Promise<R[]>;
 	/** Merge `patch` into the FIRST match - null when nothing matched. */
@@ -290,13 +294,16 @@ export const memoryAdapter = (): StorageAdapter => {
 
 type AnyVar = VarDefination<any, any, any, any>;
 
-/** Persistence facts about one field the ROW SHAPE can't say - consumed by
- * schema generators and adapters, never acted on by the runtime. (Read
- * shaping like redaction is a `$on` hook, not metadata.) Prefer declaring
+/** Persistence facts about one field the ROW SHAPE can't say. Prefer declaring
  * these via `db.unique` / `db.indexed` / `db.references` / `db.id` on the
- * field schema; `ModelConfig.fields` remains an override. */
+ * field schema; `ModelConfig.fields` remains an override.
+ *
+ * `id` is honored at write time by {@link prepareCreate} (auto-fill when
+ * absent). `unique` / `index` / `references` stay adapter / schema-generator
+ * concerns (and future hooks). Read shaping like redaction is a `$on` hook,
+ * not metadata. */
 export type FieldMeta = {
-	/** Primary key for this model. */
+	/** Primary key for this model - auto-filled on create when absent. */
 	id?: boolean;
 	/** No two rows share a value. */
 	unique?: boolean;
@@ -343,6 +350,69 @@ export const resolveModelFields = (
 		if (meta !== undefined) merged[key] = meta;
 	}
 	return Object.keys(merged).length > 0 ? merged : undefined;
+};
+
+/**
+ * `$attrs.db` write-time effects. Schema defaults (including `db.id`'s
+ * `generateId` factory) are applied by validate first; this seam covers
+ * attr-driven behavior that isn't already a field default, and leaves
+ * room for future hooks. `unique` / `index` / `references` stay adapter /
+ * schema-generator concerns.
+ */
+const applyDbWriteAttrs = (
+	shape: Record<string, unknown>,
+	row: Record<string, unknown>,
+	op: "create" | "update",
+): Record<string, unknown> => {
+	if (op !== "create") return row;
+	const out: Record<string, unknown> = { ...row };
+	for (const [key, child] of Object.entries(shape)) {
+		const meta = attrsOf(child, "db") as FieldMeta | undefined;
+		if (!meta?.id || out[key] !== undefined) continue;
+		// Auto-id when `$attrs.db.id` is set and the field is still absent
+		// (attrs-only marking, or a default that somehow didn't fire).
+		// Mirrors generateId's default size/alphabet without importing the
+		// db plugin (storage <- db would cycle through the package entry).
+		out[key] = mintStorageId(32);
+	}
+	return out;
+};
+
+/**
+ * Prepare a create payload: validate against the model object schema
+ * (fills defaults, including async factories), keep caller EXTENDED keys
+ * validate would strip, then run `$attrs.db` write hooks.
+ */
+const prepareCreate = (
+	modelSchema: unknown,
+	data: Record<string, unknown>,
+	path: string,
+): Record<string, unknown> | Promise<Record<string, unknown>> => {
+	const schema = asType(modelSchema ?? {});
+	if (schema.name !== "object" || schema.shape === undefined) {
+		return data;
+	}
+	const shape = schema.shape as Record<string, unknown>;
+	const validated = validate(schema, data, path);
+	const finish = (parsed: Record<string, unknown>) => {
+		// Validate only materializes declared fields - put EXTENDED keys back.
+		const extras = Object.fromEntries(
+			Object.entries(data).filter(([key]) => !(key in shape)),
+		);
+		return applyDbWriteAttrs(shape, { ...parsed, ...extras }, "create");
+	};
+	if (
+		validated !== null &&
+		typeof (validated as { then?: unknown })?.then === "function"
+	) {
+		return (validated as Promise<Record<string, unknown>>).then(finish);
+	}
+	return finish(validated as Record<string, unknown>);
+};
+
+const schemaOfModel = (input: ModelInput): unknown => {
+	const def = isVar(input) ? input : (input as ModelConfig).schema;
+	return (def as { schema?: unknown }).schema;
 };
 
 /** Normalize `$models` entries so adapters always see merged `fields`.
@@ -399,6 +469,15 @@ type SchemaOf<T> = T extends { $var: true }
 
 type RowOf<T> = NonNullable<ValueOfVar<SchemaOf<T>>>;
 
+/** The var's object schema - what create validates / default-fills against. */
+type ModelSchemaOf<T> =
+	SchemaOf<T> extends { schema?: infer S } ? NonNullable<S> : never;
+
+/** Create payload: InferArgs so `db.id` / other defaults are omittable. */
+type CreateInputOf<T> = [ModelSchemaOf<T>] extends [never]
+	? RowOf<T>
+	: InferArgs<ModelSchemaOf<T>>;
+
 /** Declared name of the var behind a model input - brands the collection. */
 type ModelVarName<T> = NameOfVar<SchemaOf<T>> & string;
 
@@ -440,7 +519,11 @@ export type StorageTarget<M> =
 	| `*.${StorageOp}`;
 
 export type Storage<M extends StorageModels> = {
-	[K in keyof M]: Collection<RowOf<M[K]>, ModelVarName<M[K]>>;
+	[K in keyof M]: Collection<
+		RowOf<M[K]>,
+		ModelVarName<M[K]>,
+		CreateInputOf<M[K]>
+	>;
 } & StorageApi<M>;
 
 /** Duck-type a storage instance - `$models` plus the `$adapter` method. */
@@ -562,7 +645,16 @@ const buildStorage = <M extends StorageModels>(
 		const def = isVar(input) ? input : (input as ModelConfig).schema;
 		const name = (def as { name: string }).name;
 		const collection = {
-			create: (data: unknown) => run(key, name, "create", [data]),
+			create: (data: unknown) => {
+				const row = prepareCreate(
+					schemaOfModel(input),
+					(data ?? {}) as Record<string, unknown>,
+					name,
+				);
+				return Promise.resolve(row).then((prepared) =>
+					run(key, name, "create", [prepared]),
+				);
+			},
 			findOne: (where: unknown) => run(key, name, "findOne", [where]),
 			findMany: (where?: unknown, options?: unknown) =>
 				run(key, name, "findMany", [where, options]),
