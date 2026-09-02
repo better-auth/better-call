@@ -497,79 +497,173 @@ export const isVar = (value: any): boolean => value?.$var === true;
 const EMAIL =
 	/^(?!\.)(?!.*\.\.)([a-z0-9_'+\-.]*)[a-z0-9_+-]@([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}$/;
 
-const fail = (path: string, message: string): never => {
-	throw new ValidationError(path, message);
+const PREVIEW_MAX = 80;
+
+/** Truncated, JSON-safe preview of a value for validation messages. */
+export const preview = (value: unknown): string => {
+	if (value === undefined) return "undefined";
+	if (value === null) return "null";
+	if (typeof value === "string") {
+		const quoted = JSON.stringify(value);
+		return quoted.length > PREVIEW_MAX
+			? `${quoted.slice(0, PREVIEW_MAX - 1)}…`
+			: quoted;
+	}
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint"
+	) {
+		return String(value);
+	}
+	if (typeof value === "function") return "[Function]";
+	if (typeof value === "symbol") return value.toString();
+	try {
+		const json = JSON.stringify(value);
+		if (json === undefined) return typeOf(value);
+		return json.length > PREVIEW_MAX
+			? `${json.slice(0, PREVIEW_MAX - 1)}…`
+			: json;
+	} catch {
+		return typeOf(value);
+	}
+};
+
+const NO_VALUE = Symbol("no-value");
+
+const fail = (
+	path: string,
+	message: string,
+	value: unknown = NO_VALUE,
+): never => {
+	const issue: Issue =
+		value !== NO_VALUE
+			? { path, message, received: preview(value) }
+			: { path, message };
+	throw new ValidationError(path, message, [issue]);
+};
+
+const typeError = (
+	path: string,
+	expected: string,
+	value: unknown,
+): ValidationError => {
+	const received = preview(value);
+	const message = `expected ${expected}, received ${typeOf(value)} (${received})`;
+	return new ValidationError(path, message, [{ path, message, received }]);
 };
 
 /** Constraint checks, run after the value's type is known to be right. */
 const applyRules = (def: Rules, value: any, path: string) => {
 	if (def.enum && !def.enum.includes(value)) {
-		fail(path, `expected one of ${def.enum.join(", ")}, received ${value}`);
+		fail(
+			path,
+			`expected one of ${def.enum.join(", ")}, received ${preview(value)}`,
+			value,
+		);
 	}
 	if (typeof value === "string") {
 		if (def.length !== undefined && value.length !== def.length) {
-			fail(path, `expected length ${def.length}, received ${value.length}`);
+			fail(
+				path,
+				`expected length ${def.length}, received ${value.length}`,
+				value,
+			);
 		}
 		if (def.min !== undefined && value.length < def.min) {
 			fail(
 				path,
 				`expected at least ${def.min} characters, received ${value.length}`,
+				value,
 			);
 		}
 		if (def.max !== undefined && value.length > def.max) {
 			fail(
 				path,
 				`expected at most ${def.max} characters, received ${value.length}`,
+				value,
 			);
 		}
 		if (def.regex && !def.regex.test(value)) {
-			fail(path, `does not match ${def.regex}`);
+			fail(
+				path,
+				`does not match ${def.regex}, received ${preview(value)}`,
+				value,
+			);
 		}
-		if (def.email && !EMAIL.test(value))
-			fail(path, "expected an email address");
+		if (def.email && !EMAIL.test(value)) {
+			fail(
+				path,
+				`expected an email address, received ${preview(value)}`,
+				value,
+			);
+		}
 		if (def.url) {
 			try {
 				new URL(value);
 			} catch {
-				fail(path, "expected a URL");
+				fail(path, `expected a URL, received ${preview(value)}`, value);
 			}
 		}
 		if (def.startsWith !== undefined && !value.startsWith(def.startsWith)) {
-			fail(path, `expected to start with "${def.startsWith}"`);
+			fail(
+				path,
+				`expected to start with "${def.startsWith}", received ${preview(value)}`,
+				value,
+			);
 		}
 		if (def.endsWith !== undefined && !value.endsWith(def.endsWith)) {
-			fail(path, `expected to end with "${def.endsWith}"`);
+			fail(
+				path,
+				`expected to end with "${def.endsWith}", received ${preview(value)}`,
+				value,
+			);
 		}
 	}
 	if (Array.isArray(value)) {
 		if (def.length !== undefined && value.length !== def.length) {
-			fail(path, `expected length ${def.length}, received ${value.length}`);
+			fail(
+				path,
+				`expected length ${def.length}, received ${value.length}`,
+				value,
+			);
 		}
 		if (def.min !== undefined && value.length < def.min) {
 			fail(
 				path,
 				`expected at least ${def.min} items, received ${value.length}`,
+				value,
 			);
 		}
 		if (def.max !== undefined && value.length > def.max) {
-			fail(path, `expected at most ${def.max} items, received ${value.length}`);
+			fail(
+				path,
+				`expected at most ${def.max} items, received ${value.length}`,
+				value,
+			);
 		}
 	}
 	if (typeof value === "number") {
 		if (def.int && !Number.isInteger(value)) {
-			fail(path, `expected an integer, received ${value}`);
+			fail(path, `expected an integer, received ${value}`, value);
 		}
 		if (def.min !== undefined && value < def.min) {
-			fail(path, `expected >= ${def.min}, received ${value}`);
+			fail(path, `expected >= ${def.min}, received ${value}`, value);
 		}
 		if (def.max !== undefined && value > def.max) {
-			fail(path, `expected <= ${def.max}, received ${value}`);
+			fail(path, `expected <= ${def.max}, received ${value}`, value);
 		}
 	}
 	if (def.check) {
 		const result = def.check(value);
 		if (result !== true) {
-			fail(path, typeof result === "string" ? result : "failed check");
+			fail(
+				path,
+				typeof result === "string"
+					? result
+					: `failed check, received ${preview(value)}`,
+				value,
+			);
 		}
 	}
 };
@@ -658,19 +752,13 @@ export const validate = (
 	}
 	if (def.name === "date") {
 		if (!(value instanceof Date)) {
-			throw new ValidationError(
-				path,
-				`expected date, received ${typeOf(value)}`,
-			);
+			throw typeError(path, "date", value);
 		}
 		return def.transform ? def.transform(value) : value;
 	}
 	if (def.name === "function") {
 		if (typeof value !== "function") {
-			throw new ValidationError(
-				path,
-				`expected function, received ${typeOf(value)}`,
-			);
+			throw typeError(path, "function", value);
 		}
 		// A branded fn (`$fn`) validates its own declared input at its own
 		// door; a plain closure gets THIS schema's input validated for it.
@@ -687,10 +775,7 @@ export const validate = (
 	}
 	if (def.name === "array") {
 		if (!Array.isArray(value)) {
-			throw new ValidationError(
-				path,
-				`expected array, received ${typeOf(value)}`,
-			);
+			throw typeError(path, "array", value);
 		}
 		applyRules(def, value, path);
 		// No declared element (`v.array()`): ANY array - passed through
@@ -727,10 +812,7 @@ export const validate = (
 	}
 	if (def.name === "object") {
 		if (typeOf(value) !== "object") {
-			throw new ValidationError(
-				path,
-				`expected object, received ${typeOf(value)}`,
-			);
+			throw typeError(path, "object", value);
 		}
 		// No declared shape (`v.object()`): ANY object - passed through
 		// as-is, nothing stripped.
@@ -787,7 +869,17 @@ export const validate = (
 			issues: Issue[],
 		): unknown | Promise<unknown> => {
 			if (index >= options.length) {
-				throwIssues(issues, path, `expected union, received ${typeOf(value)}`);
+				const received = preview(value);
+				const summary: Issue = {
+					path,
+					message: `expected union (${options.length} branches), received ${typeOf(value)} (${received})`,
+					received,
+				};
+				throwIssues(
+					issues.length ? [summary, ...issues] : [summary],
+					path,
+					summary.message,
+				);
 			}
 			const attempt = attemptValidate(asType(options[index]), value, path);
 			const next = (settledAttempt: Attempt<unknown>) => {
@@ -797,17 +889,18 @@ export const validate = (
 						? def.transform(settledAttempt.value)
 						: settledAttempt.value;
 				}
-				return tryMember(index + 1, [...issues, ...settledAttempt.issues]);
+				const labeled = settledAttempt.issues.map((issue) => ({
+					...issue,
+					message: `branch ${index}: ${issue.message}`,
+				}));
+				return tryMember(index + 1, [...issues, ...labeled]);
 			};
 			return isThenable(attempt) ? attempt.then(next) : next(attempt);
 		};
 		return tryMember(0, []);
 	}
 	if (typeOf(value) !== def.name) {
-		throw new ValidationError(
-			path,
-			`expected ${def.name}, received ${typeOf(value)}`,
-		);
+		throw typeError(path, def.name, value);
 	}
 	// Canonicalize before rules so padded / mixed-case addresses pass the
 	// email regex and handlers always see the normalized form.

@@ -416,7 +416,7 @@ describe("tuple input - positional args", () => {
 			{ input: [v.string({ min: 3 })] },
 			(c) => c.input[0],
 		);
-		expect(() => f("ab")).toThrow(/fnt\.pos\[0\]/);
+		expect(() => f("ab")).toThrow(/fnt\.pos\.input\[0\]/);
 	});
 
 	it("used fns forward positional args and still share the scope", async () => {
@@ -459,7 +459,7 @@ describe("fn as input schema", () => {
 			(c) => c.input.execute({ n: "x" } as never),
 		);
 		expect(() => run({ execute: (i) => i.n })).toThrow(
-			/fnt\.runner\.execute\(\)/,
+			/fnt\.runner\.input\.execute\(\)/,
 		);
 	});
 
@@ -975,7 +975,17 @@ describe("multi-issue validation", () => {
 			expect(thrown).toBeInstanceOf(ValidationError);
 			const err = thrown as ValidationError;
 			expect(err.issues).toHaveLength(2);
-			expect(err.message).toMatch(/fnt\.multi\.a.*fnt\.multi\.b/s);
+			expect(err.message).toMatch(
+				/fnt\.multi\.input\.a.*fnt\.multi\.input\.b/s,
+			);
+			expect(err.issues[0]?.received).toBe("1");
+			expect(err.issues[1]?.received).toBe('"x"');
+			expect(JSON.parse(JSON.stringify(err))).toEqual({
+				name: "ValidationError",
+				message: err.message,
+				path: "fnt.multi.input.a",
+				issues: err.issues,
+			});
 		}
 	});
 
@@ -991,8 +1001,8 @@ describe("multi-issue validation", () => {
 		} catch (thrown) {
 			const err = thrown as ValidationError;
 			expect(err.issues.map((issue) => issue.path)).toEqual([
-				"fnt.multiArr.tags[0]",
-				"fnt.multiArr.tags[2]",
+				"fnt.multiArr.input.tags[0]",
+				"fnt.multiArr.input.tags[2]",
 			]);
 		}
 	});
@@ -1009,8 +1019,8 @@ describe("multi-issue validation", () => {
 		} catch (thrown) {
 			const err = thrown as ValidationError;
 			expect(err.issues.map((issue) => issue.path)).toEqual([
-				"fnt.multiPos[0]",
-				"fnt.multiPos[1]",
+				"fnt.multiPos.input[0]",
+				"fnt.multiPos.input[1]",
 			]);
 		}
 	});

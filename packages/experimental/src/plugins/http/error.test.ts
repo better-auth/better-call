@@ -1,7 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { FnError, v } from "../../index";
+import { FnError, UnexpectedError, ValidationError, v } from "../../index";
 import {
 	applyError,
+	encodeError,
 	err,
 	errorStatus,
 	type HttpResponse,
@@ -65,6 +66,7 @@ describe("http.err - status on declared errors", () => {
 			expect(bad.error).toBeInstanceOf(FnError);
 			expect(bad.error.tag).toBe("invalid_credentials");
 			expect(bad.error.data).toEqual({ attempts: 3 });
+			expect(bad.error.status).toBe(401);
 			if (bad.error.tag === "invalid_credentials") {
 				expectTypeOf(bad.error.data).toEqualTypeOf<{
 					readonly attempts: number;
@@ -77,6 +79,7 @@ describe("http.err - status on declared errors", () => {
 		if (!gone.ok) {
 			expect(gone.error.tag).toBe("gone");
 			expect(gone.error.data).toEqual({});
+			expect(gone.error.status).toBe(410);
 		}
 
 		expect(() =>
@@ -133,6 +136,12 @@ describe("http.err - status on declared errors", () => {
 		expect(response.status).toBe(401);
 	});
 
+	it("applyError uses FnError.status when the map is absent", () => {
+		const response: HttpResponse = { headers: new Headers() };
+		applyError(response, undefined, { tag: "denied", status: 403 });
+		expect(response.status).toBe(403);
+	});
+
 	it("applyError leaves res.status alone for plain error tags", () => {
 		const response = { headers: new Headers(), status: 200 };
 		applyError(response, { plain: { reason: v.string() } }, { tag: "plain" });
@@ -142,5 +151,90 @@ describe("http.err - status on declared errors", () => {
 	it("http.err is re-exported on the http module", () => {
 		expect(http.err(418)).toBeDefined();
 		expect(http.statusOf(http.err(418))).toBe(418);
+	});
+});
+
+describe("encodeError + createHandler JSON bodies", () => {
+	it("encodeError maps ValidationError to 400", () => {
+		const error = new ValidationError(
+			"body.n",
+			'expected number, received string ("x")',
+			[
+				{
+					path: "body.n",
+					message: 'expected number, received string ("x")',
+					received: '"x"',
+				},
+			],
+		);
+		expect(encodeError(error)).toEqual({
+			status: 400,
+			body: error.toJSON(),
+		});
+	});
+
+	it("encodeError maps FnError status or defaults to 422", () => {
+		const stamped = new FnError("denied", {}, "f", 403);
+		expect(encodeError(stamped)?.status).toBe(403);
+		const plain = new FnError("denied", {}, "f");
+		expect(encodeError(plain)?.status).toBe(422);
+	});
+
+	it("encodeError maps UnexpectedError to 500 without a cause stack", () => {
+		const unexpected = new UnexpectedError(new Error("boom"), "f");
+		expect(encodeError(unexpected)).toEqual({
+			status: 500,
+			body: {
+				name: "UnexpectedError",
+				message: "f: unexpected - boom",
+				trail: ["f"],
+				cause: { name: "Error", message: "boom" },
+			},
+		});
+	});
+
+	it("createHandler returns 400 JSON for ValidationError", async () => {
+		const fetch = http.createHandler(() => {
+			throw new ValidationError(
+				"body.email",
+				'expected an email address, received "x"',
+				[
+					{
+						path: "body.email",
+						message: 'expected an email address, received "x"',
+						received: '"x"',
+					},
+				],
+			);
+		});
+		const response = await fetch(new Request("http://x.test/"));
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			name: "ValidationError",
+			path: "body.email",
+			issues: [{ path: "body.email", received: '"x"' }],
+		});
+	});
+
+	it("createHandler returns declared status JSON for FnError", async () => {
+		const deny = app.fn(
+			"httpt.err.deny",
+			{ errors: { denied: err(403) } },
+			(c) => {
+				throw c.error("denied");
+			},
+		);
+		const fetch = http.createHandler(() => {
+			throw deny();
+		});
+		const response = await fetch(new Request("http://x.test/"));
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toEqual({
+			name: "FnError",
+			tag: "denied",
+			data: {},
+			trail: ["httpt.err.deny"],
+			status: 403,
+		});
 	});
 });

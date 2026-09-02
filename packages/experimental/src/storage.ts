@@ -649,7 +649,7 @@ const buildStorage = <M extends StorageModels>(
 				const row = prepareCreate(
 					schemaOfModel(input),
 					(data ?? {}) as Record<string, unknown>,
-					name,
+					`${key}.create`,
 				);
 				return Promise.resolve(row).then((prepared) =>
 					run(key, name, "create", [prepared]),

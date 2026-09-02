@@ -3,6 +3,7 @@ import { v } from "../../index";
 import type { ApplyOns, Module, ModuleFns } from "../../module";
 import type { ScopeOf } from "../../scope";
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
+import { encodeError } from "./error";
 import { applyRedirect, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import type { HttpResponse } from "./response";
@@ -50,17 +51,26 @@ const resultToResponse = (response: HttpResponse, out: unknown): Response => {
 	return toResponse(response, JSON.stringify(out));
 };
 
-const catchRedirect = (
+const catchEdgeError = (
 	thrown: unknown,
 	response: HttpResponse | null | undefined,
 ): Response => {
-	if (!(thrown instanceof Redirect)) throw thrown;
+	if (thrown instanceof Redirect) {
+		const current = response ?? { headers: new Headers() };
+		applyRedirect(current, thrown);
+		return toResponse(current, null);
+	}
+	const encoded = encodeError(thrown);
+	if (!encoded) throw thrown;
 	const current = response ?? { headers: new Headers() };
-	applyRedirect(current, thrown);
-	return toResponse(current, null);
+	current.status = encoded.status;
+	if (!current.headers.has("content-type")) {
+		current.headers.set("content-type", "application/json");
+	}
+	return toResponse(current, JSON.stringify(encoded.body));
 };
 
-/** Seed req/res, run `run` on the same `c`, settle Redirect / body. */
+/** Seed req/res, run `run` on the same `c`, settle Redirect / encoded errors / body. */
 const settle = async (
 	c: any,
 	request: Request,
@@ -71,7 +81,7 @@ const settle = async (
 		const out = await run(c);
 		return resultToResponse(c.res ?? { headers: new Headers() }, out);
 	} catch (thrown) {
-		return catchRedirect(thrown, c.res);
+		return catchEdgeError(thrown, c.res);
 	}
 };
 
@@ -79,7 +89,8 @@ const h = v.fn({ use: [base] });
 
 /**
  * Mounted web edge: seed `req`/`res` from `request`, run `run` in the
- * same scope, and turn {@link Redirect} into a 3xx Response.
+ * same scope, and turn {@link Redirect} into a 3xx Response. Contract
+ * violations and declared/unexpected errors become JSON error bodies.
  *
  * @example
  * ```ts

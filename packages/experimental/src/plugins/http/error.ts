@@ -1,4 +1,4 @@
-import { ValidationError } from "../../error";
+import { FnError, UnexpectedError, ValidationError } from "../../error";
 import type { HttpResponse } from "./response";
 
 /** Static HTTP metadata on an error declaration from `http.err`. Non-
@@ -13,7 +13,8 @@ export type HttpErrMeta = {
  * Declare an HTTP status on a fn error tag. Returns a normal payload
  * schema (so `c.error(tag, data)` validates as today) with status stashed
  * on {@link kHttpErr}. Core never sees HTTP; the edge reads it back with
- * {@link errorStatus} / {@link applyError}.
+ * {@link errorStatus} / {@link applyError}, or from {@link FnError.status}
+ * stamped at mint time.
  *
  * @example
  * ```ts
@@ -68,9 +69,34 @@ export const errorStatus = (
 export const applyError = (
 	response: HttpResponse,
 	errors: Record<string, unknown> | undefined | null,
-	error: { tag: string },
+	error: { tag: string; status?: number },
 ): HttpResponse => {
-	const status = errorStatus(errors, error.tag);
+	const status = error.status ?? errorStatus(errors, error.tag);
 	if (status !== undefined) response.status = status;
 	return response;
+};
+
+export type EncodedError = {
+	status: number;
+	body: Record<string, unknown>;
+};
+
+/**
+ * Map a contract / domain / defect error to an HTTP status + JSON body.
+ * Returns `null` for throws the edge should not claim (rethrow).
+ */
+export const encodeError = (thrown: unknown): EncodedError | null => {
+	if (thrown instanceof ValidationError) {
+		return { status: 400, body: thrown.toJSON() };
+	}
+	if (thrown instanceof FnError) {
+		return {
+			status: thrown.status ?? 422,
+			body: thrown.toJSON(),
+		};
+	}
+	if (thrown instanceof UnexpectedError) {
+		return { status: 500, body: thrown.toJSON() };
+	}
+	return null;
 };

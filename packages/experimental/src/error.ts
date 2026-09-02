@@ -1,4 +1,9 @@
-export type Issue = { path: string; message: string };
+export type Issue = {
+	path: string;
+	message: string;
+	/** Truncated, JSON-safe preview of the bad value. */
+	received?: string;
+};
 
 /** A contract violation - input, output, requires, provides. Carries
  * EVERY issue found in the pass that threw it, not just the first;
@@ -6,12 +11,28 @@ export type Issue = { path: string; message: string };
 export class ValidationError extends Error {
 	public path: string;
 	public issues: Issue[];
-	constructor(path: string, message: string, issues?: Issue[]) {
+	constructor(
+		path: string,
+		message: string,
+		issues?: Issue[],
+		options?: ErrorOptions,
+	) {
 		const all = issues?.length ? issues : [{ path, message }];
-		super(all.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
+		super(
+			all.map((issue) => `${issue.path}: ${issue.message}`).join("; "),
+			options,
+		);
 		this.name = "ValidationError";
 		this.path = all[0]?.path ?? path;
 		this.issues = all;
+	}
+	toJSON() {
+		return {
+			name: this.name,
+			message: this.message,
+			path: this.path,
+			issues: this.issues,
+		};
 	}
 }
 
@@ -21,20 +42,25 @@ export class ValidationError extends Error {
  * fn's `errors` schema. The `tag` is the discriminant callers narrow on;
  * `trail` records the fn that threw, then every frame it crossed.
  * Serializes as data, so it survives a remote boundary intact.
+ * Optional `status` is set when the declaration carried HTTP metadata
+ * (`http.err`); the edge uses it without looking the map back up.
  */
 export class FnError<
 	Tag extends string = string,
 	Data = unknown,
 > extends Error {
 	public trail: string[];
+	public status?: number;
 	constructor(
 		public tag: Tag,
 		public data: Data,
 		fn: string,
+		status?: number,
 	) {
 		super(`${fn}: ${tag}`);
 		this.name = "FnError";
 		this.trail = [fn];
+		if (status !== undefined) this.status = status;
 	}
 	toJSON() {
 		return {
@@ -42,6 +68,7 @@ export class FnError<
 			tag: this.tag as Tag,
 			data: this.data,
 			trail: this.trail,
+			...(this.status !== undefined ? { status: this.status } : {}),
 		};
 	}
 }
@@ -62,6 +89,19 @@ export class UnexpectedError extends Error {
 		);
 		this.name = "UnexpectedError";
 		this.trail = [fn];
+	}
+	toJSON() {
+		const cause = this.cause;
+		return {
+			name: this.name,
+			message: this.message,
+			trail: this.trail,
+			...(cause instanceof Error
+				? { cause: { name: cause.name, message: cause.message } }
+				: cause !== undefined
+					? { cause: { message: String(cause) } }
+					: {}),
+		};
 	}
 }
 

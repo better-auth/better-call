@@ -120,8 +120,13 @@ export const fromJsonBody = async <S>(
 	let body: unknown;
 	try {
 		body = await request.json();
-	} catch {
-		throw new ValidationError(path, "expected a JSON body");
+	} catch (cause) {
+		throw new ValidationError(
+			path,
+			`expected a JSON body (${cause instanceof Error ? cause.message : String(cause)})`,
+			undefined,
+			{ cause },
+		);
 	}
 	return await wireInput(schema, body, path);
 };

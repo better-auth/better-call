@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { v } from "./index";
+import { ValidationError, v } from "./index";
 import type { InferArgs, InferOutput, InferType } from "./schema";
-import { validate } from "./schema";
+import { preview, validate } from "./schema";
 
 describe("v.string type-arg + optional DX", () => {
 	it("narrowed type param works with optional: true", () => {
@@ -240,9 +240,15 @@ describe("email normalization", () => {
 
 	it("still rejects malformed addresses after normalize", () => {
 		const field = v.string({ email: true });
-		expect(() => validate(field, "  not-an-email  ", "email")).toThrow(
-			/expected an email address/,
-		);
+		try {
+			validate(field, "  not-an-email  ", "email");
+			expect.unreachable();
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(ValidationError);
+			const err = thrown as ValidationError;
+			expect(err.message).toMatch(/expected an email address, received/);
+			expect(err.issues[0]?.received).toBe('"not-an-email"');
+		}
 	});
 
 	it("user transform receives the normalized value", () => {
@@ -397,9 +403,37 @@ describe("v.union", () => {
 			validate(field, "x", "u");
 			expect.unreachable();
 		} catch (thrown) {
-			expect(thrown).toBeInstanceOf(Error);
-			const err = thrown as { issues: { message: string }[] };
+			expect(thrown).toBeInstanceOf(ValidationError);
+			const err = thrown as ValidationError;
 			expect(err.issues.length).toBeGreaterThanOrEqual(2);
+			expect(
+				err.issues.some((issue) => /branch \d+:/.test(issue.message)),
+			).toBe(true);
+			expect(err.message).toMatch(/expected union \(2 branches\)/);
+		}
+	});
+
+	it("type mismatches include a received preview", () => {
+		try {
+			validate(v.string(), 1, "n");
+			expect.unreachable();
+		} catch (thrown) {
+			const err = thrown as ValidationError;
+			expect(err.message).toBe("n: expected string, received number (1)");
+			expect(err.issues[0]?.received).toBe("1");
+			expect(preview({ a: 1 })).toBe('{"a":1}');
+		}
+	});
+
+	it("failed check includes the received value", () => {
+		const field = v.number({ check: (n) => n % 2 === 0 });
+		try {
+			validate(field, 3, "n");
+			expect.unreachable();
+		} catch (thrown) {
+			const err = thrown as ValidationError;
+			expect(err.message).toMatch(/failed check, received 3/);
+			expect(err.issues[0]?.received).toBe("3");
 		}
 	});
 

@@ -109,7 +109,19 @@ What this buys, all Effect-inspired but with plain functions:
 - **Failure vs defect.** A thrown `c.error(...)` is a `FnError` - a domain outcome, tagged, serializable (`{ tag, data, trail }` survives a wire). Once a fn declares `errors`, any *untagged* throw escaping its body is a bug and comes out as `UnexpectedError` with the original on `cause`. Callers never string-match to tell the two apart.
 - **Typed recovery.** `fn.try(input)` returns `{ ok: true, value } | { ok: false, error }` where `error` is the union of declared errors - TS narrows on `error.tag`. Defects and contract violations still throw. `FnErrors<typeof fn>` gives the union for catch sites.
 - **The trail.** As an error crosses fn frames it collects their keys - `["audit.log", "profile.update", "capability.exec"]` - origin first, so nothing about where a failure started is ever lost.
-- **All issues, not the first.** Validation collects every bad field / tuple position in one `ValidationError.issues` list.
+- **All issues, not the first.** Validation collects every bad field / tuple position in one `ValidationError.issues` list. Paths name the contract door (`sign_in.email.input.email`), and each issue can carry a `received` preview:
+
+```ts
+// sign_in.email.input.email: expected an email address, received "nope"
+// sign_in.email.input.password: expected string, received number (1)
+err.issues;
+// [
+//   { path: "sign_in.email.input.email", message: "expected an email address, received \"nope\"", received: "\"nope\"" },
+//   { path: "sign_in.email.input.password", message: "expected string, received number (1)", received: "1" },
+// ]
+```
+
+At the HTTP edge (`createHandler` / `handler`), `ValidationError` becomes `400` with that JSON body, `FnError` uses `http.err` status (or `422`), and `UnexpectedError` becomes `500`.
 
 ### vars
 

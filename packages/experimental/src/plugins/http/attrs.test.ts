@@ -100,6 +100,15 @@ describe("http field attrs", () => {
 		await expect(fromJsonBody(smuggle, v.object(shape))).rejects.toThrow(
 			ValidationError,
 		);
+
+		const badJson = new Request("https://example.com", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{",
+		});
+		await expect(fromJsonBody(badJson, v.object(shape))).rejects.toThrow(
+			/expected a JSON body \(/,
+		);
 	});
 
 	it("clientSchema and rejectServerOnly recurse into union arms", () => {

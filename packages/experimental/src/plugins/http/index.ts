@@ -6,7 +6,7 @@ import {
 	wireInput,
 } from "./attrs";
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
-import { applyError, err, errorStatus, statusOf } from "./error";
+import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
 import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
@@ -27,9 +27,10 @@ export {
 	getCookie,
 	setCookie,
 } from "./cookie";
-export type { HttpErrMeta } from "./error";
+export type { EncodedError, HttpErrMeta } from "./error";
 export {
 	applyError,
+	encodeError,
 	err,
 	errorStatus,
 	kHttpErr,
@@ -63,6 +64,7 @@ export const http = {
 	statusOf,
 	errorStatus,
 	applyError,
+	encodeError,
 	redirect,
 	applyRedirect,
 	asResponse,

@@ -35,6 +35,17 @@ describe("v.storage", () => {
 		expect(await db.item.count()).toBe(1);
 	});
 
+	it("create validation paths name the model key and op", () => {
+		const item = v.var("stg_bad_item", {
+			default: null,
+			schema: v.object({ id: v.string(), tag: v.string() }),
+		});
+		const store = v.storage(memoryAdapter(), { item });
+		expect(() => store.item.create({ id: 1, tag: "a" } as never)).toThrow(
+			/item\.create\.id/,
+		);
+	});
+
 	it("create keeps EXTENDED fields through the round-trip", async () => {
 		const base = v.var("stg_base", {
 			default: null,

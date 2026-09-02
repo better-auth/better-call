@@ -905,7 +905,7 @@ const defineFn = (
 						const result = validate(
 							asType(def),
 							(input as unknown[])[index],
-							`${key}[${index}]`,
+							`${key}.input[${index}]`,
 						);
 						if (isThenable(result)) {
 							return result.then(
@@ -955,7 +955,7 @@ const defineFn = (
 			}
 			return options.input === undefined
 				? input
-				: validate(asType(options.input), input, key);
+				: validate(asType(options.input), input, `${key}.input`);
 		};
 
 		const applyInputExtensions = (parsed: unknown) => {
@@ -1022,10 +1022,18 @@ const defineFn = (
 								: `"${key}" declares no errors`,
 						);
 					}
+					// HTTP status lives on the ORIGINAL declaration (`http.err`);
+					// `asType` copies enumerable fields only, so read it there.
+					const meta = (
+						declaredErrors?.[tag] as
+							| Record<symbol, { status?: number } | undefined>
+							| undefined
+					)?.[Symbol.for("better-call:http.err")];
 					return new FnError(
 						tag,
 						validate(schema, data ?? {}, `${key}.errors.${tag}`),
 						key,
+						meta?.status,
 					);
 				},
 				[STORE]: cells,
