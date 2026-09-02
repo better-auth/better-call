@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -68,9 +69,15 @@ describe("declaration emit (TS2883 / package entry)", () => {
 				join(consumerFixtureDir, "tsconfig.json"),
 				join(consumerDir, "tsconfig.json"),
 			);
-			symlinkSync(
-				join(consumerFixtureDir, "package.json"),
+			// Written here (not checked in) so this fixture is not a pnpm
+			// workspace package that knip would police for unlisted deps.
+			writeFileSync(
 				join(consumerDir, "package.json"),
+				JSON.stringify({
+					name: "better-call-declaration-emit-consumer",
+					private: true,
+					type: "module",
+				}),
 			);
 
 			try {
