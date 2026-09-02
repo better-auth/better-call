@@ -716,9 +716,11 @@ describe("declared errors", () => {
 		const inner = v.fn("fnt.trailInner", { errors: { denied: {} } }, (c) => {
 			throw c.error("denied");
 		});
-		const outer = v.fn("fnt.trailOuter", { use: [{ inner }] }, (c) =>
-			c.inner(),
-		);
+		// Context calls auto-try; rethrow to keep the outer frame on the trail.
+		const outer = v.fn("fnt.trailOuter", { use: [{ inner }] }, (c) => {
+			const result = c.inner();
+			if (!result.ok) throw result.error;
+		});
 		try {
 			outer();
 			expect.unreachable();
@@ -730,7 +732,7 @@ describe("declared errors", () => {
 		}
 	});
 
-	it("a parent inherits used-fn errors on .try and $schema", () => {
+	it("a used fn with errors auto-tries on the context call", () => {
 		const loadUser = v.fn(
 			"fnt.loadUser",
 			{
@@ -746,75 +748,60 @@ describe("declared errors", () => {
 			{
 				use: [{ loadUser }],
 				input: { id: v.string(), name: v.string() },
+				errors: { unavailable: {} },
 			},
 			(c) => {
-				c.loadUser({ id: c.input.id });
-				return { name: c.input.name };
+				const user = c.loadUser({ id: c.input.id });
+				if (!user.ok) {
+					expectTypeOf(user.error.tag).toEqualTypeOf<"not_found">();
+					expectTypeOf(user.error.data).toEqualTypeOf<{ id: string }>();
+					throw c.error("unavailable");
+				}
+				return { name: c.input.name, user: user.value };
 			},
 		);
 
-		expect(updateProfile.$schema?.errors).toEqual({
-			not_found: { id: expect.anything() },
-		});
+		expect(updateProfile.$schema?.errors).toEqual({ unavailable: {} });
 		expectTypeOf<
 			keyof NonNullable<NonNullable<typeof updateProfile.$schema>["errors"]>
-		>().toEqualTypeOf<"not_found">();
+		>().toEqualTypeOf<"unavailable">();
 
 		const bad = updateProfile.try({ id: "missing", name: "Ada" });
 		expect(bad.ok).toBe(false);
 		if (!bad.ok) {
-			expect(bad.error.tag).toBe("not_found");
-			expect(bad.error.data).toEqual({ id: "missing" });
-			expect(bad.error.trail).toEqual(["fnt.loadUser", "fnt.updateProfile"]);
-			expectTypeOf(bad.error.tag).toEqualTypeOf<"not_found">();
-			expectTypeOf(bad.error.data).toEqualTypeOf<{ id: string }>();
+			expect(bad.error.tag).toBe("unavailable");
+			expect(bad.error.trail).toEqual(["fnt.updateProfile"]);
 		}
 	});
 
-	it("inherited errors flip defect wrapping without a local errors map", () => {
-		const inner = v.fn("fnt.inheritInner", { errors: { nope: {} } }, (c) => {
-			throw c.error("nope");
+	it("a used fn without errors still returns the plain value", () => {
+		const ping = v.fn("fnt.ping", () => "pong");
+		const entry = v.fn({ use: [{ ping }] }, (c) => {
+			const value = c.ping();
+			expectTypeOf(value).toEqualTypeOf<string>();
+			return value;
 		});
-		const outer = v.fn("fnt.inheritOuter", { use: [{ inner }] }, () => {
-			throw new TypeError("bug");
-		});
-		expect(() => outer()).toThrow(UnexpectedError);
+		expect(entry()).toBe("pong");
 	});
 
-	it("own error tags win over inherited ones on $schema", () => {
-		const inner = v.fn(
-			"fnt.clashInner",
-			{ errors: { denied: { from: v.string() } } },
-			(c) => {
-				throw c.error("denied", { from: "inner" });
-			},
-		);
-		const outer = v.fn(
-			"fnt.clashOuter",
-			{
-				use: [{ inner }],
-				errors: { denied: { from: v.number() } },
-			},
-			(c) => {
-				throw c.error("denied", { from: 1 });
-			},
-		);
-		expect(outer.$schema?.errors?.denied).toEqual({ from: expect.anything() });
-		const bad = outer.try();
-		expect(bad.ok).toBe(false);
-		if (!bad.ok) expect(bad.error.data).toEqual({ from: 1 });
-	});
-
-	it("namespaced use still inherits errors", () => {
+	it("namespaced used fns auto-try the same way", () => {
 		const loadUser = v.fn("fnt.nsLoad", { errors: { not_found: {} } }, (c) => {
 			throw c.error("not_found");
 		});
-		const entry = v.fn("fnt.nsEntry", { use: [{ tools: { loadUser } }] }, (c) =>
-			c.tools.loadUser(),
+		const entry = v.fn(
+			"fnt.nsEntry",
+			{ use: [{ tools: { loadUser } }] },
+			(c) => {
+				const result = c.tools.loadUser();
+				expect(result.ok).toBe(false);
+				if (!result.ok) {
+					expectTypeOf(result.error.tag).toEqualTypeOf<"not_found">();
+				}
+				return result;
+			},
 		);
-		const bad = entry.try();
+		const bad = entry();
 		expect(bad.ok).toBe(false);
-		if (!bad.ok) expectTypeOf(bad.error.tag).toEqualTypeOf<"not_found">();
 	});
 
 	it("tagged errors serialize as data - they survive a wire", () => {
@@ -877,25 +864,26 @@ describe(".try", () => {
 		expect(() => guard.try({ n: "x" } as never)).toThrow(ValidationError);
 	});
 
-	it("a used fn keeps .try when mounted via use", () => {
+	it("a used fn with errors auto-tries on call (same as .try)", () => {
 		const entry = v.fn({ use: [{ guard }] }, (c) => {
-			expectTypeOf(c.guard.try).toBeCallableWith({ n: 2 });
-			const ok = c.guard.try({ n: 2 });
+			expectTypeOf(c.guard).toBeCallableWith({ n: 2 });
+			const ok = c.guard({ n: 2 });
 			expect(ok).toEqual({ ok: true, value: 4 });
-			const bad = c.guard.try({ n: 99 });
+			const bad = c.guard({ n: 99 });
 			expect(bad.ok).toBe(false);
 			if (!bad.ok) {
 				expect(bad.error.tag).toBe("too_big");
 				expectTypeOf(bad.error.data).toEqualTypeOf<{ max: number }>();
 			}
+			expect(c.guard.try({ n: 99 })).toEqual(bad);
 			return bad;
 		});
 		entry();
 	});
 
-	it("a grouped used fn keeps .try under its namespace", () => {
+	it("a grouped used fn auto-tries under its namespace", () => {
 		const entry = v.fn({ use: [{ tools: { guard } }] }, (c) =>
-			c.tools.guard.try({ n: 99 }),
+			c.tools.guard({ n: 99 }),
 		);
 		const bad = entry();
 		expect(bad.ok).toBe(false);
