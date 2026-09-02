@@ -123,5 +123,5 @@ export const fromJsonBody = async <S>(
 	} catch {
 		throw new ValidationError(path, "expected a JSON body");
 	}
-	return wireInput(schema, body, path);
+	return await wireInput(schema, body, path);
 };

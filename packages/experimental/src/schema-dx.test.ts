@@ -193,6 +193,43 @@ describe("factory defaults", () => {
 		expect(xs).toEqual(["x"]);
 		expect(xs).not.toBe(ys);
 	});
+
+	it("async factory defaults resolve; sync callers stay sync", async () => {
+		const sync = v.string({ default: () => "sync" });
+		expect(validate(sync, undefined, "s")).toBe("sync");
+
+		let ticks = 0;
+		const asyncField = v.string({
+			default: async () => {
+				ticks += 1;
+				return `id-${ticks}`;
+			},
+		});
+		const first = validate(asyncField, undefined, "id");
+		expect(first).toBeInstanceOf(Promise);
+		await expect(first).resolves.toBe("id-1");
+		await expect(validate(asyncField, undefined, "id")).resolves.toBe("id-2");
+		expect(validate(asyncField, "kept", "id")).toBe("kept");
+	});
+
+	it("async defaults nest through objects and feed v.fn input", async () => {
+		const row = v.object({
+			id: v.string({ default: async () => "generated" }),
+			tag: v.string(),
+		});
+		await expect(validate(row, { tag: "a" }, "row")).resolves.toEqual({
+			id: "generated",
+			tag: "a",
+		});
+
+		const create = v.fn(
+			"async_default.create",
+			{ input: row, output: v.string() },
+			(c) => c.input.id,
+		);
+		await expect(create({ tag: "b" })).resolves.toBe("generated");
+		expect(create({ id: "fixed", tag: "c" })).toBe("fixed");
+	});
 });
 
 describe("email normalization", () => {

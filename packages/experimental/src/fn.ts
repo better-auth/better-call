@@ -730,6 +730,12 @@ export interface Fn<
 const isThenable = (value: any): value is Promise<unknown> =>
 	typeof value?.then === "function";
 
+/** Sync stays sync; only allocate a microtask when `value` is thenable. */
+const thenMaybe = <T, R>(
+	value: T | Promise<T>,
+	next: (value: T) => R | Promise<R>,
+): R | Promise<R> => (isThenable(value) ? value.then(next) : next(value as T));
+
 const STORE = Symbol("var-store");
 const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
@@ -873,270 +879,340 @@ const defineFn = (
 		// Widen a var-referencing input with the mounted extensions of that
 		// var: their fields validate off the same raw value and merge in.
 		const extendValue = (name: string, raw: unknown, value: unknown) => {
-			let merged = value;
+			let merged: unknown = value;
 			for (const ext of exts) {
 				if (ext.name !== name) continue;
-				const extra = validate(asType(ext.schema), raw, `${key}.${name}`);
-				merged = { ...(merged as Record<string, unknown>), ...extra };
+				merged = thenMaybe(merged, (current) =>
+					thenMaybe(
+						validate(asType(ext.schema), raw, `${key}.${name}`),
+						(extra) => ({
+							...(current as Record<string, unknown>),
+							...(extra as Record<string, unknown>),
+						}),
+					),
+				);
 			}
 			return merged;
 		};
 
 		// Tuple positions validate like object fields: every bad position
-		// reports, together, in one error.
-		let parsed: any;
-		if (tupleInput) {
-			const issues: Issue[] = [];
-			parsed = tupleInput.map((def, index) => {
-				try {
-					return validate(
-						asType(def),
-						(input as unknown[])[index],
-						`${key}[${index}]`,
-					);
-				} catch (thrown) {
-					if (!(thrown instanceof ValidationError)) throw thrown;
-					issues.push(...thrown.issues);
-					return undefined;
-				}
-			});
-			const firstIssue = issues[0];
-			if (firstIssue) {
-				throw new ValidationError(firstIssue.path, firstIssue.message, issues);
-			}
-		} else {
-			parsed =
-				options.input === undefined
-					? input
-					: validate(asType(options.input), input, key);
-		}
-
-		// Mounted extensions widen the accepted input: each validates its
-		// own fields off the same raw input and merges onto `parsed`.
-		// Extensions extend RECORD inputs - positional args have no field
-		// to merge into, so a tuple fn skips them.
-		for (const entry of chain) {
-			if (!entry.extend?.input || tupleInput) continue;
-			const extra = validate(asType(entry.extend.input), input, `${key}.on`);
-			parsed = { ...((parsed as Record<string, unknown>) ?? {}), ...extra };
-		}
-
-		// A whole-var input IS the var: the merged value becomes both the
-		// parsed input and the var for the rest of the call tree.
-		if (wholeVar !== undefined && parsed !== undefined) {
-			parsed = extendValue(wholeVar, input, parsed);
-			writeVar(frame, wholeVar, parsed);
-		}
-
-		// An absent field leaves the var alone, so its default (or whatever
-		// a parent already set) survives. Only `undefined` counts as absent -
-		// an explicit `null` is a value and does overwrite.
-		for (const [field, name] of inputVars) {
-			const raw = (input as Record<string, unknown>)?.[field];
-			const value = (parsed as Record<string, unknown>)?.[field];
-			if (value === undefined) continue;
-			const merged = extendValue(name, raw, value);
-			(parsed as Record<string, unknown>)[field] = merged;
-			writeVar(frame, name, merged);
-		}
-
-		// The context's FIXED surface; everything not on it is a var, read
-		// and written straight on `c` through the proxy below.
-		const base: any = {
-			input: parsed,
-			// Mint a declared error: tag must be declared, payload validates
-			// at creation - an error is a contract too.
-			error: (tag: string, data?: unknown) => {
-				const schema = errorTypes?.[tag];
-				if (!schema) {
-					throw new ValidationError(
-						`${key}.errors.${tag}`,
-						errorTypes
-							? `"${tag}" is not a declared error of "${key}"`
-							: `"${key}" declares no errors`,
-					);
-				}
-				return new FnError(
-					tag,
-					validate(schema, data ?? {}, `${key}.errors.${tag}`),
-					key,
-				);
-			},
-			[STORE]: cells,
-			[ACTIVE]: active,
-			[EXTS]: exts,
-			[READONLY]: lockedBy,
-			[WITH]: withFns,
-			fn: builderFn(key === "anonymous" ? "" : key, {
-				use: options.use ?? [],
-			}),
-			types: vTypes,
-		};
-		ctx = contextScope(frame, base);
-		// Used fns land DIRECTLY on the context (`c.createUser(...)`), bound
-		// to `ctx` so they share this store and active set without the caller
-		// having to thread `c` by hand. A GROUP binds recursively and lands
-		// as a namespace (`c.cookie.setCookie(...)`); a VAR member becomes a
-		// live ALIAS under its export name (`c.cookie.options` reads and
-		// writes the var, hooks and readonly lock included). A tuple-input
-		// fn gets its args padded to full arity so the context always lands
-		// in the parent slot, however many args the caller actually passed.
-		/** Bind a used fn (or fn override) to this context. Declared
-		 * errors force a `.try` result on the call itself so failures
-		 * stay at the call site; `.try` remains an explicit alias. */
-		const bindUsedFn = (used: any) => {
-			const usedArity = used.$arity as number | undefined;
-			const autoTry = Boolean(
-				used.$schema?.errors &&
-					Object.keys(used.$schema.errors as object).length > 0,
-			);
-			const call = (method: "try" | "call", args: unknown[]) => {
-				const fn = method === "try" ? used.try : used;
-				if (usedArity === undefined) {
-					return fn(args[0], ctx);
-				}
-				const padded = args.slice(0, usedArity);
-				while (padded.length < usedArity) padded.push(undefined);
-				return fn(...padded, ctx);
-			};
-			const invoke = (...args: unknown[]) =>
-				call(autoTry ? "try" : "call", args);
-			invoke.try = (...args: unknown[]) => call("try", args);
-			return invoke;
-		};
-		const bindUsable = (
-			target: any,
-			map: Record<string, unknown>,
-			overrides: Record<string, unknown> | undefined,
-		) => {
-			for (const [name, used] of Object.entries(map)) {
-				const override = overrides?.[name];
-				if (isVar(used)) {
-					const varName = (used as { name: string }).name;
-					Object.defineProperty(target, name, {
-						get: () =>
-							viewMergeVar(varName, readVarThrough(frame, varName), ctx),
-						set: (value: unknown) => writeVar(frame, varName, value),
-						enumerable: true,
-						configurable: true,
+		// reports, together, in one error. Async field defaults make the
+		// whole parse thenable - sync inputs stay sync.
+		const parseInput = (): unknown => {
+			if (tupleInput) {
+				const attempts = tupleInput.map((def, index) => {
+					try {
+						const result = validate(
+							asType(def),
+							(input as unknown[])[index],
+							`${key}[${index}]`,
+						);
+						if (isThenable(result)) {
+							return result.then(
+								(value) => ({ ok: true as const, value }),
+								(thrown) => {
+									if (!(thrown instanceof ValidationError)) throw thrown;
+									return { ok: false as const, issues: thrown.issues };
+								},
+							);
+						}
+						return { ok: true as const, value: result };
+					} catch (thrown) {
+						if (!(thrown instanceof ValidationError)) throw thrown;
+						return { ok: false as const, issues: thrown.issues };
+					}
+				});
+				const settle = (
+					settled: Array<
+						{ ok: true; value: unknown } | { ok: false; issues: Issue[] }
+					>,
+				) => {
+					const issues: Issue[] = [];
+					const values = settled.map((attempt) => {
+						if (attempt.ok) return attempt.value;
+						issues.push(...attempt.issues);
+						return undefined;
 					});
-					continue;
-				}
-				// Storage mounts whole - do not walk `$models` as a namespace.
-				if (
-					typeof used === "object" &&
-					used !== null &&
-					"$models" in used &&
-					typeof (used as { $adapter?: unknown }).$adapter === "function"
-				) {
-					target[name] = override !== undefined ? override : used;
-					continue;
-				}
-				if (!isFn(used)) {
-					const group: any = {};
-					bindUsable(
-						group,
-						used as Record<string, unknown>,
-						isFn(override) ? undefined : (override as any),
+					const firstIssue = issues[0];
+					if (firstIssue) {
+						throw new ValidationError(
+							firstIssue.path,
+							firstIssue.message,
+							issues,
+						);
+					}
+					return values;
+				};
+				return attempts.some(isThenable)
+					? Promise.all(
+							attempts.map((attempt) => Promise.resolve(attempt)),
+						).then(settle)
+					: settle(
+							attempts as Array<
+								{ ok: true; value: unknown } | { ok: false; issues: Issue[] }
+							>,
+						);
+			}
+			return options.input === undefined
+				? input
+				: validate(asType(options.input), input, key);
+		};
+
+		const applyInputExtensions = (parsed: unknown) => {
+			let next: unknown = parsed;
+			for (const entry of chain) {
+				const extendInput = entry.extend?.input;
+				if (!extendInput || tupleInput) continue;
+				next = thenMaybe(next, (current) =>
+					thenMaybe(
+						validate(asType(extendInput), input, `${key}.on`),
+						(extra) => ({
+							...((current as Record<string, unknown>) ?? {}),
+							...(extra as Record<string, unknown>),
+						}),
+					),
+				);
+			}
+			return next;
+		};
+
+		const seedInputVars = (parsed: unknown) => {
+			// A whole-var input IS the var: the merged value becomes both the
+			// parsed input and the var for the rest of the call tree.
+			let next: unknown = parsed;
+			if (wholeVar !== undefined && parsed !== undefined) {
+				next = thenMaybe(extendValue(wholeVar, input, parsed), (merged) => {
+					writeVar(frame, wholeVar, merged);
+					return merged;
+				});
+			}
+
+			// An absent field leaves the var alone, so its default (or whatever
+			// a parent already set) survives. Only `undefined` counts as absent -
+			// an explicit `null` is a value and does overwrite.
+			for (const [field, name] of inputVars) {
+				next = thenMaybe(next, (current) => {
+					const raw = (input as Record<string, unknown>)?.[field];
+					const value = (current as Record<string, unknown>)?.[field];
+					if (value === undefined) return current;
+					return thenMaybe(extendValue(name, raw, value), (merged) => {
+						(current as Record<string, unknown>)[field] = merged;
+						writeVar(frame, name, merged);
+						return current;
+					});
+				});
+			}
+			return next;
+		};
+
+		const runWithParsed = (parsed: unknown) => {
+			// The context's FIXED surface; everything not on it is a var, read
+			// and written straight on `c` through the proxy below.
+			const base: any = {
+				input: parsed,
+				// Mint a declared error: tag must be declared, payload validates
+				// at creation - an error is a contract too.
+				error: (tag: string, data?: unknown) => {
+					const schema = errorTypes?.[tag];
+					if (!schema) {
+						throw new ValidationError(
+							`${key}.errors.${tag}`,
+							errorTypes
+								? `"${tag}" is not a declared error of "${key}"`
+								: `"${key}" declares no errors`,
+						);
+					}
+					return new FnError(
+						tag,
+						validate(schema, data ?? {}, `${key}.errors.${tag}`),
+						key,
 					);
-					target[name] = group;
-					continue;
+				},
+				[STORE]: cells,
+				[ACTIVE]: active,
+				[EXTS]: exts,
+				[READONLY]: lockedBy,
+				[WITH]: withFns,
+				fn: builderFn(key === "anonymous" ? "" : key, {
+					use: options.use ?? [],
+				}),
+				types: vTypes,
+			};
+			ctx = contextScope(frame, base);
+			// Used fns land DIRECTLY on the context (`c.createUser(...)`), bound
+			// to `ctx` so they share this store and active set without the caller
+			// having to thread `c` by hand. A GROUP binds recursively and lands
+			// as a namespace (`c.cookie.setCookie(...)`); a VAR member becomes a
+			// live ALIAS under its export name (`c.cookie.options` reads and
+			// writes the var, hooks and readonly lock included). A tuple-input
+			// fn gets its args padded to full arity so the context always lands
+			// in the parent slot, however many args the caller actually passed.
+			/** Bind a used fn (or fn override) to this context. Declared
+			 * errors force a `.try` result on the call itself so failures
+			 * stay at the call site; `.try` remains an explicit alias. */
+			const bindUsedFn = (used: any) => {
+				const usedArity = used.$arity as number | undefined;
+				const autoTry = Boolean(
+					used.$schema?.errors &&
+						Object.keys(used.$schema.errors as object).length > 0,
+				);
+				const call = (method: "try" | "call", args: unknown[]) => {
+					const fn = method === "try" ? used.try : used;
+					if (usedArity === undefined) {
+						return fn(args[0], ctx);
+					}
+					const padded = args.slice(0, usedArity);
+					while (padded.length < usedArity) padded.push(undefined);
+					return fn(...padded, ctx);
+				};
+				const invoke = (...args: unknown[]) =>
+					call(autoTry ? "try" : "call", args);
+				invoke.try = (...args: unknown[]) => call("try", args);
+				return invoke;
+			};
+			const bindUsable = (
+				target: any,
+				map: Record<string, unknown>,
+				overrides: Record<string, unknown> | undefined,
+			) => {
+				for (const [name, used] of Object.entries(map)) {
+					const override = overrides?.[name];
+					if (isVar(used)) {
+						const varName = (used as { name: string }).name;
+						Object.defineProperty(target, name, {
+							get: () =>
+								viewMergeVar(varName, readVarThrough(frame, varName), ctx),
+							set: (value: unknown) => writeVar(frame, varName, value),
+							enumerable: true,
+							configurable: true,
+						});
+						continue;
+					}
+					// Storage mounts whole - do not walk `$models` as a namespace.
+					if (
+						typeof used === "object" &&
+						used !== null &&
+						"$models" in used &&
+						typeof (used as { $adapter?: unknown }).$adapter === "function"
+					) {
+						target[name] = override !== undefined ? override : used;
+						continue;
+					}
+					if (!isFn(used)) {
+						const group: any = {};
+						bindUsable(
+							group,
+							used as Record<string, unknown>,
+							isFn(override) ? undefined : (override as any),
+						);
+						target[name] = group;
+						continue;
+					}
+					// A `.with` override REPLACES the binding - a fn override still
+					// joins this context (and keeps `.try`), a plain function is
+					// called as given.
+					if (override !== undefined) {
+						target[name] = isFn(override) ? bindUsedFn(override) : override;
+						continue;
+					}
+					target[name] = bindUsedFn(used);
 				}
-				// A `.with` override REPLACES the binding - a fn override still
-				// joins this context (and keeps `.try`), a plain function is
-				// called as given.
-				if (override !== undefined) {
-					target[name] = isFn(override) ? bindUsedFn(override) : override;
-					continue;
-				}
-				target[name] = bindUsedFn(used);
-			}
-		};
-		bindUsable(base, usable, withFns);
+			};
+			bindUsable(base, usable, withFns);
 
-		const missing = (name: string) => {
-			const value = readVar(cells, name);
-			return value === undefined || value === null;
-		};
-		const checkRequires = () => {
-			for (const name of options.requires ?? []) {
-				if (missing(name)) {
-					throw new ValidationError(
-						`${key}.requires.${name}`,
-						`required var "${name}" is not set${parent === undefined ? " - called without a parent context" : ""}`,
-					);
-				}
-			}
-		};
-
-		// Interceptors replace the BODY. `provides` is only enforced when
-		// the DECLARED body actually ran: an interceptor that returns
-		// without `next()` visibly takes the contract over - that is a
-		// veto, not a bug - while an author whose own body forgets to set
-		// a promised var still fails loudly.
-		let bodyRan = false;
-		const declaredTracked = (c: any) => {
-			bodyRan = true;
-			return declared(c);
-		};
-		const body = chain.reduceRight<(c: any) => any>(
-			(next, entry) => (c) => entry.handler(c, () => next(c)),
-			declaredTracked,
-		);
-
-		// Exit contracts run after the body, whether or not it was async.
-		const finish = (result: unknown) => {
-			if (outputValidation !== undefined) {
-				validate(asType(outputValidation), result, `${key}.output`);
-			}
-			if (bodyRan) {
-				for (const name of options.provides ?? []) {
+			const missing = (name: string) => {
+				const value = readVar(cells, name);
+				return value === undefined || value === null;
+			};
+			const checkRequires = () => {
+				for (const name of options.requires ?? []) {
 					if (missing(name)) {
 						throw new ValidationError(
-							`${key}.provides.${name}`,
-							`declared to provide "${name}" but it was left unset`,
+							`${key}.requires.${name}`,
+							`required var "${name}" is not set${parent === undefined ? " - called without a parent context" : ""}`,
 						);
 					}
 				}
-			}
-			return result;
-		};
+			};
 
-		// Errors crossing this frame: tagged errors and defects collect the
-		// TRAIL (origin fn first, then every frame outward). Once a fn
-		// declares `errors`, anything untagged escaping its body is a
-		// DEFECT - wrapped with the cause kept - so a domain refusal and a
-		// bug are never the same shape.
-		const decorate = (thrown: unknown): unknown => {
-			// Redirects and other transport control must cross frames that
-			// declare `errors` without becoming UnexpectedError.
-			if (thrown instanceof ControlFlow) return thrown;
-			if (thrown instanceof FnError || thrown instanceof UnexpectedError) {
-				if (thrown.trail[thrown.trail.length - 1] !== key) {
-					thrown.trail.push(key);
+			// Interceptors replace the BODY. `provides` is only enforced when
+			// the DECLARED body actually ran: an interceptor that returns
+			// without `next()` visibly takes the contract over - that is a
+			// veto, not a bug - while an author whose own body forgets to set
+			// a promised var still fails loudly.
+			let bodyRan = false;
+			const declaredTracked = (c: any) => {
+				bodyRan = true;
+				return declared(c);
+			};
+			const body = chain.reduceRight<(c: any) => any>(
+				(next, entry) => (c) => entry.handler(c, () => next(c)),
+				declaredTracked,
+			);
+
+			// Exit contracts run after the body, whether or not it was async.
+			const finish = (result: unknown) => {
+				const afterOutput = () => {
+					if (bodyRan) {
+						for (const name of options.provides ?? []) {
+							if (missing(name)) {
+								throw new ValidationError(
+									`${key}.provides.${name}`,
+									`declared to provide "${name}" but it was left unset`,
+								);
+							}
+						}
+					}
+					return result;
+				};
+				if (outputValidation === undefined) return afterOutput();
+				return thenMaybe(
+					validate(asType(outputValidation), result, `${key}.output`),
+					afterOutput,
+				);
+			};
+
+			// Errors crossing this frame: tagged errors and defects collect the
+			// TRAIL (origin fn first, then every frame outward). Once a fn
+			// declares `errors`, anything untagged escaping its body is a
+			// DEFECT - wrapped with the cause kept - so a domain refusal and a
+			// bug are never the same shape.
+			const decorate = (thrown: unknown): unknown => {
+				// Redirects and other transport control must cross frames that
+				// declare `errors` without becoming UnexpectedError.
+				if (thrown instanceof ControlFlow) return thrown;
+				if (thrown instanceof FnError || thrown instanceof UnexpectedError) {
+					if (thrown.trail[thrown.trail.length - 1] !== key) {
+						thrown.trail.push(key);
+					}
+					return thrown;
 				}
-				return thrown;
-			}
-			return errorTypes ? new UnexpectedError(thrown, key) : thrown;
+				return errorTypes ? new UnexpectedError(thrown, key) : thrown;
+			};
+
+			const run = () => {
+				checkRequires();
+				let result: unknown;
+				try {
+					result = body(ctx);
+				} catch (thrown) {
+					throw decorate(thrown);
+				}
+				// A sync handler stays sync: only chain when something is thenable.
+				return isThenable(result)
+					? result.then(finish, (thrown) => {
+							throw decorate(thrown);
+						})
+					: finish(result);
+			};
+
+			return run();
 		};
 
-		const run = () => {
-			checkRequires();
-			let result: unknown;
-			try {
-				result = body(ctx);
-			} catch (thrown) {
-				throw decorate(thrown);
-			}
-			// A sync handler stays sync: only chain when something is thenable.
-			return isThenable(result)
-				? result.then(finish, (thrown) => {
-						throw decorate(thrown);
-					})
-				: finish(result);
-		};
-
-		return run();
+		return thenMaybe(
+			thenMaybe(thenMaybe(parseInput(), applyInputExtensions), seedInputVars),
+			runWithParsed,
+		);
 	};
 
 	/** `.try`: declared errors as a value, everything else still throws. */

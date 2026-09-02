@@ -36,8 +36,9 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	fnInput?: unknown;
 	/** Used when the incoming value is `undefined`. A zero-arg function
 	 * is called (fresh value per validate) except on `function` schemas,
-	 * where the default IS the fn. */
-	default?: D | (() => D);
+	 * where the default IS the fn. The factory may be async - validate
+	 * returns a Promise when it (or a nested default) is thenable. */
+	default?: D | (() => D | Promise<D>);
 	/** When true, `undefined` and `null` pass straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
@@ -573,21 +574,65 @@ const applyRules = (def: Rules, value: any, path: string) => {
 	}
 };
 
+const isThenable = (value: unknown): value is Promise<unknown> =>
+	typeof (value as { then?: unknown })?.then === "function";
+
+/** Sync when every entry is sync; Promise when any is thenable. */
+const allMaybeAsync = <T>(values: Array<T | Promise<T>>): T[] | Promise<T[]> =>
+	values.some(isThenable)
+		? Promise.all(values.map((value) => Promise.resolve(value)))
+		: (values as T[]);
+
+type Attempt<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
+
+/** Run validate catching ValidationError into an Attempt; thenable results chain. */
+const attemptValidate = (
+	def: TypeDefination<any, any, any>,
+	value: unknown,
+	path: string,
+): Attempt<unknown> | Promise<Attempt<unknown>> => {
+	try {
+		const result = validate(def, value, path);
+		if (isThenable(result)) {
+			return result.then(
+				(resolved): Attempt<unknown> => ({ ok: true, value: resolved }),
+				(thrown): Attempt<unknown> => {
+					if (!(thrown instanceof ValidationError)) throw thrown;
+					return { ok: false, issues: thrown.issues };
+				},
+			);
+		}
+		return { ok: true, value: result };
+	} catch (thrown) {
+		if (!(thrown instanceof ValidationError)) throw thrown;
+		return { ok: false, issues: thrown.issues };
+	}
+};
+
+const throwIssues = (issues: Issue[], path: string, fallback: string) => {
+	const first = issues[0];
+	if (first) throw new ValidationError(first.path, first.message, issues);
+	throw new ValidationError(path, fallback);
+};
+
 export const validate = (
 	def: TypeDefination<any, any, any>,
 	value: unknown,
 	path: string,
+	/** Internal: skip default resolution after an async factory settled. */
+	settled = false,
 ): any => {
 	// `undefined` / (when optional) `null` fall back to the declared
 	// default before anything else, then to `optional`, which passes the
 	// absence through untouched. A shaped object with no default treats
 	// omit as `{}` so all-optional fields can be left off the call without
 	// a dummy payload. Non-optional `null` falls through to the type check.
-	if (value === undefined || (value === null && def.optional)) {
+	if (!settled && (value === undefined || (value === null && def.optional))) {
 		if (def.default !== undefined) {
 			// Factories produce a fresh value each time - needed for Date /
 			// object / array defaults. Skip on `function` schemas: there the
-			// default IS the fn.
+			// default IS the fn. Async factories (and Promise defaults) make
+			// this call return a Promise; sync callers stay sync.
 			value =
 				typeof def.default === "function" && def.name !== "function"
 					? (def.default as () => unknown)()
@@ -595,6 +640,9 @@ export const validate = (
 			// `default: null` IS the value - do not type-check it as the
 			// field type (a string schema's null default is still null).
 			if (value === null) return null;
+			if (isThenable(value)) {
+				return value.then((resolved) => validate(def, resolved, path, true));
+			}
 		} else if (def.optional) return value;
 		else if (def.name === "object" && def.shape !== undefined) value = {};
 	}
@@ -653,25 +701,29 @@ export const validate = (
 		// Every element validates - ALL failures report together, not
 		// just the first, mirroring object fields.
 		const elementType = asType(def.shape);
-		const items: unknown[] = [];
-		const problems: Issue[] = [];
-		for (let index = 0; index < value.length; index++) {
-			try {
-				items.push(validate(elementType, value[index], `${path}[${index}]`));
-			} catch (thrown) {
-				if (!(thrown instanceof ValidationError)) throw thrown;
-				problems.push(...thrown.issues);
+		const attempts = value.map((item, index) =>
+			attemptValidate(elementType, item, `${path}[${index}]`),
+		);
+		const assemble = (settledAttempts: Attempt<unknown>[]) => {
+			const items: unknown[] = [];
+			const problems: Issue[] = [];
+			for (const attempt of settledAttempts) {
+				if (attempt.ok) items.push(attempt.value);
+				else problems.push(...attempt.issues);
 			}
-		}
-		const firstProblem = problems[0];
-		if (firstProblem) {
-			throw new ValidationError(
-				firstProblem.path,
-				firstProblem.message,
-				problems,
-			);
-		}
-		return def.transform ? def.transform(items) : items;
+			if (problems[0]) {
+				throw new ValidationError(
+					problems[0].path,
+					problems[0].message,
+					problems,
+				);
+			}
+			return def.transform ? def.transform(items) : items;
+		};
+		const settledAttempts = allMaybeAsync(attempts);
+		return isThenable(settledAttempts)
+			? settledAttempts.then(assemble)
+			: assemble(settledAttempts);
 	}
 	if (def.name === "object") {
 		if (typeOf(value) !== "object") {
@@ -687,30 +739,41 @@ export const validate = (
 		}
 		// Every field validates - ALL failures report together, not just
 		// the first. Three bad fields is one error with three issues.
-		const parsed: Record<string, unknown> = {};
-		const issues: Issue[] = [];
-		for (const [field, child] of Object.entries(
-			def.shape as Record<string, unknown>,
-		)) {
-			try {
-				const parsedField = validate(
-					asType(child),
-					(value as Record<string, unknown>)[field],
-					`${path}.${field}`,
-				);
+		const entries = Object.entries(def.shape as Record<string, unknown>);
+		const attempts = entries.map(([field, child]) => {
+			const result = attemptValidate(
+				asType(child),
+				(value as Record<string, unknown>)[field],
+				`${path}.${field}`,
+			);
+			if (isThenable(result)) {
+				return result.then((attempt) => ({ field, attempt }));
+			}
+			return { field, attempt: result };
+		});
+		const assemble = (
+			settledAttempts: Array<{ field: string; attempt: Attempt<unknown> }>,
+		) => {
+			const parsed: Record<string, unknown> = {};
+			const issues: Issue[] = [];
+			for (const { field, attempt } of settledAttempts) {
+				if (!attempt.ok) {
+					issues.push(...attempt.issues);
+					continue;
+				}
 				// An absent optional field stays ABSENT - materializing the key
 				// as `undefined` would clobber values it gets spread over.
-				if (parsedField !== undefined) parsed[field] = parsedField;
-			} catch (thrown) {
-				if (!(thrown instanceof ValidationError)) throw thrown;
-				issues.push(...thrown.issues);
+				if (attempt.value !== undefined) parsed[field] = attempt.value;
 			}
-		}
-		const firstIssue = issues[0];
-		if (firstIssue) {
-			throw new ValidationError(firstIssue.path, firstIssue.message, issues);
-		}
-		return def.transform ? def.transform(parsed) : parsed;
+			if (issues[0]) {
+				throw new ValidationError(issues[0].path, issues[0].message, issues);
+			}
+			return def.transform ? def.transform(parsed) : parsed;
+		};
+		const settledAttempts = allMaybeAsync(attempts);
+		return isThenable(settledAttempts)
+			? settledAttempts.then(assemble)
+			: assemble(settledAttempts);
 	}
 	if (def.name === "union") {
 		// Try each option in order - first success wins. All failures
@@ -719,31 +782,26 @@ export const validate = (
 		if (!Array.isArray(options) || options.length === 0) {
 			throw new ValidationError(path, "expected a non-empty union");
 		}
-		const issues: Issue[] = [];
-		let parsed: unknown;
-		let matched = false;
-		for (const member of options) {
-			try {
-				parsed = validate(asType(member), value, path);
-				matched = true;
-				break;
-			} catch (thrown) {
-				if (!(thrown instanceof ValidationError)) throw thrown;
-				issues.push(...thrown.issues);
+		const tryMember = (
+			index: number,
+			issues: Issue[],
+		): unknown | Promise<unknown> => {
+			if (index >= options.length) {
+				throwIssues(issues, path, `expected union, received ${typeOf(value)}`);
 			}
-		}
-		if (!matched) {
-			const firstIssue = issues[0];
-			if (firstIssue) {
-				throw new ValidationError(firstIssue.path, firstIssue.message, issues);
-			}
-			throw new ValidationError(
-				path,
-				`expected union, received ${typeOf(value)}`,
-			);
-		}
-		applyRules(def, parsed, path);
-		return def.transform ? def.transform(parsed) : parsed;
+			const attempt = attemptValidate(asType(options[index]), value, path);
+			const next = (settledAttempt: Attempt<unknown>) => {
+				if (settledAttempt.ok) {
+					applyRules(def, settledAttempt.value, path);
+					return def.transform
+						? def.transform(settledAttempt.value)
+						: settledAttempt.value;
+				}
+				return tryMember(index + 1, [...issues, ...settledAttempt.issues]);
+			};
+			return isThenable(attempt) ? attempt.then(next) : next(attempt);
+		};
+		return tryMember(0, []);
 	}
 	if (typeOf(value) !== def.name) {
 		throw new ValidationError(
@@ -768,12 +826,12 @@ const build = (name: string, options: any, extra?: any): any => ({
 });
 
 /** A default may be the value itself or a factory that mints it fresh on
- * each validate - `() => new Date()`, `() => []`, …. */
-type DefaultInput<T> = T | (() => T);
+ * each validate - `() => new Date()`, `() => []`, `async () => id()`, …. */
+type DefaultInput<T> = T | (() => T | Promise<T>);
 
 /** `default: null` (or a factory that returns it) - absence produces null,
  * and the output type unions `| null` in. */
-type NullDefault = null | (() => null);
+type NullDefault = null | (() => null | Promise<null>);
 
 /**
  * Call signatures for the type helpers. Option-shape overloads replace

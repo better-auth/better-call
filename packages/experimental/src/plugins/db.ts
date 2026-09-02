@@ -3,19 +3,24 @@ import { createRandomStringGenerator } from "../helpers/random";
 import { withAttrs } from "../schema";
 import type { FieldMeta } from "../storage";
 
-export const unique = <S>(schema: S): S =>
-	withAttrs(schema, "db", { unique: true });
+export const unique = <S>(schema: S): S => {
+	return withAttrs(schema, "db", { unique: true });
+};
 
-export const indexed = <S>(schema: S): S =>
-	withAttrs(schema, "db", { index: true });
+export const indexed = <S>(schema: S): S => {
+	return withAttrs(schema, "db", { index: true });
+};
 
 export const references = <S>(
 	schema: S,
 	ref: NonNullable<FieldMeta["references"]>,
-): S => withAttrs(schema, "db", { references: ref });
+): S => {
+	return withAttrs(schema, "db", { references: ref });
+};
 
-export const id = <S>(schema: S): S =>
-	withAttrs({ ...schema, default: generateId() }, "db", { id: true });
+export const id = <S>(schema: S): S => {
+	return withAttrs({ ...schema, default: generateId }, "db", { id: true });
+};
 
 export const db = {
 	unique,
