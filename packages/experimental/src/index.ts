@@ -103,10 +103,12 @@ export {
 	ValidationError,
 } from "./error";
 export type {
+	BoundCall,
 	Context,
 	Fn,
 	FnDefination,
 	FnErrors,
+	FnErrorsOf,
 	Instance,
 	OptionType,
 	ParentContext,

@@ -91,7 +91,9 @@ type CallArgs<A, I> = I extends readonly unknown[]
 			? [input?: A, parent?: ParentContext]
 			: [input: A, parent?: ParentContext];
 
-/** The union of a fn's DECLARED errors, as thrown values. */
+/** The union of a fn's DECLARED errors, as thrown values.
+ * Re-exported from the package entry - `.try` / used-fn results surface
+ * this in inferred types, and declaration emit needs a portable name. */
 export type FnErrorsOf<Er> = {
 	[T in keyof Er & string]: FnError<T, InferInput<Er[T]>>;
 }[keyof Er & string];
@@ -191,7 +193,9 @@ type PublicFn<
 	O = unknown,
 > = FnDefination<A, R, K, I, P, Er, WithSeed<RV, U>, O>;
 
-/** What `.with` returns: the same callable, context baked in. */
+/** What `.with` returns: the same callable, context baked in.
+ * Re-exported from the package entry so exporting `.with(...)` results
+ * stays declaration-emit portable under node16. */
 export interface BoundCall<A, R, I, Er> {
 	(...args: CallArgs<A, I>): R;
 	try(...args: CallArgs<A, I>): TryResult<R, Er>;
