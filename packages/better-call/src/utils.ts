@@ -15,8 +15,8 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 		const isAllowed = allowedMediaTypes.some((allowed) => {
 			// Normalize both content types for comparison
 			const normalizedContentTypeBase = normalizedContentType
-				.split(";")[0]!
-				.trim();
+				.split(";")[0]
+				?.trim();
 			const normalizedAllowed = allowed.toLowerCase().trim();
 			return (
 				normalizedContentTypeBase === normalizedAllowed ||

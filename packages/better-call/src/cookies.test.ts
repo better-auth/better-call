@@ -255,6 +255,7 @@ describe("set-cookies", () => {
 		);
 		const response2 = await endpoint2({
 			headers: {
+				// biome-ignore lint/style/noNonNullAssertion: test setup guarantees this is set
 				cookie: setCookie!,
 			},
 		});

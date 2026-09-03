@@ -1,5 +1,3 @@
-import type { StandardSchemaV1 } from "./standard-schema";
-
 export type RequiredKeysOf<BaseType extends object> = Exclude<
 	{
 		[Key in keyof BaseType]: BaseType extends Record<Key, BaseType[Key]>

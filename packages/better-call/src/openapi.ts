@@ -159,12 +159,7 @@ function getRequestBody(options: EndpointRuntimeOptions): any {
 			}
 		});
 		return {
-			required:
-				options.body instanceof ZodOptional
-					? false
-					: options.body
-						? true
-						: false,
+			required: options.body instanceof ZodOptional ? false : !!options.body,
 			content: {
 				"application/json": {
 					schema: {

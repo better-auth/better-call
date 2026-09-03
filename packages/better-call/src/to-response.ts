@@ -1,4 +1,3 @@
-import { APIError } from "./error";
 import { isAPIError } from "./utils";
 
 function isJSONSerializable(value: any) {

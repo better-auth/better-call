@@ -200,7 +200,7 @@ export type WithSeed<RV, U> = Prettify<
 
 /** What `v.fn` / `e.fn` returns: contract params plus a flat {@link WithSeed}
  * for `.with`, never the raw ScopeOf / ModuleFns graph. */
-type PublicFn<
+export type PublicFn<
 	A,
 	R,
 	K extends string,

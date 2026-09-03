@@ -31,7 +31,7 @@ export const verifySignature = async (
 			signature,
 			new TextEncoder().encode(value),
 		);
-	} catch (e) {
+	} catch (_e) {
 		return false;
 	}
 };

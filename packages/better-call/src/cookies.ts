@@ -94,9 +94,9 @@ export const getCookieKey = (key: string, prefix?: CookiePrefixOptions) => {
 	let finalKey = key;
 	if (prefix) {
 		if (prefix === "secure") {
-			finalKey = "__Secure-" + key;
+			finalKey = `__Secure-${key}`;
 		} else if (prefix === "host") {
-			finalKey = "__Host-" + key;
+			finalKey = `__Host-${key}`;
 		} else {
 			return undefined;
 		}

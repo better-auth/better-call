@@ -118,12 +118,12 @@ export const createRouter = <
 			...config?.openapi,
 		};
 		//@ts-expect-error
-		endpoints["openapi"] = createEndpoint(
+		endpoints.openapi = createEndpoint(
 			openapi.path,
 			{
 				method: "GET",
 			},
-			async (c) => {
+			async (_c) => {
 				const schema = await generator(endpoints as any);
 				return new Response(getHTML(schema, openapi.scalar), {
 					headers: {

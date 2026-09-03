@@ -81,7 +81,7 @@ function fromError(
 ) {
 	const message = error
 		.map((e) => {
-			return `[${e.path?.length ? `${validating}.` + e.path.map((x) => (typeof x === "object" ? x.key : x)).join(".") : validating}] ${e.message}`;
+			return `[${e.path?.length ? `${validating}.${e.path.map((x) => (typeof x === "object" ? x.key : x)).join(".")}` : validating}] ${e.message}`;
 		})
 		.join("; ");
 

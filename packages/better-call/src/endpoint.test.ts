@@ -426,7 +426,7 @@ describe("types", async () => {
 			{
 				method: "GET",
 			},
-			async (ctx) => {
+			async (_ctx) => {
 				return { name: "test" };
 			},
 		);
@@ -467,7 +467,7 @@ describe("types", async () => {
 					});
 				},
 			);
-		} catch (e) {
+		} catch (_e) {
 			//should throw BetterCallError
 		}
 	});
@@ -500,7 +500,7 @@ describe("response", () => {
 					{
 						method: "POST",
 					},
-					async (ctx) => {
+					async (_ctx) => {
 						return value;
 					},
 				);

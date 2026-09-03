@@ -486,7 +486,7 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (error, request) => {
+				onError: (_error, request) => {
 					errorCaught = true;
 					receivedRequest = request;
 					return customResponse;
@@ -521,7 +521,7 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (error, request) => {
+				onError: (_error, _request) => {
 					errorCaught = true;
 					// Convert APIError to Response
 					return toResponse(apiError);
@@ -552,7 +552,7 @@ describe("error handling", () => {
 		const router = createRouter(
 			{ endpoint },
 			{
-				onError: (error, request) => {
+				onError: (_error, _request) => {
 					// Throw the error in the callback
 					throw newError;
 				},

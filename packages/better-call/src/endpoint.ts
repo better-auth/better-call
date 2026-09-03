@@ -1,20 +1,11 @@
 import { createInternalContext, type EndpointContext } from "./context";
-import type { CookieOptions, CookiePrefixOptions } from "./cookies";
-import {
-	APIError,
-	BetterCallError,
-	type Status,
-	type statusCodes,
-	ValidationError,
-} from "./error";
-import type { HasRequiredKeys, Prettify } from "./helper";
+import { APIError, BetterCallError, ValidationError } from "./error";
 import type { Middleware } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
 import type {
 	BodyOption,
-	HasRequiredInputKeys,
 	HTTPMethod,
 	InferUse,
 	InputContext,
@@ -213,10 +204,10 @@ export type Endpoint<
 	Method = any,
 	Body = any,
 	Query = any,
-	Use extends Middleware[] = any,
+	_Use extends Middleware[] = any,
 	R = any,
 	Meta extends EndpointMetadata | undefined = EndpointMetadata | undefined,
-	Error = any,
+	_Error = any,
 > = {
 	(
 		context: InputContext<Path, Method, Body, Query, false, false> & {

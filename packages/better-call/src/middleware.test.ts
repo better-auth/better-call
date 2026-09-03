@@ -5,12 +5,12 @@ import { createMiddleware } from "./middleware";
 
 describe("type", () => {
 	it("should infer middleware returned type", async () => {
-		const middleware = createMiddleware(async (c) => {
+		const middleware = createMiddleware(async (_c) => {
 			return {
 				test: 1,
 			};
 		});
-		const middleware2 = createMiddleware(async (c) => {
+		const middleware2 = createMiddleware(async (_c) => {
 			return {
 				hello: "world",
 			};
@@ -87,7 +87,7 @@ describe("creator", () => {
 	it("should use creator middlewares", async () => {
 		const creator = createMiddleware.create({
 			use: [
-				createMiddleware(async (c) => {
+				createMiddleware(async (_c) => {
 					return {
 						hello: "world",
 					};

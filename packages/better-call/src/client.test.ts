@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createClient } from "./client";
 import { createEndpoint } from "./endpoint";
 import { createMiddleware } from "./middleware";
-import { createRouter, type Router } from "./router";
+import { createRouter } from "./router";
 
 describe("client", () => {
 	const getEndpoint = createEndpoint(
@@ -14,7 +14,7 @@ describe("client", () => {
 				hello: z.string(),
 			}),
 		},
-		async (ctx) => {
+		async (_ctx) => {
 			return {
 				status: 200,
 				body: {
@@ -31,7 +31,7 @@ describe("client", () => {
 				hello: z.string(),
 			}),
 		},
-		async (ctx) => {
+		async (_ctx) => {
 			return {
 				status: 200,
 				body: {
@@ -49,7 +49,7 @@ describe("client", () => {
 				hello: z.string().optional(),
 			}),
 		},
-		async (ctx) => {
+		async (_ctx) => {
 			return {
 				status: 200,
 				body: {
@@ -96,12 +96,12 @@ describe("client", () => {
 
 		const client = createClient<typeof router>({
 			baseURL: "http://localhost:3000",
-			customFetchImpl: async (url, init) => {
+			customFetchImpl: async (_url, _init) => {
 				return new Response(null);
 			},
 		});
 
-		const res = await client("@post/test", {
+		const _res = await client("@post/test", {
 			body: {
 				hello: "world",
 			},
@@ -138,7 +138,7 @@ describe("client", () => {
 					hello: z.string(),
 				}),
 			},
-			async (ctx) => {
+			async (_ctx) => {
 				return {
 					status: 200,
 					body: {
@@ -152,7 +152,7 @@ describe("client", () => {
 			{
 				method: "GET",
 			},
-			async (ctx) => {
+			async (_ctx) => {
 				return {
 					status: 200,
 					body: {
@@ -193,7 +193,7 @@ describe("client", () => {
 	it("should infer from custom creator", () => {
 		const cr2 = createEndpoint.create({
 			use: [
-				createMiddleware(async (ctx) => {
+				createMiddleware(async (_ctx) => {
 					return {
 						something: "",
 					};
@@ -206,7 +206,7 @@ describe("client", () => {
 			{
 				method: "POST",
 			},
-			async (ctx) => {
+			async (_ctx) => {
 				return {
 					status: 200,
 					body: {
@@ -287,7 +287,7 @@ describe("client", () => {
 
 		const client = createClient<typeof router>({
 			baseURL: "http://localhost:3000",
-			customFetchImpl: async (url, init) => {
+			customFetchImpl: async (_url, _init) => {
 				return new Response(null);
 			},
 		});
@@ -302,7 +302,7 @@ describe("client", () => {
 				{
 					method: "POST",
 				},
-				async (ctx) => {
+				async (_ctx) => {
 					return { status: 200, body: { hello: "world" } };
 				},
 			),
@@ -311,14 +311,14 @@ describe("client", () => {
 				{
 					method: "GET",
 				},
-				async (ctx) => {
+				async (_ctx) => {
 					return { status: 200, body: { hello: "world" } };
 				},
 			),
 		});
 		const client = createClient<typeof router>({
 			baseURL: "http://localhost:3000",
-			customFetchImpl: async (url, init) => {
+			customFetchImpl: async (_url, _init) => {
 				return new Response(null);
 			},
 		});

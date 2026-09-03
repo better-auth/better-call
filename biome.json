@@ -13,12 +13,15 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/experimental/**"],
+			"includes": ["packages/experimental/**", "packages/better-call/src/**"],
 			"linter": {
 				"rules": {
 					"suspicious": {
 						"noExplicitAny": "off",
 						"noConfusingVoidType": "off"
+					},
+					"complexity": {
+						"noBannedTypes": "off"
 					}
 				}
 			}

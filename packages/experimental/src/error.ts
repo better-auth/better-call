@@ -1,3 +1,5 @@
+import type { PublicFn } from "./fn";
+
 export type Issue = {
 	path: string;
 	message: string;
@@ -166,3 +168,12 @@ export class ControlFlow extends Error {
 		this.name = "ControlFlow";
 	}
 }
+
+type ErrorsOf<F extends PublicFn<any, any, any, any, any, any, any, any>> =
+	F extends { $schema: { errors: infer E } } ? E : never;
+
+export const getErrors = <
+	F extends PublicFn<any, any, any, any, any, any, any, any>,
+>(
+	fn: F,
+): ErrorsOf<F> => fn.$schema?.errors;

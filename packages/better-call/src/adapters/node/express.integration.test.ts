@@ -149,7 +149,7 @@ describe("Express Integration with body-parser", () => {
 		const testApp = express();
 
 		// Multiple middleware before better-call
-		testApp.use((req, res, next) => {
+		testApp.use((req, _res, next) => {
 			req.headers["x-signature"] = "test-signature";
 			next();
 		});
