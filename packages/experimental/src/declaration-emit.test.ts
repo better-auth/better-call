@@ -41,7 +41,7 @@ describe("declaration emit (TS7056)", () => {
 			expect(dts).not.toMatch(/\$models/);
 			expect(dts).toMatch(/export declare const signUpEmail:/);
 			expect(dts).toMatch(/export declare const signInEmail:/);
-			// Flat `.with` seeds: var leaves + bound creates, not module wrappers.
+			// Compact `W` (var leaves) plus bound creates on intersected `.with`.
 			expect(dts).toMatch(/createUser\?:/);
 			expect(dts).toMatch(/user\?:/);
 		} finally {

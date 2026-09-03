@@ -169,16 +169,14 @@ export class ControlFlow extends Error {
 	}
 }
 
-type ErrorsOf<F extends PublicFn<any, any, any, any, any, any, any, any>> =
+type ErrorsOf<F extends PublicFn<any, any, any, any, any, any, any>> =
 	// `PublicFn` carries the declared error map in its `Er` type parameter.
 	// Inferring from the generic is cheaper/steadier than pattern-matching the
 	// optional `$schema` object, and avoids declaration-size blowups.
-	F extends PublicFn<any, any, any, any, any, infer Er, any, any, any>
-		? Er
-		: never;
+	F extends PublicFn<any, any, any, any, any, infer Er, any> ? Er : never;
 
 export const getErrors = <
-	F extends PublicFn<any, any, any, any, any, any, any, any>,
+	F extends PublicFn<any, any, any, any, any, any, any>,
 >(
 	fn: F,
 ): ErrorsOf<F> | undefined => fn.$schema?.errors;

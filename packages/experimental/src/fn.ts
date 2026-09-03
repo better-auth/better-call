@@ -188,19 +188,41 @@ type WithFnsSeed<U> = {
 			: WithFnsSeed<U[K]>;
 };
 
+/** Var seeds only - the half of {@link WithSeed} that stays small in
+ * declaration emit when the `use` fn override map is wide. */
+type WithVarsSeed<RV> = { [K in keyof RV]?: RV[K] };
+
 /**
  * Flat `.with` seed map stored on exported fns. Evaluating ScopeOf /
  * ModuleFns here (instead of embedding those wrappers as type arguments)
  * keeps declaration emit small: `.d.ts` shows leaf var shapes and bound
  * call signatures, not `ScopeOf<ResolvedVars<entire module graph>>`.
+ *
+ * Declaration emit stores {@link WithSeedStored} on the fn (var seeds
+ * only); terminating `.fn()` intersects a full {@link WithSeed} `.with`.
  */
-export type WithSeed<RV, U> = Prettify<
-	{ [K in keyof RV]?: RV[K] } & WithFnsSeed<U>
->;
+export type WithSeed<RV, U> = Prettify<WithVarsSeed<RV> & WithFnsSeed<U>>;
 
-/** What `v.fn` / `e.fn` returns: contract params plus a flat {@link WithSeed}
+/** What declaration emit stores for `W` - var seeds only so TS does not
+ * inline `BoundFnCall` per used fn from the builder `use` graph. */
+export type WithSeedStored<RV, _U = unknown> = WithVarsSeed<RV>;
+
+/** What `v.fn` / `e.fn` returns: contract params plus a stored seed map
  * for `.with`, never the raw ScopeOf / ModuleFns graph. */
 export type PublicFn<
+	A,
+	R,
+	K extends string,
+	I,
+	P extends readonly string[],
+	Er,
+	W = unknown,
+	O = unknown,
+> = FnDefination<A, R, K, I, P, Er, W, O>;
+
+/** Terminating `.fn()` product: compact {@link WithSeedStored} on the
+ * fn for declaration emit, full {@link WithSeed} on `.with` while typing. */
+type TerminatingFn<
 	A,
 	R,
 	K extends string,
@@ -210,7 +232,9 @@ export type PublicFn<
 	RV,
 	U,
 	O = unknown,
-> = FnDefination<A, R, K, I, P, Er, WithSeed<RV, U>, O>;
+> = PublicFn<A, R, K, I, P, Er, WithSeedStored<RV, U>, O> & {
+	with(context: WithSeed<RV, U>): BoundCall<A, R, I, Er>;
+};
 
 /** What `.with` returns: the same callable, context baked in.
  * Re-exported from the package entry so exporting `.with(...)` results
@@ -615,7 +639,7 @@ export interface Fn<
 				Fn<Base, BaseFns, BasePL, Prefix>
 			>,
 		) => R,
-	): PublicFn<
+	): TerminatingFn<
 		void,
 		R,
 		Prefix extends "" ? string : Prefix,
@@ -636,7 +660,7 @@ export interface Fn<
 				Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
 			>,
 		) => R,
-	): PublicFn<
+	): TerminatingFn<
 		void,
 		R,
 		`${Prefix}${K}`,
@@ -675,7 +699,7 @@ export interface Fn<
 				ChainPL<BasePL, PL>
 			>,
 		) => R,
-	): PublicFn<
+	): TerminatingFn<
 		WidenedArgs<I, ChainPL<BasePL, PL>>,
 		R,
 		Prefix extends "" ? string : Prefix,
@@ -716,7 +740,7 @@ export interface Fn<
 				ChainPL<BasePL, PL>
 			>,
 		) => R,
-	): PublicFn<
+	): TerminatingFn<
 		WidenedArgs<I, ChainPL<BasePL, PL>>,
 		R,
 		`${Prefix}${K}`,
