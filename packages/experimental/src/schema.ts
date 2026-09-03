@@ -588,7 +588,32 @@ export const rejectFields = (
 		const arms = def.shape as unknown[];
 		const tryArm = (index: number): void | Promise<void> => {
 			const option = arms[index];
-			if (option === undefined) return;
+			if (option === undefined) {
+				// Nested unions hit this path from object walks. Still gate
+				// against a projected fit so a wrong-typed readonly key
+				// cannot be stripped by a later omit pass.
+				const tryProjected = (i: number): void | Promise<void> => {
+					const arm = arms[i];
+					if (arm === undefined) return;
+					const projected = omitFields(arm, match);
+					const afterFit = (): void | Promise<void> =>
+						rejectFields(arm, value, match, path, message);
+					try {
+						const fitted = validate(asType(projected), value, path);
+						if (isThenable(fitted)) {
+							return fitted.then(afterFit, (thrown) => {
+								if (!(thrown instanceof ValidationError)) throw thrown;
+								return tryProjected(i + 1);
+							});
+						}
+					} catch (thrown) {
+						if (!(thrown instanceof ValidationError)) throw thrown;
+						return tryProjected(i + 1);
+					}
+					return afterFit();
+				};
+				return tryProjected(0);
+			}
 			try {
 				const result = validate(asType(option), value, path);
 				if (isThenable(result)) {

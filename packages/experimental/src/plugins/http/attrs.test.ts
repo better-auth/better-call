@@ -251,4 +251,20 @@ describe("http field attrs", () => {
 			wireInput(schema, { kind: "user", id: "1", role: 123 as never }),
 		).toThrow(/readonly field/);
 	});
+
+	it("nested unions reject wrong-typed readonly keys too", () => {
+		const schema = v.object({
+			profile: v.union([
+				v.object({
+					kind: v.string({ enum: ["user"] }),
+					role: readonly(v.string()),
+				}),
+			]),
+		});
+		expect(() =>
+			wireInput(schema, {
+				profile: { kind: "user", role: 123 as never },
+			}),
+		).toThrow(/readonly field/);
+	});
 });
