@@ -64,7 +64,11 @@ export const rejectReadonly = (
 	);
 
 /** @deprecated Prefer {@link rejectReadonly}. */
-export const rejectServerOnly = rejectReadonly;
+export const rejectServerOnly = (
+	schema: unknown,
+	value: unknown,
+	path = "input",
+): void => rejectReadonly(schema, value, path);
 
 /**
  * Wire-side input gate: reject smuggled readonly keys, then validate
