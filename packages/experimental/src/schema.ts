@@ -565,9 +565,17 @@ export const rejectFields = (
 		for (const option of def.shape as unknown[]) {
 			try {
 				const result = validate(asType(omitFields(option, match)), value, path);
-				// Async defaults still count as a candidate; rejection
-				// below stays sync against the arm's shape.
-				void result;
+				// Async defaults: don't pick this arm sync. Swallow the
+				// rejection so a later sync arm can still win without an
+				// unhandled promise.
+				if (
+					result !== null &&
+					typeof result === "object" &&
+					typeof (result as { then?: unknown }).then === "function"
+				) {
+					(result as Promise<unknown>).then(undefined, () => {});
+					continue;
+				}
 			} catch (thrown) {
 				if (!(thrown instanceof ValidationError)) throw thrown;
 				continue;
