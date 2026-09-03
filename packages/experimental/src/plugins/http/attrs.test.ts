@@ -196,4 +196,26 @@ describe("http field attrs", () => {
 			id: "1",
 		});
 	});
+
+	it("rejectReadonly only gates the matching union arm", () => {
+		const schema = v.union([
+			v.object({
+				kind: v.string({ enum: ["user"] }),
+				id: v.string(),
+				role: readonly(v.string()),
+			}),
+			v.object({
+				kind: v.string({ enum: ["anon"] }),
+				token: v.string(),
+				role: v.string({ optional: true }),
+			}),
+		]);
+		// `role` is readonly on the user arm only; anon may still send it.
+		expect(
+			wireInput(schema, { kind: "anon", token: "t", role: "guest" }),
+		).toEqual({ kind: "anon", token: "t", role: "guest" });
+		expect(() =>
+			wireInput(schema, { kind: "user", id: "1", role: "admin" }),
+		).toThrow(/readonly field/);
+	});
 });

@@ -558,8 +558,22 @@ export const rejectFields = (
 		return;
 	}
 	if (def.name === "union" && Array.isArray(def.shape)) {
+		// Only gate against arms the value can satisfy once matched
+		// fields are projected out. Checking every arm would reject a
+		// key that is gated on a non-matching arm but free on the one
+		// that actually fits.
 		for (const option of def.shape as unknown[]) {
+			try {
+				const result = validate(asType(omitFields(option, match)), value, path);
+				// Async defaults still count as a candidate; rejection
+				// below stays sync against the arm's shape.
+				void result;
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				continue;
+			}
 			rejectFields(option, value, match, path, message);
+			return;
 		}
 	}
 };
