@@ -748,7 +748,31 @@ export type ExtendedArgs<PL, K extends string> = UnionToIntersection<
  * {@link InputVarExtra}. Storage members get the same scope rewrite as a
  * db var's value ({@link WidenSchemaFns}): collections re-resolve
  * row/`Where` types against mounted `v.extend` / customize.
+ *
+ * Walks nested module GROUPS and merge-var helper intersections
+ * (`{ db: { createUser } }` / `VarDef & { createUser }`) so
+ * `c.db.createUser` widens the same way as a top-level `c.createUser`.
  */
+type VarSurfaceKey =
+	| "$var"
+	| "name"
+	| "default"
+	| "schema"
+	| "type"
+	| "$source"
+	| "$attrs"
+	| "$merge"
+	| "customize";
+
+/** Widen only same-key helpers on a merge var; leave the VarDef surface. */
+type ApplyOnVarHelpers<V, PL> = [Exclude<keyof V, VarSurfaceKey>] extends [
+	never,
+]
+	? V
+	: V & {
+			[K in Exclude<keyof V, VarSurfaceKey>]: ApplyOn<V[K], PL>;
+		};
+
 export type ApplyOn<F, PL> = F extends StorageLike
 	? WidenSchemaFns<F, PL>
 	: F extends FnDefination<
@@ -777,7 +801,11 @@ export type ApplyOn<F, PL> = F extends StorageLike
 					W,
 					O
 				>
-		: F;
+		: F extends { $var: true }
+			? ApplyOnVarHelpers<F, PL>
+			: [GroupMember<F>] extends [never]
+				? F
+				: { [P in keyof F]: ApplyOn<F[P], PL> };
 
 export type ApplyOns<Fns, PL> = { [P in keyof Fns]: ApplyOn<Fns[P], PL> };
 

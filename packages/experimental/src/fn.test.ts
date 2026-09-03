@@ -1,5 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { FnError, UnexpectedError, ValidationError, v } from "./index";
+import {
+	FnError,
+	memoryAdapter,
+	UnexpectedError,
+	ValidationError,
+	v,
+} from "./index";
 
 const session = v.var("fnt_session", {
 	default: null as { userId: string } | null,
@@ -654,6 +660,75 @@ describe("fn schema var widening", () => {
 				.parameter(0)
 				.toEqualTypeOf<{ id: string }>();
 		})();
+	});
+
+	it("a nested namespace used fn widens the same way as a top-level one", () => {
+		const nestedUser = v.var("fnt_nested_user", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const withEmail = v.extend(nestedUser, { email: v.string() });
+		const createUser = v.fn(
+			"fnt.ns.create",
+			{ input: nestedUser },
+			(c) => c.input,
+		);
+		v.fn({ use: [{ db: { createUser } }, { withEmail }] as const }, (c) => {
+			expectTypeOf(c.db.createUser).parameter(0).toEqualTypeOf<{
+				id: string;
+				email: string;
+			}>();
+		});
+	});
+
+	it("a merge-var helper widens against mounted v.extend", () => {
+		const mergeUser = v.var("fnt_merge_user", {
+			default: null,
+			schema: v.object({ id: v.string() }),
+		});
+		const mergeAccount = v.var("fnt_merge_account", {
+			default: null,
+			schema: v.object({ id: v.string(), userId: v.string() }),
+		});
+		const userWithEmail = v.extend(mergeUser, { email: v.string() });
+		const accountWithPassword = v.extend(mergeAccount, {
+			password: v.string(),
+		});
+		const store = v.storage(memoryAdapter(), {
+			user: mergeUser,
+			account: mergeAccount,
+		});
+		const db = v.var("db", { merge: true, default: store });
+		const createUser = v.fn(
+			"db.create_user",
+			{ input: mergeUser, use: [{ db, user: mergeUser }] },
+			async (c) => c.input,
+		);
+		const createAccount = v.fn(
+			"db.create_account",
+			{ input: mergeAccount, use: [{ db, account: mergeAccount }] },
+			async (c) => c.input,
+		);
+		v.fn(
+			{
+				use: [
+					{ user: mergeUser, db: { createUser } },
+					{ account: mergeAccount, db: { createAccount } },
+					{ db, userWithEmail, accountWithPassword },
+				] as const,
+			},
+			async (c) => {
+				expectTypeOf(c.db.createUser).parameter(0).toEqualTypeOf<{
+					id: string;
+					email: string;
+				}>();
+				expectTypeOf(c.db.createAccount).parameter(0).toEqualTypeOf<{
+					id: string;
+					userId: string;
+					password: string;
+				}>();
+			},
+		);
 	});
 });
 
