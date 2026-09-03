@@ -238,4 +238,17 @@ describe("http field attrs", () => {
 			role: "admin",
 		});
 	});
+
+	it("wrong-typed readonly keys still reject on projected fallback", () => {
+		const schema = v.union([
+			v.object({
+				kind: v.string({ enum: ["user"] }),
+				id: v.string(),
+				role: readonly(v.string()),
+			}),
+		]);
+		expect(() =>
+			wireInput(schema, { kind: "user", id: "1", role: 123 as never }),
+		).toThrow(/readonly field/);
+	});
 });

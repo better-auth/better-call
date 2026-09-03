@@ -649,11 +649,38 @@ export const parseFields = <S>(
 		const tryArm = (index: number): unknown => {
 			const option = arms[index];
 			if (option === undefined) {
-				// No arm accepted the full value (e.g. required readonly
-				// fields were omitted). Fall back to the projected union
-				// so defaults on those fields can still run.
-				const projected = omit ? omitFields(schema, omit) : schema;
-				return validate(asType(projected), value, path);
+				// No arm accepted the full value. Still pick a projected
+				// arm and gate against it: a wrong-typed readonly key
+				// fails the full arm but must not be silently stripped.
+				const tryProjected = (i: number): unknown => {
+					const arm = arms[i];
+					if (arm === undefined) {
+						const projected = omit ? omitFields(schema, omit) : schema;
+						return validate(asType(projected), value, path);
+					}
+					const projected = omit ? omitFields(arm, omit) : arm;
+					const finish = () => validate(asType(projected), value, path);
+					const afterFit = (): unknown => {
+						const gate = reject
+							? rejectFields(arm, value, reject, path, rejectMessage)
+							: undefined;
+						return isThenable(gate) ? gate.then(finish) : finish();
+					};
+					try {
+						const fitted = validate(asType(projected), value, path);
+						if (isThenable(fitted)) {
+							return fitted.then(afterFit, (thrown) => {
+								if (!(thrown instanceof ValidationError)) throw thrown;
+								return tryProjected(i + 1);
+							});
+						}
+					} catch (thrown) {
+						if (!(thrown instanceof ValidationError)) throw thrown;
+						return tryProjected(i + 1);
+					}
+					return afterFit();
+				};
+				return tryProjected(0);
 			}
 			const afterMatch = (): unknown => {
 				const gate = reject
