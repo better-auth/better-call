@@ -570,7 +570,7 @@ export const serve = async (
 			// quietly).
 			const inputSchema = (target as FnDefination<any, any>).$schema?.input;
 			if (inputSchema !== undefined) {
-				rejectServerOnly(inputSchema, c.input.input, c.input.call);
+				await rejectServerOnly(inputSchema, c.input.input, c.input.call);
 			}
 			return (target as (i: unknown, p: unknown) => unknown)(c.input.input, c);
 		},

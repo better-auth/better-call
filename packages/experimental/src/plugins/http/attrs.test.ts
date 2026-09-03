@@ -218,4 +218,24 @@ describe("http field attrs", () => {
 			wireInput(schema, { kind: "user", id: "1", role: "admin" }),
 		).toThrow(/readonly field/);
 	});
+
+	it("union arm selection uses the full schema, not the projection", () => {
+		// Earlier arm gates `role` but only accepts numbers; later arm
+		// accepts the string the client sent. Projecting `role` out would
+		// wrongly pick the first arm and reject.
+		const schema = v.union([
+			v.object({
+				kind: v.string({ enum: ["a"] }),
+				role: readonly(v.number()),
+			}),
+			v.object({
+				kind: v.string({ enum: ["a"] }),
+				role: v.string(),
+			}),
+		]);
+		expect(wireInput(schema, { kind: "a", role: "admin" })).toEqual({
+			kind: "a",
+			role: "admin",
+		});
+	});
 });

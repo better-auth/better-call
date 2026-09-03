@@ -54,7 +54,7 @@ export const rejectReadonly = (
 	schema: unknown,
 	value: unknown,
 	path = "input",
-): void =>
+): void | Promise<void> =>
 	rejectFields(
 		schema,
 		value,
@@ -68,7 +68,7 @@ export const rejectServerOnly = (
 	schema: unknown,
 	value: unknown,
 	path = "input",
-): void => rejectReadonly(schema, value, path);
+): void | Promise<void> => rejectReadonly(schema, value, path);
 
 /**
  * Wire-side input gate: reject smuggled readonly keys, then validate
