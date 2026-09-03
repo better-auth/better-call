@@ -16,6 +16,7 @@ import {
 	mountEvent,
 	mountEventExtension,
 	mountEventOn,
+	publishEvent,
 } from "./event";
 import {
 	type ApplyOns,
@@ -1169,7 +1170,15 @@ const defineFn = (
 						continue;
 					}
 					if (isEvent(used)) {
-						target[name] = used;
+						const event = used as {
+							name: string;
+							types: Record<string, unknown>;
+						};
+						target[name] = {
+							...used,
+							publish: (type: string, data: unknown) =>
+								publishEvent(event.name, type, data, exts),
+						};
 						continue;
 					}
 					// Storage mounts whole - do not walk `$models` as a namespace.

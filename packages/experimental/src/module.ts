@@ -8,7 +8,13 @@ import {
 	onEvent,
 } from "./event";
 import type { FnDefination } from "./fn";
-import { type InferArgs, type InferInput, isVar, type vTypes } from "./schema";
+import {
+	type InferArgs,
+	type InferInput,
+	isVar,
+	type TypeDefination,
+	type vTypes,
+} from "./schema";
 import type { WidenSchemaFns } from "./scope";
 import type {
 	LiteralString,
@@ -814,7 +820,9 @@ export type ExtendedArgs<PL, K extends string> = UnionToIntersection<
  * inputs also pick up `v.extend` / same-name `customize` via
  * {@link InputVarExtra}. Storage members get the same scope rewrite as a
  * db var's value ({@link WidenSchemaFns}): collections re-resolve
- * row/`Where` types against mounted `v.extend` / customize.
+ * row/`Where` types against mounted `v.extend` / customize. Event kinds
+ * whose payload is (or contains) a var pick up those same extras on
+ * `publish` / `subscribe`.
  *
  * Walks nested module GROUPS and merge-var helper intersections
  * (`{ db: { createUser } }` / `VarDef & { createUser }`) so
@@ -839,6 +847,32 @@ type ApplyOnVarHelpers<V, PL> = [Exclude<keyof V, VarSurfaceKey>] extends [
 	: V & {
 			[K in Exclude<keyof V, VarSurfaceKey>]: ApplyOn<V[K], PL>;
 		};
+
+/**
+ * Kinds whose payload references a var `PL` mutates. `never` when none -
+ * {@link ApplyOn} then leaves the event as written.
+ */
+type EventVarExtraKeys<PL, T> = {
+	[K in keyof T]: unknown extends InputVarExtraOut<PL, T[K]> ? never : K;
+}[keyof T];
+
+/**
+ * Rewrite one event kind so {@link EventPayloads} sees mounted
+ * `v.extend` / customize fields. Unchanged kinds keep their schema;
+ * widened kinds wrap the merged payload as a type def so `InferInput`
+ * (and Date / class leaves) do not get remapped as object shapes.
+ */
+type WidenEventKind<S, PL> =
+	unknown extends InputVarExtraOut<PL, S>
+		? S
+		: TypeDefination<
+				Prettify<InferInput<S> & InputVarExtraOut<PL, S>>,
+				Prettify<InferInput<S> & InputVarExtraOut<PL, S>>
+			>;
+
+type WidenEventTypes<T, PL> = {
+	[K in keyof T]: WidenEventKind<T[K], PL>;
+};
 
 export type ApplyOn<F, PL> = F extends StorageLike
 	? WidenSchemaFns<F, PL>
@@ -868,11 +902,15 @@ export type ApplyOn<F, PL> = F extends StorageLike
 					W,
 					O
 				>
-		: F extends { $var: true }
-			? ApplyOnVarHelpers<F, PL>
-			: [GroupMember<F>] extends [never]
+		: F extends EventDefination<infer N, infer T>
+			? [EventVarExtraKeys<PL, T>] extends [never]
 				? F
-				: { [P in keyof F]: ApplyOn<F[P], PL> };
+				: EventDefination<N, WidenEventTypes<T, PL>>
+			: F extends { $var: true }
+				? ApplyOnVarHelpers<F, PL>
+				: [GroupMember<F>] extends [never]
+					? F
+					: { [P in keyof F]: ApplyOn<F[P], PL> };
 
 export type ApplyOns<Fns, PL> = { [P in keyof Fns]: ApplyOn<Fns[P], PL> };
 

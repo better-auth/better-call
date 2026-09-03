@@ -1,5 +1,5 @@
 import { ValidationError } from "./error";
-import { asType, type InferInput, validate } from "./schema";
+import { asType, type InferInput, isVar, validate } from "./schema";
 import type {
 	LiteralString,
 	Members,
@@ -238,10 +238,64 @@ const runHandlers = (
 	return thenMaybe(run(0), () => current);
 };
 
+/** A var extension's extra fields, applied to event payloads that infer
+ * from that var when publishing inside a mounted scope. */
+export type EventVarExt = { name: string; schema: unknown };
+
+/** Fold mounted `v.extend` / same-name customize schemas onto a payload
+ * schema that references those vars - whole-var kinds and var fields. */
+const applyVarExtsToSchema = (
+	schema: unknown,
+	exts: readonly EventVarExt[],
+): unknown => {
+	if (exts.length === 0) return schema;
+	if (isVar(schema)) {
+		const name = (schema as { name: string }).name;
+		const inner = (schema as { schema?: unknown }).schema ?? {};
+		return mergeVarExtShapes(applyVarExtsToSchema(inner, exts), name, exts);
+	}
+	const def = asType(schema);
+	if (def.name !== "object" || def.shape === undefined) return schema;
+	const shape = def.shape as Record<string, unknown>;
+	const next: Record<string, unknown> = {};
+	let changed = false;
+	for (const [key, field] of Object.entries(shape)) {
+		const rewritten = applyVarExtsToSchema(field, exts);
+		next[key] = rewritten;
+		if (rewritten !== field) changed = true;
+	}
+	return changed ? { ...def, shape: next } : schema;
+};
+
+const mergeVarExtShapes = (
+	schema: unknown,
+	varName: string,
+	exts: readonly EventVarExt[],
+) => {
+	const matches = exts.filter((ext) => ext.name === varName);
+	if (matches.length === 0) return schema;
+	const def = asType(schema);
+	const shape: Record<string, unknown> =
+		def.name === "object" && def.shape !== undefined
+			? { ...(def.shape as Record<string, unknown>) }
+			: {};
+	for (const ext of matches) {
+		const extra = asType(ext.schema);
+		if (extra.name === "object" && extra.shape !== undefined) {
+			Object.assign(shape, extra.shape);
+		}
+	}
+	return {
+		...(def.name === "object" ? def : { name: "object" as const }),
+		shape,
+	};
+};
+
 const publishOn = (
 	name: string,
 	type: string,
 	data: unknown,
+	varExts: readonly EventVarExt[] = [],
 ): unknown | Promise<unknown> => {
 	const bus = getBus(name);
 	const schema = bus.types[type];
@@ -249,11 +303,23 @@ const publishOn = (
 	if (schema === undefined) {
 		throw new Error(`${path}: unknown event kind "${type}"`);
 	}
+	const effective = applyVarExtsToSchema(schema, varExts);
 	const handlers = [...bus.mounted, ...bus.direct];
-	return thenMaybe(validate(asType(schema), data, path), (parsed) =>
-		runHandlers(handlers, type, parsed, schema, path),
+	return thenMaybe(validate(asType(effective), data, path), (parsed) =>
+		runHandlers(handlers, type, parsed, effective, path),
 	);
 };
+
+/** Publish against a named bus, folding mounted var extensions into
+ * kinds whose payload infers from those vars. Used by a fn context so
+ * `c.bus.publish` matches the same `v.extend` / customize the handler
+ * already sees on `c.input`. */
+export const publishEvent = (
+	name: string,
+	type: string,
+	data: unknown,
+	varExts: readonly EventVarExt[] = [],
+): unknown | Promise<unknown> => publishOn(name, type, data, varExts);
 
 /** Register a module-mounted event listener (no-op if already present). */
 export const mountEventOn = (entry: EventOnEntry<string>) => {

@@ -211,4 +211,75 @@ describe("event extension + modules", () => {
 		await expect(f()).resolves.toEqual({ n: 7 });
 		expect(seen).toEqual([7]);
 	});
+
+	it("mounted var extensions widen a kind whose payload is that var", async () => {
+		const account = v.var("evt_var_account", {
+			schema: v.object({ id: v.string() }),
+		});
+		const withTag = v.extend(account, { tag: v.string() });
+		const bus = v.event("evt_var_payload", {
+			created: account,
+		});
+
+		const seen: unknown[] = [];
+		bus.subscribe(async (e, next) => {
+			if (e.type === "created") seen.push(e.data);
+			await next();
+		});
+
+		const f = v.fn({ use: [{ bus, account, withTag }] }, async (c) => {
+			const result = c.bus.publish("created", { id: "1", tag: "vip" });
+			expectTypeOf(result).toEqualTypeOf<
+				{ id: string; tag: string } | Promise<{ id: string; tag: string }>
+			>();
+			return result;
+		});
+		await expect(f()).resolves.toEqual({ id: "1", tag: "vip" });
+		expect(seen).toEqual([{ id: "1", tag: "vip" }]);
+
+		expect(() =>
+			v.fn({ use: [{ bus, account, withTag }] }, (c) =>
+				// @ts-expect-error tag required once withTag is mounted
+				c.bus.publish("created", { id: "1" }),
+			)(),
+		).toThrow(/evt_var_account|tag/);
+	});
+
+	it("unmounted, a var-payload kind stays the base shape", async () => {
+		const account = v.var("evt_var_bare", {
+			schema: v.object({ id: v.string() }),
+		});
+		const bus = v.event("evt_var_bare_bus", { created: account });
+		const f = v.fn({ use: [{ bus, account }] }, async (c) => {
+			const result = c.bus.publish("created", { id: "1" });
+			expectTypeOf(result).toEqualTypeOf<
+				{ id: string } | Promise<{ id: string }>
+			>();
+			return result;
+		});
+		await expect(f()).resolves.toEqual({ id: "1" });
+	});
+
+	it("a var field on an event kind widens the same way", async () => {
+		const account = v.var("evt_var_field_account", {
+			schema: v.object({ id: v.string() }),
+		});
+		const withTag = v.extend(account, { tag: v.string() });
+		const bus = v.event("evt_var_field", {
+			created: { account },
+		});
+		const f = v.fn({ use: [{ bus, account, withTag }] }, async (c) => {
+			return c.bus.publish("created", {
+				account: { id: "2", tag: "gold" },
+			});
+		});
+		await expect(f()).resolves.toEqual({
+			account: { id: "2", tag: "gold" },
+		});
+		expect(() =>
+			v.fn({ use: [{ bus, account, withTag }] }, (c) =>
+				c.bus.publish("created", { account: { id: "2" } } as never),
+			)(),
+		).toThrow(/tag/);
+	});
 });
