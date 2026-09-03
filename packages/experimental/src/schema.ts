@@ -520,6 +520,39 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 };
 
 /**
+ * Strip keys from an already-validated value where `drop` matches the
+ * field schema. Used after union arm selection so defaults/transforms
+ * from the probe validate are not run a second time.
+ */
+const omitValue = (
+	schema: unknown,
+	value: unknown,
+	drop: FieldPred,
+): unknown => {
+	if (value === null || value === undefined) return value;
+	const root = isVar(schema)
+		? ((schema as { schema?: unknown }).schema ?? schema)
+		: schema;
+	const def = asType(root);
+	if (def.name === "object" && def.shape !== undefined) {
+		if (typeOf(value) !== "object") return value;
+		const record = value as Record<string, unknown>;
+		const out: Record<string, unknown> = {};
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (drop(child) || !Object.hasOwn(record, key)) continue;
+			out[key] = omitValue(child, record[key], drop);
+		}
+		return out;
+	}
+	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
+		return value.map((item) => omitValue(def.shape, item, drop));
+	}
+	return value;
+};
+
+/**
  * Throw if any field matching `match` is present on `value` (own key).
  * Object validation otherwise strips unknown keys, so this is what stops
  * callers from smuggling gated values.
@@ -684,52 +717,51 @@ export const parseFields = <S>(
 						return validate(asType(projected), value, path);
 					}
 					const projected = omit ? omitFields(arm, omit) : arm;
-					const finish = () => validate(asType(projected), value, path);
-					const afterFit = (): unknown => {
+					const afterFit = (fitted: unknown): unknown => {
 						const gate = reject
 							? rejectFields(arm, value, reject, path, rejectMessage)
 							: undefined;
-						return isThenable(gate) ? gate.then(finish) : finish();
+						return isThenable(gate) ? gate.then(() => fitted) : fitted;
 					};
+					let fitted: unknown;
 					try {
-						const fitted = validate(asType(projected), value, path);
-						if (isThenable(fitted)) {
-							return fitted.then(afterFit, (thrown) => {
-								if (!(thrown instanceof ValidationError)) throw thrown;
-								return tryProjected(i + 1);
-							});
-						}
+						fitted = validate(asType(projected), value, path);
 					} catch (thrown) {
 						if (!(thrown instanceof ValidationError)) throw thrown;
 						return tryProjected(i + 1);
 					}
-					return afterFit();
+					if (isThenable(fitted)) {
+						return fitted.then(afterFit, (thrown) => {
+							if (!(thrown instanceof ValidationError)) throw thrown;
+							return tryProjected(i + 1);
+						});
+					}
+					return afterFit(fitted);
 				};
 				return tryProjected(0);
 			}
-			const afterMatch = (): unknown => {
+			const afterMatch = (matched: unknown): unknown => {
 				const gate = reject
 					? rejectFields(option, value, reject, path, rejectMessage)
 					: undefined;
-				const finish = () => {
-					const projected = omit ? omitFields(option, omit) : option;
-					return validate(asType(projected), value, path);
-				};
+				const finish = () =>
+					omit ? omitValue(option, matched, omit) : matched;
 				return isThenable(gate) ? gate.then(finish) : finish();
 			};
+			let matched: unknown;
 			try {
-				const matched = validate(asType(option), value, path);
-				if (isThenable(matched)) {
-					return matched.then(afterMatch, (thrown) => {
-						if (!(thrown instanceof ValidationError)) throw thrown;
-						return tryArm(index + 1);
-					});
-				}
+				matched = validate(asType(option), value, path);
 			} catch (thrown) {
 				if (!(thrown instanceof ValidationError)) throw thrown;
 				return tryArm(index + 1);
 			}
-			return afterMatch();
+			if (isThenable(matched)) {
+				return matched.then(afterMatch, (thrown) => {
+					if (!(thrown instanceof ValidationError)) throw thrown;
+					return tryArm(index + 1);
+				});
+			}
+			return afterMatch(matched);
 		};
 		return tryArm(0);
 	}
