@@ -22,19 +22,24 @@ describe("v.event", () => {
 			await next();
 		});
 
-		const result = await signUp.publish("emailOpt", {
+		const [result, complete] = await signUp.publish("emailOpt", {
 			id: "1",
 			email: "ada@example.com",
 		});
-		expect(result).toEqual({ id: "1", email: "patched@example.com" });
+		await expect(complete()).resolves.toEqual({
+			id: "1",
+			email: "patched@example.com",
+		});
+		expect(result).toEqual({ id: "1", email: "ada@example.com" });
 		expect(seen).toEqual(["emailOpt"]);
 
 		unsubscribe();
-		await signUp.publish("email", {
+		const [, completeEmail] = await signUp.publish("email", {
 			id: "2",
 			name: "Ada",
 			email: "ada@example.com",
 		});
+		await completeEmail();
 		expect(seen).toEqual(["emailOpt"]);
 	});
 
@@ -48,7 +53,12 @@ describe("v.event", () => {
 		expect(() => (bus as any).publish("pong", { n: 1 })).toThrow(
 			/unknown event kind/,
 		);
-		expect(bus.publish("ping", { n: 1 })).toEqual({ n: 1 });
+		const [result, complete] = bus.publish("ping", { n: 1 }) as [
+			{ n: number },
+			() => Promise<{ n: number }>,
+		];
+		expect(result).toEqual({ n: 1 });
+		return expect(complete()).resolves.toEqual({ n: 1 });
 	});
 
 	it("skips the chain when next is not called (veto)", async () => {
@@ -67,7 +77,8 @@ describe("v.event", () => {
 			order.push("inner");
 			await next();
 		});
-		const result = await bus.publish("x", { v: 1 });
+		const [result, complete] = await bus.publish("x", { v: 1 });
+		await expect(complete()).resolves.toEqual({ v: 1 });
 		expect(result).toEqual({ v: 1 });
 		expect(order).toEqual(["outer", "veto"]);
 	});
@@ -87,8 +98,9 @@ describe("v.event", () => {
 			order.push("inner");
 			await next({ v: 2 });
 		});
-		const result = await bus.publish("x", { v: 1 });
-		expect(result).toEqual({ v: 2 });
+		const [result, complete] = await bus.publish("x", { v: 1 });
+		await expect(complete()).resolves.toEqual({ v: 2 });
+		expect(result).toEqual({ v: 1 });
 		expect(order).toEqual(["outer", "inner"]);
 	});
 
@@ -99,7 +111,8 @@ describe("v.event", () => {
 		bus.subscribe(async (_e, next) => {
 			await next({ v: "nope" } as never);
 		});
-		await expect(bus.publish("x", { v: 1 })).rejects.toThrow(/expected number/);
+		const [, complete] = await bus.publish("x", { v: 1 });
+		await expect(complete()).rejects.toThrow(/expected number/);
 	});
 
 	it("does not re-transform untouched fields on next() patches", async () => {
@@ -119,8 +132,9 @@ describe("v.event", () => {
 			expect(e.data.a).toBe("hi!");
 			await next({ b: 2 });
 		});
-		const result = await bus.publish("x", { a: "hi", b: 1 });
-		expect(result).toEqual({ a: "hi!", b: 2 });
+		const [result, complete] = await bus.publish("x", { a: "hi", b: 1 });
+		await expect(complete()).resolves.toEqual({ a: "hi!", b: 2 });
+		expect(result).toEqual({ a: "hi!", b: 1 });
 		expect(transforms).toBe(1);
 	});
 });
@@ -157,13 +171,21 @@ describe("event extension + modules", () => {
 		// Mounting a fn that uses the module registers event listeners.
 		v.fn("evt_mod.app", { use: [core, hooks] }, () => "ok");
 
-		const fromEmail = await signUp.publish("email", {
+		const [fromEmail, completeEmail] = await signUp.publish("email", {
+			id: "1",
+			email: "a@b.co",
+		});
+		await expect(completeEmail()).resolves.toEqual({
 			id: "1",
 			email: "a@b.co",
 		});
 		expect(fromEmail).toEqual({ id: "1", email: "a@b.co" });
 
-		const fromOauth = await withOauth.publish("oauth", {
+		const [fromOauth, completeOauth] = await withOauth.publish("oauth", {
+			provider: "github",
+			id: "42",
+		});
+		await expect(completeOauth()).resolves.toEqual({
 			provider: "github",
 			id: "42",
 		});
@@ -206,7 +228,9 @@ describe("event extension + modules", () => {
 			await next();
 		});
 		const f = v.fn({ use: [{ bus }] }, async (c) => {
-			return c.bus.publish("ping", { n: 7 });
+			const [result, complete] = await c.bus.publish("ping", { n: 7 });
+			await complete();
+			return result;
 		});
 		await expect(f()).resolves.toEqual({ n: 7 });
 		expect(seen).toEqual([7]);
@@ -228,10 +252,12 @@ describe("event extension + modules", () => {
 		});
 
 		const f = v.fn({ use: [{ bus, account, withTag }] }, async (c) => {
-			const result = c.bus.publish("created", { id: "1", tag: "vip" });
-			expectTypeOf(result).toEqualTypeOf<
-				{ id: string; tag: string } | Promise<{ id: string; tag: string }>
-			>();
+			const [result, complete] = await c.bus.publish("created", {
+				id: "1",
+				tag: "vip",
+			});
+			expectTypeOf(result).toEqualTypeOf<{ id: string; tag: string }>();
+			await complete();
 			return result;
 		});
 		await expect(f()).resolves.toEqual({ id: "1", tag: "vip" });
@@ -251,10 +277,9 @@ describe("event extension + modules", () => {
 		});
 		const bus = v.event("evt_var_bare_bus", { created: account });
 		const f = v.fn({ use: [{ bus, account }] }, async (c) => {
-			const result = c.bus.publish("created", { id: "1" });
-			expectTypeOf(result).toEqualTypeOf<
-				{ id: string } | Promise<{ id: string }>
-			>();
+			const [result, complete] = await c.bus.publish("created", { id: "1" });
+			expectTypeOf(result).toEqualTypeOf<{ id: string }>();
+			await complete();
 			return result;
 		});
 		await expect(f()).resolves.toEqual({ id: "1" });
@@ -269,9 +294,11 @@ describe("event extension + modules", () => {
 			created: { account },
 		});
 		const f = v.fn({ use: [{ bus, account, withTag }] }, async (c) => {
-			return c.bus.publish("created", {
+			const [result, complete] = await c.bus.publish("created", {
 				account: { id: "2", tag: "gold" },
 			});
+			await complete();
+			return result;
 		});
 		await expect(f()).resolves.toEqual({
 			account: { id: "2", tag: "gold" },

@@ -21,7 +21,7 @@ export type EventMessage<T> = Prettify<
 
 /** `next(mutate?)` continues the chain and optionally patches this publish's
  * payload. Skipping `next` stops the chain (veto), same idea as `v.on`. */
-export type EventNext<D> = (mutate?: Partial<D>) => void | Promise<void>;
+export type EventNext<D> = (mutate?: Partial<D>) => D | Promise<D>;
 
 export type EventHandler<T> = (
 	event: EventMessage<T>,
@@ -48,13 +48,17 @@ export interface EventDefination<
 	subscribe: (handler: EventHandler<T>) => () => void;
 	/**
 	 * Validate `data` against the kind's schema, run subscribers (direct +
-	 * any mounted via `v.on` / modules), merge `next` mutations, return the
-	 * final payload.
+	 * any mounted via `v.on` / modules), merge `next` mutations, and return:
+	 * - `result`: the validated payload at publish-time
+	 * - `complete`: a promise function resolving to the final payload after
+	 *   the full subscriber chain finishes
 	 */
 	publish: <K extends keyof T & string>(
 		type: K,
 		data: EventPayloads<T>[K],
-	) => EventPayloads<T>[K] | Promise<EventPayloads<T>[K]>;
+	) =>
+		| [EventPayloads<T>[K], () => Promise<EventPayloads<T>[K]>]
+		| Promise<[EventPayloads<T>[K], () => Promise<EventPayloads<T>[K]>]>;
 	/**
 	 * Mint a NEW event def under the same name with more kinds - the
 	 * re-export pattern (`customize` for vars). Shared bus; widened types.
@@ -202,17 +206,13 @@ const runHandlers = (
 	schema: unknown,
 	path: string,
 ): unknown | Promise<unknown> => {
-	let current = initial;
-	const run = (i: number): void | Promise<void> => {
-		if (i >= handlers.length) return;
+	const run = (i: number, current: unknown): unknown | Promise<unknown> => {
+		if (i >= handlers.length) return current;
 		let called = false;
-		let downstream: void | Promise<void>;
+		let downstream: unknown | Promise<unknown> = current;
 		const next = (mutate?: Partial<unknown>) => {
 			called = true;
-			const continueChain = (value: unknown) => {
-				current = value;
-				return run(i + 1);
-			};
+			const continueChain = (value: unknown) => run(i + 1, value);
 			if (
 				mutate !== undefined &&
 				mutate !== null &&
@@ -222,20 +222,20 @@ const runHandlers = (
 					applyPatch(schema, current, mutate as Record<string, unknown>, path),
 					continueChain,
 				);
-			} else {
-				downstream = continueChain(current);
+				return downstream;
 			}
+			downstream = continueChain(current);
 			return downstream;
 		};
 		const handler = handlers[i];
-		if (!handler) return;
+		if (!handler) return current;
 		const result = handler({ type, data: current }, next);
 		return thenMaybe(result, () => {
-			if (!called) return;
+			if (!called) return current;
 			return downstream;
 		});
 	};
-	return thenMaybe(run(0), () => current);
+	return run(0, initial);
 };
 
 /** A var extension's extra fields, applied to event payloads that infer
@@ -296,7 +296,9 @@ const publishOn = (
 	type: string,
 	data: unknown,
 	varExts: readonly EventVarExt[] = [],
-): unknown | Promise<unknown> => {
+):
+	| [unknown, () => Promise<unknown>]
+	| Promise<[unknown, () => Promise<unknown>]> => {
 	const bus = getBus(name);
 	const schema = bus.types[type];
 	const path = `event.${name}.${type}`;
@@ -305,9 +307,14 @@ const publishOn = (
 	}
 	const effective = applyVarExtsToSchema(schema, varExts);
 	const handlers = [...bus.mounted, ...bus.direct];
-	return thenMaybe(validate(asType(effective), data, path), (parsed) =>
-		runHandlers(handlers, type, parsed, effective, path),
-	);
+	return thenMaybe(validate(asType(effective), data, path), (parsed) => {
+		const done = runHandlers(handlers, type, parsed, effective, path);
+		return [
+			parsed,
+			() =>
+				isThenable(done) ? (done as Promise<unknown>) : Promise.resolve(done),
+		] as [unknown, () => Promise<unknown>];
+	});
 };
 
 /** Publish against a named bus, folding mounted var extensions into
@@ -319,7 +326,10 @@ export const publishEvent = (
 	type: string,
 	data: unknown,
 	varExts: readonly EventVarExt[] = [],
-): unknown | Promise<unknown> => publishOn(name, type, data, varExts);
+):
+	| [unknown, () => Promise<unknown>]
+	| Promise<[unknown, () => Promise<unknown>]> =>
+	publishOn(name, type, data, varExts);
 
 /** Register a module-mounted event listener (no-op if already present). */
 export const mountEventOn = (entry: EventOnEntry<string>) => {
