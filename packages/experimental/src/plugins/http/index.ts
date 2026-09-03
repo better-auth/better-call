@@ -37,7 +37,12 @@ export {
 	getCookie,
 	setCookie,
 } from "./cookie";
-export type { EncodedError, HttpErrMeta } from "./error";
+export type {
+	EncodedError,
+	EncodeErrorOptions,
+	ErrorMessageOverride,
+	HttpErrMeta,
+} from "./error";
 export {
 	applyError,
 	encodeError,

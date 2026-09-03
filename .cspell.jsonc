@@ -35,6 +35,9 @@
 		"unqueryable",
 		"unvalidated",
 		"travelling",
+		"Refusé",
+		"Réessayez",
+		"dans",
 		// test fixture variable names (wuser, xuser, puser)
 		"wuser",
 		"xuser",

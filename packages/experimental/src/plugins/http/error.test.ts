@@ -13,45 +13,52 @@ import {
 
 const app = v.fn({ use: [http] });
 
-describe("http.err - status on declared errors", () => {
-	it("stashes status without polluting enumerable fields", () => {
-		const decl = err(401, { attempts: v.number() });
+describe("http.err - status + message on declared errors", () => {
+	it("stashes status and message without polluting enumerable fields", () => {
+		const decl = err(401, "Invalid credentials", { attempts: v.number() });
 		expect(statusOf(decl)).toBe(401);
 		expect(Object.keys(decl)).toEqual(["attempts"]);
 		expect((decl as Record<symbol, unknown>)[kHttpErr]).toEqual({
 			status: 401,
+			message: "Invalid credentials",
 		});
 	});
 
-	it("status-only declarations stay empty payloads", () => {
-		const decl = err(410);
+	it("message-only declarations stay empty payloads", () => {
+		const decl = err(410, "Gone");
 		expect(statusOf(decl)).toBe(410);
 		expect(Object.keys(decl)).toEqual([]);
+		expect((decl as Record<symbol, unknown>)[kHttpErr]).toEqual({
+			status: 410,
+			message: "Gone",
+		});
 	});
 
 	it("refuses non-HTTP status numbers", () => {
-		expect(() => err(99)).toThrow(/http\.err\.status/);
-		expect(() => err(600)).toThrow(/http\.err\.status/);
-		expect(() => err(401.5)).toThrow(/http\.err\.status/);
+		expect(() => err(99, "nope")).toThrow(/http\.err\.status/);
+		expect(() => err(600, "nope")).toThrow(/http\.err\.status/);
+		expect(() => err(401.5, "nope")).toThrow(/http\.err\.status/);
 	});
 
 	it("copies the data shape so shared schemas do not share meta", () => {
 		const shared = { attempts: v.number() };
-		const a = err(401, shared);
-		const b = err(403, shared);
+		const a = err(401, "a", shared);
+		const b = err(403, "b", shared);
 		expect(statusOf(a)).toBe(401);
 		expect(statusOf(b)).toBe(403);
 		expect(statusOf(shared)).toBeUndefined();
 	});
 
-	it("c.error still validates payload; status never enters data", () => {
+	it("c.error still validates payload; status and message never enter data", () => {
 		const signIn = app.fn(
 			"httpt.err.sign_in",
 			{
 				input: { kind: v.string() },
 				errors: {
-					invalid_credentials: err(401, { attempts: v.number() }),
-					gone: err(410),
+					invalid_credentials: err(401, "Invalid credentials", {
+						attempts: v.number(),
+					}),
+					gone: err(410, "Gone"),
 				},
 			},
 			(c) => {
@@ -67,6 +74,7 @@ describe("http.err - status on declared errors", () => {
 			expect(bad.error.tag).toBe("invalid_credentials");
 			expect(bad.error.data).toEqual({ attempts: 3 });
 			expect(bad.error.status).toBe(401);
+			expect(bad.error.message).toBe("Invalid credentials");
 			if (bad.error.tag === "invalid_credentials") {
 				expectTypeOf(bad.error.data).toEqualTypeOf<{
 					readonly attempts: number;
@@ -80,12 +88,17 @@ describe("http.err - status on declared errors", () => {
 			expect(gone.error.tag).toBe("gone");
 			expect(gone.error.data).toEqual({});
 			expect(gone.error.status).toBe(410);
+			expect(gone.error.message).toBe("Gone");
 		}
 
 		expect(() =>
 			app.fn(
 				"httpt.err.liar",
-				{ errors: { oops: err(400, { code: v.number() }) } },
+				{
+					errors: {
+						oops: err(400, "Oops", { code: v.number() }),
+					},
+				},
 				(c) => {
 					throw c.error("oops", { code: "nope" } as never);
 				},
@@ -98,7 +111,7 @@ describe("http.err - status on declared errors", () => {
 			"httpt.err.guard",
 			{
 				errors: {
-					denied: err(403),
+					denied: err(403, "Denied"),
 					plain: { reason: v.string() },
 				},
 			},
@@ -118,8 +131,8 @@ describe("http.err - status on declared errors", () => {
 			"httpt.err.endpoint",
 			{
 				errors: {
-					unauthorized: err(401, { attempts: v.number() }),
-					conflict: err(409),
+					unauthorized: err(401, "Unauthorized", { attempts: v.number() }),
+					conflict: err(409, "Conflict"),
 				},
 			},
 			(c) => {
@@ -149,8 +162,8 @@ describe("http.err - status on declared errors", () => {
 	});
 
 	it("http.err is re-exported on the http module", () => {
-		expect(http.err(418)).toBeDefined();
-		expect(http.statusOf(http.err(418))).toBe(418);
+		expect(http.err(418, "I'm a teapot")).toBeDefined();
+		expect(http.statusOf(http.err(418, "I'm a teapot"))).toBe(418);
 	});
 });
 
@@ -216,10 +229,10 @@ describe("encodeError + createHandler JSON bodies", () => {
 		});
 	});
 
-	it("createHandler returns declared status JSON for FnError", async () => {
+	it("createHandler returns declared status + message JSON for FnError", async () => {
 		const deny = app.fn(
 			"httpt.err.deny",
-			{ errors: { denied: err(403) } },
+			{ errors: { denied: err(403, "Denied") } },
 			(c) => {
 				throw c.error("denied");
 			},
@@ -235,6 +248,140 @@ describe("encodeError + createHandler JSON bodies", () => {
 			data: {},
 			trail: ["httpt.err.deny"],
 			status: 403,
+			message: "Denied",
+		});
+	});
+
+	it("encodeError rewrites FnError message by tag and keeps originalMessage", () => {
+		const stamped = new FnError("denied", {}, "f", 403, "Denied");
+		expect(
+			encodeError(stamped, {
+				messages: { denied: "Refusé" },
+			}),
+		).toEqual({
+			status: 403,
+			body: {
+				name: "FnError",
+				tag: "denied",
+				data: {},
+				trail: ["f"],
+				status: 403,
+				message: "Refusé",
+				originalMessage: "Denied",
+			},
+		});
+	});
+
+	it("encodeError message fn can interpolate data", () => {
+		const stamped = new FnError(
+			"rate_limited",
+			{ retryAfter: 30 },
+			"f",
+			429,
+			"Too many attempts",
+		);
+		expect(
+			encodeError(stamped, {
+				message: (error) =>
+					error.tag === "rate_limited"
+						? `Réessayez dans ${(error.data as { retryAfter: number }).retryAfter}s`
+						: error.message,
+			})?.body,
+		).toMatchObject({
+			message: "Réessayez dans 30s",
+			originalMessage: "Too many attempts",
+		});
+	});
+
+	it("encodeError messages fn can pick a locale from the request", () => {
+		const stamped = new FnError("denied", {}, "f", 403, "Denied");
+		const request = new Request("http://x.test/", {
+			headers: { "Accept-Language": "fr" },
+		});
+		expect(
+			encodeError(stamped, {
+				request,
+				messages: (req) => {
+					const locale = req?.headers.get("Accept-Language") ?? "en";
+					return {
+						en: { denied: "Denied" },
+						fr: { denied: "Refusé" },
+					}[locale];
+				},
+			})?.body,
+		).toMatchObject({
+			message: "Refusé",
+			originalMessage: "Denied",
+		});
+	});
+
+	it("createHandler message fn receives the request", async () => {
+		const deny = app.fn(
+			"httpt.err.deny_req",
+			{ errors: { denied: err(403, "Denied") } },
+			(c) => {
+				throw c.error("denied");
+			},
+		);
+		const fetch = http.createHandler(
+			() => {
+				throw deny();
+			},
+			{
+				message: (error, request) => {
+					if (request?.headers.get("Accept-Language") === "fr") {
+						return "Refusé";
+					}
+					return error.message;
+				},
+			},
+		);
+		const response = await fetch(
+			new Request("http://x.test/", {
+				headers: { "Accept-Language": "fr" },
+			}),
+		);
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toMatchObject({
+			message: "Refusé",
+			originalMessage: "Denied",
+		});
+	});
+
+	it("encodeError leaves message alone when no override matches", () => {
+		const stamped = new FnError("denied", {}, "f", 403, "Denied");
+		expect(encodeError(stamped, { messages: { other: "x" } })?.body).toEqual({
+			name: "FnError",
+			tag: "denied",
+			data: {},
+			trail: ["f"],
+			status: 403,
+			message: "Denied",
+		});
+	});
+
+	it("createHandler applies messages overrides from options", async () => {
+		const deny = app.fn(
+			"httpt.err.deny_i18n",
+			{ errors: { denied: err(403, "Denied") } },
+			(c) => {
+				throw c.error("denied");
+			},
+		);
+		const fetch = http.createHandler(
+			() => {
+				throw deny();
+			},
+			{
+				messages: { denied: "Refusé" },
+			},
+		);
+		const response = await fetch(new Request("http://x.test/"));
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toMatchObject({
+			tag: "denied",
+			message: "Refusé",
+			originalMessage: "Denied",
 		});
 	});
 });

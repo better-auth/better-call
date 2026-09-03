@@ -88,7 +88,8 @@ export class ValidationError extends Error {
  * `trail` records the fn that threw, then every frame it crossed.
  * Serializes as data, so it survives a remote boundary intact.
  * Optional `status` is set when the declaration carried HTTP metadata
- * (`http.err`); the edge uses it without looking the map back up.
+ * (`http.err`); the declared human message becomes `Error.message` and
+ * `toJSON().message` so the edge can rewrite it for i18n.
  */
 export class FnError<
 	Tag extends string = string,
@@ -96,15 +97,19 @@ export class FnError<
 > extends Error {
 	public trail: string[];
 	public status?: number;
+	/** True when `message` came from `http.err` (vs the `${fn}: ${tag}` fallback). */
+	readonly #declaredMessage: boolean;
 	constructor(
 		public tag: Tag,
 		public data: Data,
 		fn: string,
 		status?: number,
+		message?: string,
 	) {
-		super(`${fn}: ${tag}`);
+		super(message ?? `${fn}: ${tag}`);
 		this.name = "FnError";
 		this.trail = [fn];
+		this.#declaredMessage = message !== undefined;
 		if (status !== undefined) this.status = status;
 		scrubLibraryFrames(this);
 	}
@@ -115,6 +120,7 @@ export class FnError<
 			data: this.data,
 			trail: this.trail,
 			...(this.status !== undefined ? { status: this.status } : {}),
+			...(this.#declaredMessage ? { message: this.message } : {}),
 		};
 	}
 }

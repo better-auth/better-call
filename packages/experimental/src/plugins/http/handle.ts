@@ -3,7 +3,7 @@ import { v } from "../../index";
 import type { ApplyOns, Module, ModuleFns } from "../../module";
 import type { ScopeOf } from "../../scope";
 import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
-import { encodeError } from "./error";
+import { type EncodeErrorOptions, encodeError } from "./error";
 import { applyRedirect, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import type { HttpResponse } from "./response";
@@ -54,13 +54,18 @@ const resultToResponse = (response: HttpResponse, out: unknown): Response => {
 const catchEdgeError = (
 	thrown: unknown,
 	response: HttpResponse | null | undefined,
+	encodeOptions?: EncodeErrorOptions,
+	request?: Request,
 ): Response => {
 	if (thrown instanceof Redirect) {
 		const current = response ?? { headers: new Headers() };
 		applyRedirect(current, thrown);
 		return toResponse(current, null);
 	}
-	const encoded = encodeError(thrown);
+	const encoded = encodeError(thrown, {
+		...encodeOptions,
+		request: encodeOptions?.request ?? request,
+	});
 	if (!encoded) throw thrown;
 	const current = response ?? { headers: new Headers() };
 	current.status = encoded.status;
@@ -75,13 +80,14 @@ const settle = async (
 	c: any,
 	request: Request,
 	run: (c: any) => unknown | Promise<unknown>,
+	encodeOptions?: EncodeErrorOptions,
 ): Promise<Response> => {
 	await c.fromRequest({ request });
 	try {
 		const out = await run(c);
 		return resultToResponse(c.res ?? { headers: new Headers() }, out);
 	} catch (thrown) {
-		return catchEdgeError(thrown, c.res);
+		return catchEdgeError(thrown, c.res, encodeOptions, request);
 	}
 };
 
@@ -116,12 +122,13 @@ export const handler = h.fn(
 export type CreateHandlerOptions<PL extends readonly Module[] = readonly []> = {
 	/** Extra modules mounted onto the same `c` that `run` receives. */
 	use?: PL;
-};
+} & Omit<EncodeErrorOptions, "request">;
 
 /**
  * Fetch adapter: `(request) => Response`. Modules in `options.use` are
  * mounted on the same context as `req` / `res` / `redirect`, so
  * `createHandler((c) => c.whoami(), { use: [{ whoami }] })` works.
+ * Pass `messages` / `message` to rewrite declared `FnError` copy for i18n.
  */
 export function createHandler<
 	const PL extends readonly Module[] = readonly [],
@@ -131,12 +138,16 @@ export function createHandler<
 	options?: CreateHandlerOptions<PL>,
 ): (request: Request) => Promise<Response> {
 	const use = [base, ...(options?.use ?? [])] as EdgeModules<PL>;
+	const encodeOptions: EncodeErrorOptions | undefined =
+		options?.messages !== undefined || options?.message !== undefined
+			? { messages: options.messages, message: options.message }
+			: undefined;
 	const entry = v
 		.fn({ use })
 		.fn(
 			"http.create_handler",
 			{ input: { request: v.any<Request>() } },
-			async (c) => settle(c, c.input.request, run),
+			async (c) => settle(c, c.input.request, run, encodeOptions),
 		);
 
 	return (request) => entry({ request }) as Promise<Response>;

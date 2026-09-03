@@ -1086,11 +1086,11 @@ const defineFn = (
 							: `"${key}" declares no errors`,
 					);
 				}
-				// HTTP status lives on the ORIGINAL declaration (`http.err`);
+				// HTTP status/message live on the ORIGINAL declaration (`http.err`);
 				// `asType` copies enumerable fields only, so read it there.
 				const meta = (
 					declaredErrors?.[tag] as
-						| Record<symbol, { status?: number } | undefined>
+						| Record<symbol, { status?: number; message?: string } | undefined>
 						| undefined
 				)?.[Symbol.for("better-call:http.err")];
 				const err = new FnError(
@@ -1098,6 +1098,7 @@ const defineFn = (
 					validate(schema, data ?? {}, `${key}.errors.${tag}`),
 					key,
 					meta?.status,
+					meta?.message,
 				);
 				return captureCallerStack(err, mintError);
 			};
