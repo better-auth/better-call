@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	FnError,
+	getErrors,
 	memoryAdapter,
 	UnexpectedError,
 	ValidationError,
@@ -1147,5 +1148,43 @@ describe("multi-issue validation", () => {
 			expect(err.stack).not.toMatch(/[/\\]schema\.ts/);
 			expect(err.stack).not.toMatch(/[/\\]fn\.ts:/);
 		}
+	});
+});
+
+describe("getErrors", () => {
+	it("returns undefined when fn declares no errors", () => {
+		const f = v.fn(
+			"ge.no_errors",
+			{ input: { n: v.number() } },
+			(c) => c.input.n,
+		);
+		expect(getErrors(f)).toBeUndefined();
+	});
+
+	it("returns the declared error map at runtime", () => {
+		const f = v.fn(
+			"ge.with_errors",
+			{ errors: { not_found: v.object({ id: v.string() }), forbidden: {} } },
+			() => "ok",
+		);
+		const errs = getErrors(f);
+		expect(errs).toBeDefined();
+		expect(errs).toHaveProperty("not_found");
+		expect(errs).toHaveProperty("forbidden");
+	});
+
+	it("infers the error-map type from the generic parameter", () => {
+		const conflict = v.object({ email: v.string() });
+		const f = v.fn("ge.typed", { errors: { conflict } }, () => "ok");
+		// Type-level: getErrors should return the declared map or undefined.
+		expectTypeOf(getErrors(f)).toMatchTypeOf<
+			{ conflict: typeof conflict } | undefined
+		>();
+	});
+
+	it("returns undefined for a fn that omitted the errors key", () => {
+		const bare = v.fn(() => "bare");
+		// $schema is always present from defineFn, but without an errors key.
+		expect(getErrors(bare)).toBeUndefined();
 	});
 });
