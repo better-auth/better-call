@@ -1,115 +1,86 @@
 import { ValidationError } from "../../error";
 import {
-	asType,
 	attrsOf,
-	isVar,
-	typeOf,
-	validate,
+	omitFields,
+	parseFields,
+	rejectFields,
 	withAttrs,
 } from "../../schema";
 
-/** Mark a field as unusable over the wire - HTTP / capability edges
- * reject it if present; in-process callers may still pass it. */
+/** Client may not set this field. Wire / capability edges reject it if
+ * present; in-process callers may still pass it. */
+export const readonly = <S>(schema: S): S =>
+	withAttrs(schema, "http", { readonly: true });
+
+/**
+ * Exclude this field from responses. When an fn's `output` schema (often
+ * a var) carries it, output validation drops the key.
+ */
+export const returned = <S>(schema: S): S =>
+	withAttrs(schema, "http", { returned: true });
+
+/** @deprecated Prefer {@link readonly}. Same wire gate. */
 export const serverOnly = <S>(schema: S): S =>
 	withAttrs(schema, "http", { serverOnly: true });
 
-const isServerOnly = (schema: unknown) =>
-	attrsOf(schema, "http")?.serverOnly === true;
+const httpAttrs = (schema: unknown) => attrsOf(schema, "http");
 
-/**
- * Drop fields (and nested object keys) marked {@link serverOnly}. Used
- * for OpenAPI / client contracts; {@link InferArgs} on the original
- * schema stays the full shape.
- */
-export const clientSchema = <S>(schema: S): S => {
-	if (isVar(schema)) {
-		const v = schema as { schema?: unknown };
-		return {
-			...(schema as object),
-			schema: v.schema === undefined ? undefined : clientSchema(v.schema as S),
-		} as S;
-	}
-	const def = asType(schema);
-	if (def.name === "object" && def.shape !== undefined) {
-		const shape: Record<string, unknown> = {};
-		for (const [key, child] of Object.entries(
-			def.shape as Record<string, unknown>,
-		)) {
-			if (isServerOnly(child)) continue;
-			shape[key] = clientSchema(child);
-		}
-		return { ...def, shape } as S;
-	}
-	if (def.name === "array" && def.shape !== undefined) {
-		return { ...def, shape: clientSchema(def.shape) } as S;
-	}
-	if (def.name === "union" && Array.isArray(def.shape)) {
-		return {
-			...def,
-			shape: (def.shape as unknown[]).map((option) => clientSchema(option)),
-		} as S;
-	}
-	return schema;
+const isReadonly = (schema: unknown) => {
+	const http = httpAttrs(schema);
+	return http?.readonly === true || http?.serverOnly === true;
 };
 
+const isReturned = (schema: unknown) => httpAttrs(schema)?.returned === true;
+
 /**
- * Throw if any {@link serverOnly} field is present on `value` (own key).
- * Object validation otherwise strips unknown keys, so this is what stops
- * wire callers from smuggling server-only values.
+ * Drop fields marked {@link readonly} / {@link serverOnly}. Used for
+ * OpenAPI / client input contracts; {@link InferArgs} on the original
+ * schema stays the full shape.
  */
-export const rejectServerOnly = (
+export const clientSchema = <S>(schema: S): S => omitFields(schema, isReadonly);
+
+/**
+ * Drop fields marked {@link returned}. Pair with {@link clientSchema} when
+ * projecting an output / response contract.
+ */
+export const responseSchema = <S>(schema: S): S =>
+	omitFields(schema, isReturned);
+
+/**
+ * Throw if any {@link readonly} / {@link serverOnly} field is present on
+ * `value` (own key).
+ */
+export const rejectReadonly = (
 	schema: unknown,
 	value: unknown,
 	path = "input",
-): void => {
-	if (value === null || value === undefined) return;
-	const root = isVar(schema)
-		? ((schema as { schema?: unknown }).schema ?? {})
-		: schema;
-	const def = asType(root);
-	if (def.name === "object" && def.shape !== undefined) {
-		if (typeOf(value) !== "object") return;
-		const record = value as Record<string, unknown>;
-		for (const [key, child] of Object.entries(
-			def.shape as Record<string, unknown>,
-		)) {
-			if (isServerOnly(child) && Object.hasOwn(record, key)) {
-				throw new ValidationError(
-					`${path}.${key}`,
-					"server-only field is not allowed over the wire",
-				);
-			}
-			if (Object.hasOwn(record, key)) {
-				rejectServerOnly(child, record[key], `${path}.${key}`);
-			}
-		}
-		return;
-	}
-	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
-		for (let i = 0; i < value.length; i++) {
-			rejectServerOnly(def.shape, value[i], `${path}[${i}]`);
-		}
-		return;
-	}
-	if (def.name === "union" && Array.isArray(def.shape)) {
-		for (const option of def.shape as unknown[]) {
-			rejectServerOnly(option, value, path);
-		}
-	}
-};
+): void =>
+	rejectFields(
+		schema,
+		value,
+		isReadonly,
+		path,
+		"readonly field is not allowed over the wire",
+	);
+
+/** @deprecated Prefer {@link rejectReadonly}. */
+export const rejectServerOnly = rejectReadonly;
 
 /**
- * Wire-side input gate: reject smuggled server-only keys, then validate
- * against {@link clientSchema}.
+ * Wire-side input gate: reject smuggled readonly keys, then validate
+ * against {@link clientSchema}. Built on core {@link parseFields}.
  */
 export const wireInput = <S>(
 	schema: S,
 	value: unknown,
 	path = "input",
-): unknown => {
-	rejectServerOnly(schema, value, path);
-	return validate(asType(clientSchema(schema)), value, path);
-};
+): unknown =>
+	parseFields(schema, value, {
+		path,
+		reject: isReadonly,
+		omit: isReadonly,
+		rejectMessage: "readonly field is not allowed over the wire",
+	});
 
 /** Parse a JSON request body and run it through {@link wireInput}. */
 export const fromJsonBody = async <S>(
@@ -130,3 +101,9 @@ export const fromJsonBody = async <S>(
 	}
 	return await wireInput(schema, body, path);
 };
+
+/** True when a field carries {@link returned}. Used by `v.fn` output exit. */
+export const isReturnedField = isReturned;
+
+/** Project output schemas the same way `v.fn` does on exit. */
+export const stripReturned = <S>(schema: S): S => responseSchema(schema);

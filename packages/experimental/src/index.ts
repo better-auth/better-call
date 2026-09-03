@@ -145,10 +145,15 @@ export {
 export {
 	type AttrBag,
 	attrsOf,
+	type FieldPred,
 	type InferArgs,
 	type InferInput,
 	type InferOutput,
 	type InferType,
+	omitFields,
+	type ParseFieldsOptions,
+	parseFields,
+	rejectFields,
 	type TypeDefination,
 	withAttrs,
 } from "./schema";

@@ -440,7 +440,8 @@ const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
 /**
  * Attach plugin attributes under `namespace`, deep-merging with any
  * already on the schema. Returns a new type def (or var) with the same
- * value type. Core never reads these - only plugin edges do.
+ * value type. Core mostly ignores these - plugin edges and a few
+ * exit paths (e.g. `v.fn` stripping `http.returned`) consume them.
  *
  * Passed a var, attributes land on the var itself (`$attrs`) and the
  * `$var` / `name` / `schema` identity is preserved; `customize` is rebound
@@ -478,6 +479,124 @@ export function attrsOf(
 	if (!bag) return undefined;
 	return namespace === undefined ? bag : bag[namespace];
 }
+
+/** Decide whether a field schema (type def or var) should be dropped / rejected. */
+export type FieldPred = (schema: unknown) => boolean;
+
+/**
+ * Drop fields (and nested object / array / union children) where `drop`
+ * is true. Vars keep their identity; only the inner `schema` is projected.
+ * Used by plugin edges and by {@link parseFields}.
+ */
+export const omitFields = <S>(schema: S, drop: FieldPred): S => {
+	if (isVar(schema)) {
+		const v = schema as { schema?: unknown };
+		return {
+			...(schema as object),
+			schema: v.schema === undefined ? undefined : omitFields(v.schema, drop),
+		} as S;
+	}
+	const def = asType(schema);
+	if (def.name === "object" && def.shape !== undefined) {
+		const shape: Record<string, unknown> = {};
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (drop(child)) continue;
+			shape[key] = omitFields(child, drop);
+		}
+		return { ...def, shape } as S;
+	}
+	if (def.name === "array" && def.shape !== undefined) {
+		return { ...def, shape: omitFields(def.shape, drop) } as S;
+	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		return {
+			...def,
+			shape: (def.shape as unknown[]).map((option) => omitFields(option, drop)),
+		} as S;
+	}
+	return schema;
+};
+
+/**
+ * Throw if any field matching `match` is present on `value` (own key).
+ * Object validation otherwise strips unknown keys, so this is what stops
+ * callers from smuggling gated values.
+ */
+export const rejectFields = (
+	schema: unknown,
+	value: unknown,
+	match: FieldPred,
+	path = "input",
+	message = "field is not allowed",
+): void => {
+	if (value === null || value === undefined) return;
+	const root = isVar(schema)
+		? ((schema as { schema?: unknown }).schema ?? {})
+		: schema;
+	const def = asType(root);
+	if (def.name === "object" && def.shape !== undefined) {
+		if (typeOf(value) !== "object") return;
+		const record = value as Record<string, unknown>;
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (match(child) && Object.hasOwn(record, key)) {
+				throw new ValidationError(`${path}.${key}`, message);
+			}
+			if (Object.hasOwn(record, key)) {
+				rejectFields(child, record[key], match, `${path}.${key}`, message);
+			}
+		}
+		return;
+	}
+	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
+		for (let i = 0; i < value.length; i++) {
+			rejectFields(def.shape, value[i], match, `${path}[${i}]`, message);
+		}
+		return;
+	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		for (const option of def.shape as unknown[]) {
+			rejectFields(option, value, match, path, message);
+		}
+	}
+};
+
+export type ParseFieldsOptions = {
+	path?: string;
+	/** Throw when these fields are present on the value (own key). */
+	reject?: FieldPred;
+	/** Drop these fields from the schema before validating. */
+	omit?: FieldPred;
+	/** Message used when {@link reject} fires. */
+	rejectMessage?: string;
+};
+
+/**
+ * Parse `value` against `schema`, optionally rejecting and/or omitting
+ * fields by attribute predicate. Core stays attribute-key agnostic -
+ * callers pass the predicates (e.g. `attrsOf(s, "http")?.readonly`).
+ */
+export const parseFields = <S>(
+	schema: S,
+	value: unknown,
+	options: ParseFieldsOptions = {},
+): unknown => {
+	const path = options.path ?? "input";
+	if (options.reject) {
+		rejectFields(
+			schema,
+			value,
+			options.reject,
+			path,
+			options.rejectMessage ?? "field is not allowed",
+		);
+	}
+	const projected = options.omit ? omitFields(schema, options.omit) : schema;
+	return validate(asType(projected), value, path);
+};
 
 export const typeOf = (value: unknown) =>
 	value === null

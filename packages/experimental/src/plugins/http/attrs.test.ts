@@ -5,7 +5,10 @@ import { asType, attrsOf, validate } from "../../schema";
 import {
 	clientSchema,
 	fromJsonBody,
-	rejectServerOnly,
+	readonly,
+	rejectReadonly,
+	responseSchema,
+	returned,
 	serverOnly,
 	wireInput,
 } from "./attrs";
@@ -13,71 +16,112 @@ import {
 describe("http field attrs", () => {
 	const shape = {
 		id: v.string(),
-		role: serverOnly(v.string()),
+		role: readonly(v.string()),
+		password: returned(v.string()),
 		meta: v.object({
 			note: v.string(),
-			secret: serverOnly(v.string()),
+			secret: readonly(v.string()),
+			hash: returned(v.string()),
 		}),
 	};
 
-	it("serverOnly writes $attrs.http", () => {
+	it("readonly and returned write $attrs.http", () => {
+		expect(attrsOf(readonly(v.string()), "http")).toEqual({
+			readonly: true,
+		});
+		expect(attrsOf(returned(v.string()), "http")).toEqual({
+			returned: true,
+		});
 		expect(attrsOf(serverOnly(v.string()), "http")).toEqual({
 			serverOnly: true,
 		});
 	});
 
-	it("clientSchema drops server-only fields nested", () => {
+	it("clientSchema drops readonly fields nested", () => {
 		const projected = asType(clientSchema(v.object(shape)));
 		expect(Object.keys(projected.shape as object).sort()).toEqual([
 			"id",
 			"meta",
+			"password",
 		]);
 		const meta = asType((projected.shape as Record<string, unknown>).meta);
-		expect(Object.keys(meta.shape as object)).toEqual(["note"]);
+		expect(Object.keys(meta.shape as object).sort()).toEqual(["hash", "note"]);
 	});
 
-	it("rejectServerOnly fails when a server-only key is present", () => {
+	it("responseSchema drops returned fields nested", () => {
+		const projected = asType(responseSchema(v.object(shape)));
+		expect(Object.keys(projected.shape as object).sort()).toEqual([
+			"id",
+			"meta",
+			"role",
+		]);
+		const meta = asType((projected.shape as Record<string, unknown>).meta);
+		expect(Object.keys(meta.shape as object).sort()).toEqual([
+			"note",
+			"secret",
+		]);
+	});
+
+	it("rejectReadonly fails when a readonly key is present", () => {
 		expect(() =>
-			rejectServerOnly(v.object(shape), {
+			rejectReadonly(v.object(shape), {
 				id: "1",
 				role: "admin",
 			}),
 		).toThrow(ValidationError);
 		expect(() =>
-			rejectServerOnly(v.object(shape), {
+			rejectReadonly(v.object(shape), {
 				id: "1",
 				meta: { note: "hi", secret: "x" },
 			}),
-		).toThrow(/server-only/);
+		).toThrow(/readonly field/);
 	});
 
-	it("wireInput accepts client fields and rejects smuggled server-only", () => {
+	it("wireInput accepts client fields and rejects smuggled readonly", () => {
 		expect(
 			wireInput(v.object(shape), {
 				id: "1",
-				meta: { note: "hi" },
+				password: "secret",
+				meta: { note: "hi", hash: "h" },
 			}),
-		).toEqual({ id: "1", meta: { note: "hi" } });
+		).toEqual({
+			id: "1",
+			password: "secret",
+			meta: { note: "hi", hash: "h" },
+		});
 		expect(() =>
 			wireInput(v.object(shape), { id: "1", role: "admin" }),
 		).toThrow(ValidationError);
 	});
 
-	it("in-process validate still accepts server-only fields", () => {
+	it("serverOnly still gates the wire like readonly", () => {
+		const schema = v.object({
+			id: v.string(),
+			role: serverOnly(v.string()),
+		});
+		expect(() => wireInput(schema, { id: "1", role: "admin" })).toThrow(
+			/readonly field/,
+		);
+		expect(wireInput(schema, { id: "1" })).toEqual({ id: "1" });
+	});
+
+	it("in-process validate still accepts readonly fields", () => {
 		expect(
 			validate(
 				asType(v.object(shape)),
 				{
 					id: "1",
 					role: "admin",
-					meta: { note: "n", secret: "s" },
+					password: "p",
+					meta: { note: "n", secret: "s", hash: "h" },
 				},
 				"user",
 			),
 		).toEqual({
 			id: "1",
 			role: "admin",
-			meta: { note: "n", secret: "s" },
+			password: "p",
+			meta: { note: "n", secret: "s", hash: "h" },
 		});
 	});
 
@@ -85,11 +129,16 @@ describe("http field attrs", () => {
 		const request = new Request("https://example.com", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ id: "1", meta: { note: "ok" } }),
+			body: JSON.stringify({
+				id: "1",
+				password: "p",
+				meta: { note: "ok", hash: "h" },
+			}),
 		});
 		await expect(fromJsonBody(request, v.object(shape))).resolves.toEqual({
 			id: "1",
-			meta: { note: "ok" },
+			password: "p",
+			meta: { note: "ok", hash: "h" },
 		});
 
 		const smuggle = new Request("https://example.com", {
@@ -111,12 +160,12 @@ describe("http field attrs", () => {
 		);
 	});
 
-	it("clientSchema and rejectServerOnly recurse into union arms", () => {
+	it("clientSchema and rejectReadonly recurse into union arms", () => {
 		const schema = v.union([
 			v.object({
 				kind: v.string({ enum: ["user"] }),
 				id: v.string(),
-				role: serverOnly(v.string()),
+				role: readonly(v.string()),
 			}),
 			v.object({
 				kind: v.string({ enum: ["anon"] }),
@@ -136,8 +185,8 @@ describe("http field attrs", () => {
 		]);
 
 		expect(() =>
-			rejectServerOnly(schema, { kind: "user", id: "1", role: "admin" }),
-		).toThrow(/server-only/);
+			rejectReadonly(schema, { kind: "user", id: "1", role: "admin" }),
+		).toThrow(/readonly field/);
 		expect(wireInput(schema, { kind: "anon", token: "t" })).toEqual({
 			kind: "anon",
 			token: "t",

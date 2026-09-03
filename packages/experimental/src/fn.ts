@@ -30,10 +30,12 @@ import {
 } from "./module";
 import {
 	asType,
+	attrsOf,
 	type InferArgs,
 	type InferInput,
 	isVar,
 	type OutputSchemaOf,
+	omitFields,
 	outputContract,
 	type TypeDefination,
 	validate,
@@ -813,7 +815,17 @@ const defineFn = (
 
 	// Only the VALIDATION half of the output contract is checked on exit -
 	// a `{ def }`-only output is a documented promise, never a check.
-	const outputValidation = outputContract(options.output).validation;
+	// Fields marked `http.returned` are projected out so they never leave
+	// the process through this fn's result (direct in-process data on the
+	// handler's locals is unaffected).
+	const rawOutputValidation = outputContract(options.output).validation;
+	const outputValidation =
+		rawOutputValidation === undefined
+			? undefined
+			: omitFields(
+					rawOutputValidation,
+					(field) => attrsOf(field, "http")?.returned === true,
+				);
 	const errorTypes = declaredErrors
 		? Object.fromEntries(
 				Object.entries(declaredErrors).map(([tag, schema]) => [
@@ -1196,8 +1208,10 @@ const defineFn = (
 			);
 
 			// Exit contracts run after the body, whether or not it was async.
+			// Output validation both checks AND projects (so `http.returned`
+			// fields / undeclared keys leave through the validated shape).
 			const finish = (result: unknown) => {
-				const afterOutput = () => {
+				const afterOutput = (out: unknown) => {
 					if (bodyRan) {
 						for (const name of options.provides ?? []) {
 							if (missing(name)) {
@@ -1208,9 +1222,9 @@ const defineFn = (
 							}
 						}
 					}
-					return result;
+					return out;
 				};
-				if (outputValidation === undefined) return afterOutput();
+				if (outputValidation === undefined) return afterOutput(result);
 				return thenMaybe(
 					validate(asType(outputValidation), result, `${key}.output`),
 					afterOutput,
