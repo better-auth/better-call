@@ -149,35 +149,51 @@ const thenMaybe = <T, R>(
 /**
  * Run handlers outermost-first (mount / subscribe order). Each may call
  * `next(mutate?)` to continue and patch the payload; skipping `next` vetoes.
+ * Patches re-validate against the kind schema. Calling `next` without
+ * awaiting it still keeps the downstream chain attached to `publish`.
  */
 const runHandlers = (
 	handlers: readonly EventHandler<any>[],
 	type: string,
 	initial: unknown,
+	schema: unknown,
+	path: string,
 ): unknown | Promise<unknown> => {
 	let current = initial;
 	const run = (i: number): void | Promise<void> => {
 		if (i >= handlers.length) return;
-		let proceeded = false;
+		let called = false;
+		let downstream: void | Promise<void>;
 		const next = (mutate?: Partial<unknown>) => {
-			proceeded = true;
+			called = true;
+			const continueChain = (value: unknown) => {
+				current = value;
+				return run(i + 1);
+			};
 			if (
 				mutate !== undefined &&
 				mutate !== null &&
 				typeof mutate === "object"
 			) {
-				current = {
+				const merged = {
 					...(current as Record<string, unknown>),
 					...(mutate as Record<string, unknown>),
 				};
+				downstream = thenMaybe(
+					validate(asType(schema), merged, path),
+					continueChain,
+				);
+			} else {
+				downstream = continueChain(current);
 			}
-			return run(i + 1);
+			return downstream;
 		};
 		const handler = handlers[i];
 		if (!handler) return;
 		const result = handler({ type, data: current }, next);
 		return thenMaybe(result, () => {
-			if (!proceeded) return;
+			if (!called) return;
+			return downstream;
 		});
 	};
 	return thenMaybe(run(0), () => current);
@@ -196,7 +212,7 @@ const publishOn = (
 	}
 	const handlers = [...bus.mounted, ...bus.direct];
 	return thenMaybe(validate(asType(schema), data, path), (parsed) =>
-		runHandlers(handlers, type, parsed),
+		runHandlers(handlers, type, parsed, schema, path),
 	);
 };
 

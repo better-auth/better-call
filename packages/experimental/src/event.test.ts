@@ -71,6 +71,36 @@ describe("v.event", () => {
 		expect(result).toEqual({ v: 1 });
 		expect(order).toEqual(["outer", "veto"]);
 	});
+
+	it("keeps the chain when next is called without awaiting", async () => {
+		const bus = v.event("evt_detach", {
+			x: v.object({ v: v.number() }),
+		});
+		const order: string[] = [];
+		bus.subscribe((_e, next) => {
+			order.push("outer");
+			// Fire-and-forget: publish must still wait for downstream.
+			void next();
+		});
+		bus.subscribe(async (_e, next) => {
+			await new Promise((r) => setTimeout(r, 5));
+			order.push("inner");
+			await next({ v: 2 });
+		});
+		const result = await bus.publish("x", { v: 1 });
+		expect(result).toEqual({ v: 2 });
+		expect(order).toEqual(["outer", "inner"]);
+	});
+
+	it("re-validates next() patches against the kind schema", async () => {
+		const bus = v.event("evt_patch_validate", {
+			x: v.object({ v: v.number() }),
+		});
+		bus.subscribe(async (_e, next) => {
+			await next({ v: "nope" } as never);
+		});
+		await expect(bus.publish("x", { v: 1 })).rejects.toThrow(/expected number/);
+	});
 });
 
 describe("event extension + modules", () => {
