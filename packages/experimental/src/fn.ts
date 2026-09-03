@@ -7,6 +7,17 @@ import {
 	ValidationError,
 } from "./error";
 import {
+	type EventDefination,
+	type EventHandler,
+	type EventOnEntry,
+	isEvent,
+	isEventExtension,
+	isEventOn,
+	mountEvent,
+	mountEventExtension,
+	mountEventOn,
+} from "./event";
+import {
 	type ApplyOns,
 	collectMergeSeeds,
 	collectUsable,
@@ -137,7 +148,9 @@ type WithFns<U> = {
 		? BoundFnCall<U[K]>
 		: U[K] extends VarDefination<any, infer T, any, any>
 			? T
-			: WithFns<U[K]>;
+			: U[K] extends EventDefination<any, any>
+				? never
+				: WithFns<U[K]>;
 };
 
 /** The context `.with` accepts: any var of the fn's WHOLE chain scope
@@ -165,7 +178,9 @@ type StorageLike = {
 type WithFnsSeed<U> = {
 	[K in keyof U as U[K] extends StorageLike
 		? never
-		: K]?: U[K] extends FnDefination<any, any, any, any, any, any>
+		: U[K] extends EventDefination<any, any>
+			? never
+			: K]?: U[K] extends FnDefination<any, any, any, any, any, any>
 		? BoundFnCall<U[K]>
 		: U[K] extends VarDefination<any, infer T, any, any>
 			? T
@@ -467,7 +482,9 @@ export type UseApi<U> = Prettify<
 			? BoundFn<U[K]>
 			: U[K] extends StorageLike
 				? U[K]
-				: UseApi<U[K]>;
+				: U[K] extends EventDefination<any, any>
+					? U[K]
+					: UseApi<U[K]>;
 	} & { [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -489,7 +506,9 @@ type ReadUseApi<U> = Prettify<
 				: `writes "${P[number] & string}" - not callable from a readonly fn`
 			: U[K] extends StorageLike
 				? U[K]
-				: ReadUseApi<U[K]>;
+				: U[K] extends EventDefination<any, any>
+					? U[K]
+					: ReadUseApi<U[K]>;
 	} & { readonly [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
@@ -784,6 +803,9 @@ const defineFn = (
 		for (const value of Object.values(mod)) {
 			if (isOn(value) && !own.includes(value)) own.push(value);
 			else if (isVarExtension(value)) ownExts.push(value);
+			else if (isEventOn(value)) mountEventOn(value);
+			else if (isEventExtension(value)) mountEventExtension(value);
+			else if (isEvent(value)) mountEvent(value);
 			else if (isVar(value)) {
 				const schema = (value as { schema?: unknown }).schema;
 				if (schema === undefined || seenVarShadows.has(value)) continue;
@@ -1143,6 +1165,10 @@ const defineFn = (
 							enumerable: true,
 							configurable: true,
 						});
+						continue;
+					}
+					if (isEvent(used)) {
+						target[name] = used;
 						continue;
 					}
 					// Storage mounts whole - do not walk `$models` as a namespace.
@@ -1529,6 +1555,16 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 			next: () => VarValueOfT<T, Base>,
 		) => VarValueOfT<T, Base>,
 	): OnEntry<T>;
+	/** Event category by reference - never prefixed. */
+	<N extends LiteralString, T extends Record<string, unknown>>(
+		target: EventDefination<N, T>,
+		handler: EventHandler<T>,
+	): EventOnEntry<N, T>;
+	/** Event category by `event.<name>` key - never prefixed. */
+	<N extends LiteralString>(
+		target: `event.${N}`,
+		handler: EventHandler<Record<string, unknown>>,
+	): EventOnEntry<N>;
 	(
 		target: RegExp,
 		handler: (
@@ -1642,10 +1678,12 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 				},
 				on: (target: any, a?: any, b?: any) =>
 					(onImpl as any)(
-						// var and scope events live in a global namespace - no prefix.
+						// var, scope, and event categories live in a global
+						// namespace - no builder key prefix.
 						typeof target === "string" &&
 							!target.startsWith("var.") &&
-							!target.startsWith("scope.")
+							!target.startsWith("scope.") &&
+							!target.startsWith("event.")
 							? key + target
 							: target,
 						a,

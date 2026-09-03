@@ -1,3 +1,12 @@
+import {
+	type EventDefination,
+	type EventHandler,
+	type EventOnEntry,
+	isEvent,
+	isEventExtension,
+	isEventOn,
+	onEvent,
+} from "./event";
 import type { FnDefination } from "./fn";
 import { type InferArgs, type InferInput, isVar, type vTypes } from "./schema";
 import type { WidenSchemaFns } from "./scope";
@@ -91,7 +100,7 @@ export type TargetMatches<N, K extends string> = N extends "*"
 
 /**
  * A module is the unit of composition: a RECORD of members - vars, fns,
- * `on` entries, var extensions - usually just what a file exports
+ * events, `on` entries, extensions - usually just what a file exports
  * (`import * as twoFactor`) or a curated bundle. "Plugin" is not a
  * concept, only a usage: mounting someone else's module. Always an
  * object, never a bare member: `use: [{ createUser }]`, not
@@ -101,6 +110,9 @@ export type TargetMatches<N, K extends string> = N extends "*"
 export type Module = Record<string, unknown> & {
 	$var?: never;
 	$varExtend?: never;
+	$event?: never;
+	$eventExtend?: never;
+	$eventOn?: never;
 	/** Rejects a bare `on` ENTRY (`$on: true`) while letting a storage
 	 * through - its `$on` is the hook-mounting METHOD, not the brand. */
 	$on?: (...args: never[]) => unknown;
@@ -114,6 +126,9 @@ type GroupMember<V> = V extends
 	| { $var: true }
 	| { $on: true }
 	| { $varExtend: true }
+	| { $event: true }
+	| { $eventExtend: true }
+	| { $eventOn: true }
 	| StorageLike
 	| ((...args: any[]) => any)
 	| readonly unknown[]
@@ -170,17 +185,21 @@ type FnEntries<M, D extends number = 3> = {
 		? K
 		: M[K] extends VarDefination<any, any, any, any>
 			? K
-			: M[K] extends StorageLike
+			: M[K] extends EventDefination<any, any>
 				? K
-				: [GroupFns<M[K], GroupDepth[D]>] extends [never]
-					? never
-					: K]: M[K] extends FnDefination<any, any, any, any, any, any>
+				: M[K] extends StorageLike
+					? K
+					: [GroupFns<M[K], GroupDepth[D]>] extends [never]
+						? never
+						: K]: M[K] extends FnDefination<any, any, any, any, any, any>
 		? M[K]
 		: M[K] extends VarDefination<any, any, any, any>
 			? M[K]
-			: M[K] extends StorageLike
+			: M[K] extends EventDefination<any, any>
 				? M[K]
-				: GroupFns<M[K], GroupDepth[D]>;
+				: M[K] extends StorageLike
+					? M[K]
+					: GroupFns<M[K], GroupDepth[D]>;
 };
 
 /** Fns and vars a module exports, keyed by EXPORT name. A plain-record
@@ -204,7 +223,15 @@ export const resolveModules = (
 	modules: readonly Module[],
 ): Record<string, unknown>[] =>
 	modules.map((mod) => {
-		if (isFn(mod) || isVar(mod) || isVarExtension(mod) || isOn(mod)) {
+		if (
+			isFn(mod) ||
+			isVar(mod) ||
+			isVarExtension(mod) ||
+			isOn(mod) ||
+			isEvent(mod) ||
+			isEventExtension(mod) ||
+			isEventOn(mod)
+		) {
 			const bare = mod as { key?: string; name?: string; target?: unknown };
 			const name =
 				bare.key ??
@@ -244,7 +271,16 @@ export const isNamespace = (
 	}
 	const proto = Object.getPrototypeOf(value);
 	if (proto !== Object.prototype && proto !== null) return false;
-	if (isVar(value) || isOn(value) || isVarExtension(value)) return false;
+	if (
+		isVar(value) ||
+		isOn(value) ||
+		isVarExtension(value) ||
+		isEvent(value) ||
+		isEventExtension(value) ||
+		isEventOn(value)
+	) {
+		return false;
+	}
 	// Storage: `$models` + `$adapter` - not a namespace of module members.
 	if (
 		"$models" in value &&
@@ -254,7 +290,14 @@ export const isNamespace = (
 	}
 	return Object.values(value).some(
 		(m) =>
-			isFn(m) || isVar(m) || isOn(m) || isVarExtension(m) || isNamespace(m),
+			isFn(m) ||
+			isVar(m) ||
+			isOn(m) ||
+			isVarExtension(m) ||
+			isEvent(m) ||
+			isEventExtension(m) ||
+			isEventOn(m) ||
+			isNamespace(m),
 	);
 };
 
@@ -289,7 +332,12 @@ export const collectUsable = (
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
-			if (isFn(value) || isVar(value) || isStorageValue(value)) {
+			if (
+				isFn(value) ||
+				isVar(value) ||
+				isEvent(value) ||
+				isStorageValue(value)
+			) {
 				out[name] = value;
 			} else if (isNamespace(value)) {
 				const nested = walk(value);
@@ -462,6 +510,16 @@ export function on<T extends "var.get.*" | `var.get.${string}`>(
 	target: T,
 	handler: (c: VarGetContext<VarNameOf<T>>, next: () => unknown) => unknown,
 ): OnEntry<T>;
+/** Subscribe to an event CATEGORY by reference - hears every kind. */
+export function on<N extends LiteralString, T extends Record<string, unknown>>(
+	target: EventDefination<N, T>,
+	handler: EventHandler<T>,
+): EventOnEntry<N, T>;
+/** Subscribe to an event category by `event.<name>` key. */
+export function on<N extends LiteralString>(
+	target: `event.${N}`,
+	handler: EventHandler<Record<string, unknown>>,
+): EventOnEntry<N>;
 export function on<F extends FnDefination<any, any, string, any, any, any>>(
 	target: F,
 	handler: (
@@ -523,6 +581,7 @@ export function on(
 		| string
 		| RegExp
 		| FnDefination<any, any, string, any, any, any>
+		| EventDefination<LiteralString, Record<string, unknown>>
 		| readonly (
 				| string
 				| RegExp
@@ -530,7 +589,15 @@ export function on(
 		  )[],
 	extendOrHandler: any,
 	maybeHandler?: any,
-): OnEntry<string, any> {
+): OnEntry<string, any> | EventOnEntry<string> {
+	// Event categories: by reference or `event.<name>` - distinct handler
+	// shape (`{ type, data }`), collected separately from fn/`var.*` ons.
+	if (
+		isEvent(target) ||
+		(typeof target === "string" && target.startsWith("event."))
+	) {
+		return onEvent(target as never, extendOrHandler);
+	}
 	// A fn reference targets its own key - no string to typo. A LIST
 	// resolves member-wise: one handler, several events.
 	const resolveOne = (member: unknown) =>
