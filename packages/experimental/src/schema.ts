@@ -440,7 +440,8 @@ const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
 /**
  * Attach plugin attributes under `namespace`, deep-merging with any
  * already on the schema. Returns a new type def (or var) with the same
- * value type. Core never reads these - only plugin edges do.
+ * value type. Core mostly ignores these - plugin edges and a few
+ * exit paths (e.g. `v.fn` stripping `http.returned`) consume them.
  *
  * Passed a var, attributes land on the var itself (`$attrs`) and the
  * `$var` / `name` / `schema` identity is preserved; `customize` is rebound
@@ -478,6 +479,302 @@ export function attrsOf(
 	if (!bag) return undefined;
 	return namespace === undefined ? bag : bag[namespace];
 }
+
+/** Decide whether a field schema (type def or var) should be dropped / rejected. */
+export type FieldPred = (schema: unknown) => boolean;
+
+/**
+ * Drop fields (and nested object / array / union children) where `drop`
+ * is true. Vars keep their identity; only the inner `schema` is projected.
+ * Used by plugin edges and by {@link parseFields}.
+ */
+export const omitFields = <S>(schema: S, drop: FieldPred): S => {
+	if (isVar(schema)) {
+		const v = schema as { schema?: unknown };
+		return {
+			...(schema as object),
+			schema: v.schema === undefined ? undefined : omitFields(v.schema, drop),
+		} as S;
+	}
+	const def = asType(schema);
+	if (def.name === "object" && def.shape !== undefined) {
+		const shape: Record<string, unknown> = {};
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (drop(child)) continue;
+			shape[key] = omitFields(child, drop);
+		}
+		return { ...def, shape } as S;
+	}
+	if (def.name === "array" && def.shape !== undefined) {
+		return { ...def, shape: omitFields(def.shape, drop) } as S;
+	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		return {
+			...def,
+			shape: (def.shape as unknown[]).map((option) => omitFields(option, drop)),
+		} as S;
+	}
+	return schema;
+};
+
+/**
+ * Strip keys from an already-validated value where `drop` matches the
+ * field schema. Used after union arm selection so defaults/transforms
+ * from the probe validate are not run a second time.
+ */
+const omitValue = (
+	schema: unknown,
+	value: unknown,
+	drop: FieldPred,
+): unknown => {
+	if (value === null || value === undefined) return value;
+	const root = isVar(schema)
+		? ((schema as { schema?: unknown }).schema ?? schema)
+		: schema;
+	const def = asType(root);
+	if (def.name === "object" && def.shape !== undefined) {
+		if (typeOf(value) !== "object") return value;
+		const record = value as Record<string, unknown>;
+		const out: Record<string, unknown> = {};
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (drop(child) || !Object.hasOwn(record, key)) continue;
+			out[key] = omitValue(child, record[key], drop);
+		}
+		return out;
+	}
+	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
+		return value.map((item) => omitValue(def.shape, item, drop));
+	}
+	return value;
+};
+
+/**
+ * Throw if any field matching `match` is present on `value` (own key).
+ * Object validation otherwise strips unknown keys, so this is what stops
+ * callers from smuggling gated values.
+ *
+ * May return a Promise when union-arm selection hits an async validate
+ * (async defaults). Callers that already await parse/validate stay sync
+ * for the common case.
+ */
+export const rejectFields = (
+	schema: unknown,
+	value: unknown,
+	match: FieldPred,
+	path = "input",
+	message = "field is not allowed",
+): void | Promise<void> => {
+	if (value === null || value === undefined) return;
+	const root = isVar(schema)
+		? ((schema as { schema?: unknown }).schema ?? {})
+		: schema;
+	const def = asType(root);
+	if (def.name === "object" && def.shape !== undefined) {
+		if (typeOf(value) !== "object") return;
+		const record = value as Record<string, unknown>;
+		let pending: Promise<void> | undefined;
+		for (const [key, child] of Object.entries(
+			def.shape as Record<string, unknown>,
+		)) {
+			if (match(child) && Object.hasOwn(record, key)) {
+				throw new ValidationError(`${path}.${key}`, message);
+			}
+			if (Object.hasOwn(record, key)) {
+				const nested = rejectFields(
+					child,
+					record[key],
+					match,
+					`${path}.${key}`,
+					message,
+				);
+				if (isThenable(nested)) {
+					pending = pending ? pending.then(() => nested) : nested;
+				}
+			}
+		}
+		return pending;
+	}
+	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
+		let pending: Promise<void> | undefined;
+		for (let i = 0; i < value.length; i++) {
+			const nested = rejectFields(
+				def.shape,
+				value[i],
+				match,
+				`${path}[${i}]`,
+				message,
+			);
+			if (isThenable(nested)) {
+				pending = pending ? pending.then(() => nested) : nested;
+			}
+		}
+		return pending;
+	}
+	if (def.name === "union" && Array.isArray(def.shape)) {
+		// Pick the arm the FULL schema accepts (same first-success rule as
+		// validate), then gate against that arm only. Projecting gated
+		// fields out before selection would let a wrong earlier arm win.
+		const arms = def.shape as unknown[];
+		const tryArm = (index: number): void | Promise<void> => {
+			const option = arms[index];
+			if (option === undefined) {
+				// Nested unions hit this path from object walks. Still gate
+				// against a projected fit so a wrong-typed readonly key
+				// cannot be stripped by a later omit pass.
+				const tryProjected = (i: number): void | Promise<void> => {
+					const arm = arms[i];
+					if (arm === undefined) return;
+					const projected = omitFields(arm, match);
+					const afterFit = (): void | Promise<void> =>
+						rejectFields(arm, value, match, path, message);
+					try {
+						const fitted = validate(asType(projected), value, path);
+						if (isThenable(fitted)) {
+							return fitted.then(afterFit, (thrown) => {
+								if (!(thrown instanceof ValidationError)) throw thrown;
+								return tryProjected(i + 1);
+							});
+						}
+					} catch (thrown) {
+						if (!(thrown instanceof ValidationError)) throw thrown;
+						return tryProjected(i + 1);
+					}
+					return afterFit();
+				};
+				return tryProjected(0);
+			}
+			try {
+				const result = validate(asType(option), value, path);
+				if (isThenable(result)) {
+					return result.then(
+						() => rejectFields(option, value, match, path, message),
+						(thrown) => {
+							if (!(thrown instanceof ValidationError)) throw thrown;
+							return tryArm(index + 1);
+						},
+					);
+				}
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				return tryArm(index + 1);
+			}
+			return rejectFields(option, value, match, path, message);
+		};
+		return tryArm(0);
+	}
+};
+
+export type ParseFieldsOptions = {
+	path?: string;
+	/** Throw when these fields are present on the value (own key). */
+	reject?: FieldPred;
+	/** Drop these fields from the schema before validating. */
+	omit?: FieldPred;
+	/** Message used when {@link reject} fires. */
+	rejectMessage?: string;
+};
+
+/**
+ * Parse `value` against `schema`, optionally rejecting and/or omitting
+ * fields by attribute predicate. Core stays attribute-key agnostic -
+ * callers pass the predicates (e.g. `attrsOf(s, "http")?.readonly`).
+ *
+ * Unions are special: arm selection uses the FULL schema (so a gated
+ * field that fails typechecks on an earlier arm does not get projected
+ * away and steal the match), then reject/omit run on that arm only.
+ */
+export const parseFields = <S>(
+	schema: S,
+	value: unknown,
+	options: ParseFieldsOptions = {},
+): unknown => {
+	const path = options.path ?? "input";
+	const reject = options.reject;
+	const omit = options.omit;
+	const rejectMessage = options.rejectMessage ?? "field is not allowed";
+
+	const root = isVar(schema)
+		? ((schema as { schema?: unknown }).schema ?? schema)
+		: schema;
+	const def = asType(root);
+
+	if (def.name === "union" && Array.isArray(def.shape) && (reject || omit)) {
+		const arms = def.shape as unknown[];
+		const tryArm = (index: number): unknown => {
+			const option = arms[index];
+			if (option === undefined) {
+				// No arm accepted the full value. Still pick a projected
+				// arm and gate against it: a wrong-typed readonly key
+				// fails the full arm but must not be silently stripped.
+				const tryProjected = (i: number): unknown => {
+					const arm = arms[i];
+					if (arm === undefined) {
+						const projected = omit ? omitFields(schema, omit) : schema;
+						return validate(asType(projected), value, path);
+					}
+					const projected = omit ? omitFields(arm, omit) : arm;
+					const afterFit = (fitted: unknown): unknown => {
+						const gate = reject
+							? rejectFields(arm, value, reject, path, rejectMessage)
+							: undefined;
+						return isThenable(gate) ? gate.then(() => fitted) : fitted;
+					};
+					let fitted: unknown;
+					try {
+						fitted = validate(asType(projected), value, path);
+					} catch (thrown) {
+						if (!(thrown instanceof ValidationError)) throw thrown;
+						return tryProjected(i + 1);
+					}
+					if (isThenable(fitted)) {
+						return fitted.then(afterFit, (thrown) => {
+							if (!(thrown instanceof ValidationError)) throw thrown;
+							return tryProjected(i + 1);
+						});
+					}
+					return afterFit(fitted);
+				};
+				return tryProjected(0);
+			}
+			const afterMatch = (matched: unknown): unknown => {
+				const gate = reject
+					? rejectFields(option, value, reject, path, rejectMessage)
+					: undefined;
+				const finish = () =>
+					omit ? omitValue(option, matched, omit) : matched;
+				return isThenable(gate) ? gate.then(finish) : finish();
+			};
+			let matched: unknown;
+			try {
+				matched = validate(asType(option), value, path);
+			} catch (thrown) {
+				if (!(thrown instanceof ValidationError)) throw thrown;
+				return tryArm(index + 1);
+			}
+			if (isThenable(matched)) {
+				return matched.then(afterMatch, (thrown) => {
+					if (!(thrown instanceof ValidationError)) throw thrown;
+					return tryArm(index + 1);
+				});
+			}
+			return afterMatch(matched);
+		};
+		return tryArm(0);
+	}
+
+	const projected = omit ? omitFields(schema, omit) : schema;
+	const finish = () => validate(asType(projected), value, path);
+	if (!reject) return finish();
+	const gated = rejectFields(schema, value, reject, path, rejectMessage);
+	return isThenable(gated) ? gated.then(finish) : finish();
+};
+
+const isThenable = (value: unknown): value is Promise<unknown> =>
+	typeof (value as { then?: unknown })?.then === "function";
 
 export const typeOf = (value: unknown) =>
 	value === null
@@ -667,9 +964,6 @@ const applyRules = (def: Rules, value: any, path: string) => {
 		}
 	}
 };
-
-const isThenable = (value: unknown): value is Promise<unknown> =>
-	typeof (value as { then?: unknown })?.then === "function";
 
 /** Sync when every entry is sync; Promise when any is thenable. */
 const allMaybeAsync = <T>(values: Array<T | Promise<T>>): T[] | Promise<T[]> =>

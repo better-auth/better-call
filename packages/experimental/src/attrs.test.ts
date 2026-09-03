@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./error";
 import { v } from "./index";
-import { attrsOf, validate, withAttrs } from "./schema";
+import {
+	asType,
+	attrsOf,
+	omitFields,
+	parseFields,
+	rejectFields,
+	validate,
+	withAttrs,
+} from "./schema";
 
 describe("schema $attrs", () => {
 	it("withAttrs merges within a namespace and isolates namespaces", () => {
@@ -59,5 +67,71 @@ describe("schema $attrs", () => {
 		expect(
 			(widened.schema as { shape: Record<string, unknown> }).shape.role,
 		).toBeDefined();
+	});
+});
+
+describe("omitFields / rejectFields / parseFields", () => {
+	const dropMarked = (schema: unknown) =>
+		attrsOf(schema, "http")?.readonly === true;
+	const shape = v.object({
+		id: v.string(),
+		role: withAttrs(v.string(), "http", { readonly: true }),
+		meta: v.object({
+			note: v.string(),
+			secret: withAttrs(v.string(), "http", { readonly: true }),
+		}),
+	});
+
+	it("omitFields projects nested objects", () => {
+		const projected = asType(omitFields(shape, dropMarked));
+		expect(Object.keys(projected.shape as object).sort()).toEqual([
+			"id",
+			"meta",
+		]);
+		const meta = asType((projected.shape as Record<string, unknown>).meta);
+		expect(Object.keys(meta.shape as object)).toEqual(["note"]);
+	});
+
+	it("rejectFields throws on smuggled keys", () => {
+		expect(() =>
+			rejectFields(shape, { id: "1", role: "admin" }, dropMarked),
+		).toThrow(ValidationError);
+		expect(() =>
+			rejectFields(
+				shape,
+				{ id: "1", meta: { note: "n", secret: "s" } },
+				dropMarked,
+			),
+		).toThrow(/field is not allowed/);
+	});
+
+	it("parseFields rejects then validates the projection", () => {
+		expect(
+			parseFields(
+				shape,
+				{ id: "1", meta: { note: "hi" } },
+				{ reject: dropMarked, omit: dropMarked },
+			),
+		).toEqual({ id: "1", meta: { note: "hi" } });
+		expect(() =>
+			parseFields(
+				shape,
+				{ id: "1", role: "admin" },
+				{ reject: dropMarked, omit: dropMarked },
+			),
+		).toThrow(ValidationError);
+	});
+
+	it("omitFields projects through a var schema", () => {
+		const user = v.var("parse_user", {
+			schema: shape,
+		});
+		const projected = omitFields(user, dropMarked);
+		expect(projected.$var).toBe(true);
+		expect(
+			Object.keys(
+				asType((projected as { schema: unknown }).schema).shape as object,
+			).sort(),
+		).toEqual(["id", "meta"]);
 	});
 });

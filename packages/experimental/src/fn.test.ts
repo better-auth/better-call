@@ -65,6 +65,21 @@ describe("v.fn call forms", () => {
 		expect(make({ ok: true })()).toEqual({ ok: true });
 		expect(() => make({ ok: "nope" })()).toThrow(/fnt\.split\.output/);
 	});
+
+	it("http.returned fields are stripped from output validation", async () => {
+		const { returned } = await import("./plugins/http/attrs");
+		const user = v.var("fnt_returned_user", {
+			schema: v.object({
+				id: v.string(),
+				password: returned(v.string()),
+			}),
+		});
+		const f = v.fn("fnt.returned", { output: user }, () => ({
+			id: "1",
+			password: "secret",
+		}));
+		expect(f()).toEqual({ id: "1" });
+	});
 });
 
 describe("omittable input", () => {
