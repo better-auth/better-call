@@ -1,3 +1,4 @@
+import { ValidationError } from "./error";
 import { asType, type InferInput, validate } from "./schema";
 import type {
 	LiteralString,
@@ -147,10 +148,52 @@ const thenMaybe = <T, R>(
 ): R | Promise<R> => (isThenable(value) ? value.then(next) : next(value as T));
 
 /**
+ * Validate only the keys in `patch` against an object shape, then merge onto
+ * `current`. Avoids re-running transforms on unchanged fields (full-object
+ * re-validate would). Non-object schemas fall back to validating the merge.
+ */
+const applyPatch = (
+	schema: unknown,
+	current: unknown,
+	patch: Record<string, unknown>,
+	path: string,
+): unknown | Promise<unknown> => {
+	const def = asType(schema);
+	const shape = def.shape as Record<string, unknown> | undefined;
+	if (def.name !== "object" || shape === undefined) {
+		return validate(
+			def,
+			{ ...(current as Record<string, unknown>), ...patch },
+			path,
+		);
+	}
+	const keys = Object.keys(patch);
+	for (const key of keys) {
+		if (!(key in shape)) {
+			throw new ValidationError(`${path}.${key}`, `unexpected key "${key}"`);
+		}
+	}
+	const walk = (
+		index: number,
+		acc: Record<string, unknown>,
+	): Record<string, unknown> | Promise<Record<string, unknown>> => {
+		if (index >= keys.length) {
+			return { ...(current as Record<string, unknown>), ...acc };
+		}
+		const key = keys[index] as string;
+		return thenMaybe(
+			validate(asType(shape[key]), patch[key], `${path}.${key}`),
+			(parsed) => walk(index + 1, { ...acc, [key]: parsed }),
+		);
+	};
+	return walk(0, {});
+};
+
+/**
  * Run handlers outermost-first (mount / subscribe order). Each may call
  * `next(mutate?)` to continue and patch the payload; skipping `next` vetoes.
- * Patches re-validate against the kind schema. Calling `next` without
- * awaiting it still keeps the downstream chain attached to `publish`.
+ * Patches validate only the touched fields. Calling `next` without awaiting
+ * it still keeps the downstream chain attached to `publish`.
  */
 const runHandlers = (
 	handlers: readonly EventHandler<any>[],
@@ -175,12 +218,8 @@ const runHandlers = (
 				mutate !== null &&
 				typeof mutate === "object"
 			) {
-				const merged = {
-					...(current as Record<string, unknown>),
-					...(mutate as Record<string, unknown>),
-				};
 				downstream = thenMaybe(
-					validate(asType(schema), merged, path),
+					applyPatch(schema, current, mutate as Record<string, unknown>, path),
 					continueChain,
 				);
 			} else {

@@ -101,6 +101,28 @@ describe("v.event", () => {
 		});
 		await expect(bus.publish("x", { v: 1 })).rejects.toThrow(/expected number/);
 	});
+
+	it("does not re-transform untouched fields on next() patches", async () => {
+		let transforms = 0;
+		const bus = v.event("evt_patch_transform", {
+			x: v.object({
+				a: v.string({
+					transform: (value) => {
+						transforms += 1;
+						return `${value}!`;
+					},
+				}),
+				b: v.number(),
+			}),
+		});
+		bus.subscribe(async (e, next) => {
+			expect(e.data.a).toBe("hi!");
+			await next({ b: 2 });
+		});
+		const result = await bus.publish("x", { a: "hi", b: 1 });
+		expect(result).toEqual({ a: "hi!", b: 2 });
+		expect(transforms).toBe(1);
+	});
 });
 
 describe("event extension + modules", () => {
