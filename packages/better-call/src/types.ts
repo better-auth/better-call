@@ -1,5 +1,4 @@
 import type {
-	HasRequiredKeys,
 	InferParamPath,
 	InferParamWildCard,
 	IsEmptyObject,
@@ -206,16 +205,3 @@ export type InputContext<
 		path?: string;
 		context?: Record<string, any>;
 	};
-
-/**
- * Check if the InputContext has required keys.
- * Body and Query are already-resolved plain types.
- */
-export type HasRequiredInputKeys<
-	Path extends string,
-	M,
-	Body,
-	Query,
-	ReqHeaders extends boolean,
-	ReqRequest extends boolean,
-> = HasRequiredKeys<InputContext<Path, M, Body, Query, ReqHeaders, ReqRequest>>;
