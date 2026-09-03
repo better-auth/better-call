@@ -1,3 +1,4 @@
+import { type EventDefination, extendEvent, isEvent, makeEvent } from "./event";
 import { type Fn, fnImpl } from "./fn";
 import { extendVar, on } from "./module";
 
@@ -11,6 +12,29 @@ import {
 	type ValueOfVar,
 	type VarDefination,
 } from "./var";
+
+/** `v.extend`: vars gain fields; events gain kinds. */
+function extend<N extends LiteralString, S, BaseT>(
+	target: VarDefination<N, BaseT, any, any>,
+	schema: S,
+): import("./module").VarExtension<N, S, BaseT>;
+function extend<N extends LiteralString, S>(
+	target: N,
+	schema: S,
+): import("./module").VarExtension<N, S>;
+function extend<
+	N extends LiteralString,
+	T extends Record<string, unknown>,
+	const E extends Record<string, unknown>,
+>(
+	target: EventDefination<N, T>,
+	types: E,
+): import("./event").EventExtension<N, E, T>;
+function extend(target: any, schemaOrTypes: any): any {
+	return isEvent(target)
+		? extendEvent(target, schemaOrTypes)
+		: extendVar(target, schemaOrTypes);
+}
 
 interface V {
 	fn: Fn;
@@ -64,6 +88,18 @@ interface V {
 		NameOfVar<SV>
 	>;
 	/**
+	 * An event CATEGORY: several kinds under one namespace, each with a
+	 * payload schema. Subscribe via `.subscribe` or `v.on`; widen kinds with
+	 * `.extend` / `v.extend`. Same-name declarations across modules merge.
+	 */
+	event: <
+		N extends LiteralString,
+		const T extends Record<string, unknown> = Record<string, never>,
+	>(
+		name: N,
+		types?: T,
+	) => EventDefination<N, T>;
+	/**
 	 * MANY instances of a var, queryable: each named var becomes a
 	 * COLLECTION of rows shaped like its value - `db.user.create(row)`,
 	 * `db.user.findOne({ email })`, findMany/update/delete/count. The
@@ -72,7 +108,7 @@ interface V {
 	 */
 	storage: typeof makeStorage;
 	on: typeof on;
-	extend: typeof extendVar;
+	extend: typeof extend;
 	string: (typeof vTypes)["string"];
 	number: (typeof vTypes)["number"];
 	boolean: (typeof vTypes)["boolean"];
@@ -89,9 +125,10 @@ export const v: V = {
 	record: ((name: string, options: any = {}) =>
 		makeVar(name, { ...options, accessor: true })) as V["record"],
 	derive: deriveVar as V["derive"],
+	event: makeEvent as V["event"],
 	storage: makeStorage,
 	on,
-	extend: extendVar,
+	extend,
 	...vTypes,
 };
 
@@ -103,6 +140,24 @@ export {
 	UnexpectedError,
 	ValidationError,
 } from "./error";
+export type {
+	EventDefination,
+	EventExtension,
+	EventHandler,
+	EventMessage,
+	EventNext,
+	EventOnEntry,
+	EventPayloads,
+	EventsFrom,
+	ModuleEvents,
+} from "./event";
+export {
+	extendEvent,
+	isEvent,
+	isEventExtension,
+	isEventOn,
+	makeEvent,
+} from "./event";
 export type {
 	BoundCall,
 	Context,
