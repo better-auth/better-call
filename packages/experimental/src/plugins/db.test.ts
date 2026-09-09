@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { v } from "../index";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { memoryAdapter, v } from "../index";
 import { attrsOf, validate } from "../schema";
-import { db, generateId, id } from "./db";
+import type { ValueOfVar } from "../var";
+import { db, generateId, id, schema } from "./db";
 
 const ALPHANUMERIC = /^[a-zA-Z0-9]+$/;
 
@@ -62,5 +63,53 @@ describe("db.id", () => {
 			id: "fixed",
 			tag: "b",
 		});
+	});
+});
+
+describe("schema", () => {
+	it("is a named export and the same helper as db.schema", () => {
+		expect(schema).toBe(db.schema);
+	});
+
+	it("wraps v.var with default null and an object schema", () => {
+		const user = schema("dbt_user", {
+			id: db.id(v.string({})),
+			email: db.unique(v.string()),
+		});
+		expect(user.$var).toBe(true);
+		expect(user.name).toBe("dbt_user");
+		expect(user.default).toBeNull();
+		expect(user.schema?.name).toBe("object");
+		expect(attrsOf(user.schema?.shape?.email, "db")).toEqual({ unique: true });
+	});
+
+	it("types the var as the row or null, and works as a storage model", async () => {
+		const item = schema("dbt_item", {
+			id: db.id(v.string({})),
+			tag: v.string(),
+		});
+		expectTypeOf<ValueOfVar<typeof item>>().toEqualTypeOf<{
+			id: string;
+			tag: string;
+		} | null>();
+
+		const store = v.storage(memoryAdapter(), { item });
+		type CreateArg = Parameters<typeof store.item.create>[0];
+		expectTypeOf<CreateArg>().toEqualTypeOf<{ tag: string; id?: string }>();
+
+		const created = await store.item.create({ tag: "a" });
+		expect(created.tag).toBe("a");
+		expect(created.id).toHaveLength(32);
+		expect(await store.item.findOne({ id: created.id })).toEqual(created);
+
+		const read = v.fn({ use: [{ item }] }, (c) => {
+			expectTypeOf(c.dbt_item).toEqualTypeOf<{
+				id: string;
+				tag: string;
+			} | null>();
+			return c.dbt_item;
+		});
+		expect(read()).toBeNull();
+		expect(read.with({ dbt_item: created })()).toEqual(created);
 	});
 });

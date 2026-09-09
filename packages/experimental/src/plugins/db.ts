@@ -1,6 +1,7 @@
 import { v } from "..";
 import { createRandomStringGenerator } from "../helpers/random";
 import { type TypeDefination, withAttrs } from "../schema";
+import type { LiteralString } from "../types";
 
 export const generateId = v.fn(
 	"db.generate_id",
@@ -46,9 +47,15 @@ export const id = <T, O>(
 		{ id: true },
 	) as TypeDefination<T, O, string>;
 
+/** A model var: `v.var(name, { default: null, schema: v.object(shape) })`.
+ * Import it from the db plugin: `import { schema } from "better-call/plugins/db"`. */
+export const schema = <N extends LiteralString, S>(name: N, shape: S) =>
+	v.var(name, { default: null, schema: v.object(shape) });
+
 export const db = {
 	unique,
 	indexed,
 	references,
 	id,
+	schema,
 };
