@@ -109,4 +109,16 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			rmSync(consumerDir, { recursive: true, force: true });
 		}
 	});
+
+	it("emits plugins/db schema under the serialize limit", () => {
+		const dtsPath = join(root, "dist/plugins/db.d.mts");
+		expect(
+			existsSync(dtsPath),
+			"dist/plugins/db.d.mts missing - run pnpm build",
+		).toBe(true);
+		const dts = readFileSync(dtsPath, "utf8");
+		expect(dts.length).toBeLessThan(MAX_DTS_BYTES);
+		expect(dts).toMatch(/declare const schema:/);
+		expect(dts).toMatch(/export \{[^}]*\bschema\b/);
+	});
 });

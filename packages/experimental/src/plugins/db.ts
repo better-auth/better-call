@@ -1,7 +1,21 @@
 import { v } from "..";
 import { createRandomStringGenerator } from "../helpers/random";
-import { type TypeDefination, withAttrs } from "../schema";
+import {
+	type DefineOutput,
+	type InferArgs,
+	type TypeDefination,
+	withAttrs,
+} from "../schema";
 import type { LiteralString } from "../types";
+import type { VarDefination } from "../var";
+
+/** Named stand-in for `v.var(name, { default: null, schema: v.object(shape) })`.
+ * Inferring that return from `v.var` exceeds TS7056 on declaration emit. */
+type ModelVar<N extends LiteralString, S> = VarDefination<
+	N,
+	DefineOutput<S> | null,
+	TypeDefination<InferArgs<S>, DefineOutput<S>, never> & { shape: S }
+>;
 
 export const generateId = v.fn(
 	"db.generate_id",
@@ -49,8 +63,11 @@ export const id = <T, O>(
 
 /** A model var: `v.var(name, { default: null, schema: v.object(shape) })`.
  * Import it from the db plugin: `import { schema } from "better-call/plugins/db"`. */
-export const schema = <N extends LiteralString, S>(name: N, shape: S) =>
-	v.var(name, { default: null, schema: v.object(shape) });
+export const schema = <N extends LiteralString, S>(
+	name: N,
+	shape: S,
+): ModelVar<N, S> =>
+	v.var(name, { default: null, schema: v.object(shape) }) as ModelVar<N, S>;
 
 export const db = {
 	unique,
