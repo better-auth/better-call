@@ -173,6 +173,7 @@ export const signInEmail = e.fn(
 signUpEmail({ email: "a@b.c", password: "x" });
 signUpEmail.try({ email: "a@b.c", password: "x" });
 signUpEmail.with({ user: null });
+e.with(signUpEmail, { user: null, createUser: async () => null as never });
 signInEmail.key satisfies "auth.sign_in.email";
 signUpEmail.provides satisfies readonly ["user", "session"];
 

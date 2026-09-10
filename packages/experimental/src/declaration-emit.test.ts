@@ -41,9 +41,37 @@ describe("declaration emit (TS7056)", () => {
 			expect(dts).not.toMatch(/\$models/);
 			expect(dts).toMatch(/export declare const signUpEmail:/);
 			expect(dts).toMatch(/export declare const signInEmail:/);
-			// Compact `W` (var leaves) plus bound creates on intersected `.with`.
-			expect(dts).toMatch(/createUser\?:/);
-			expect(dts).toMatch(/user\?:/);
+			// Opaque W - no intersected `.with(WithSeed<RV,U>)` and no use-graph.
+			expect(dts).not.toMatch(/with\(context:/);
+			expect(dts).not.toMatch(/createUser\?:/);
+		} finally {
+			rmSync(outDir, { recursive: true, force: true });
+		}
+	});
+
+	it("exports leaf createAccount / core bags / signUpEmail with db use", () => {
+		const outDir = mkdtempSync(join(tmpdir(), "bc-decl-leaf-"));
+		try {
+			execFileSync(
+				process.execPath,
+				[tsc, "-p", join(fixtureDir, "tsconfig.json"), "--outDir", outDir],
+				{ cwd: root, stdio: "pipe" },
+			);
+
+			const dts = readFileSync(
+				join(outDir, "test/declaration-emit/leaf-exports.d.ts"),
+				"utf8",
+			);
+			expect(dts.length).toBeLessThan(MAX_DTS_BYTES);
+			expect(dts).not.toMatch(/ScopeOf|ResolvedVars/);
+			expect(dts).not.toMatch(/\$models/);
+			expect(dts).toMatch(/export declare const createAccount:/);
+			expect(dts).toMatch(/export declare const createUser:/);
+			expect(dts).toMatch(/export declare const signUpEmail:/);
+			expect(dts).toMatch(/export declare const coreUser:/);
+			expect(dts).toMatch(/export declare const emailPassword:/);
+			expect(dts).not.toMatch(/with\(context:/);
+			expect(dts).not.toMatch(/createUser\?:/);
 		} finally {
 			rmSync(outDir, { recursive: true, force: true });
 		}

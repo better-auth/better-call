@@ -192,27 +192,33 @@ type WithFnsSeed<U> = {
 			: WithFnsSeed<U[K]>;
 };
 
-/** Var seeds only - the half of {@link WithSeed} that stays small in
- * declaration emit when the `use` fn override map is wide. */
+/** Var seeds only - the half of {@link WithSeed} that stays small when
+ * the `use` fn override map is wide. */
 type WithVarsSeed<RV> = { [K in keyof RV]?: RV[K] };
 
 /**
- * Flat `.with` seed map stored on exported fns. Evaluating ScopeOf /
- * ModuleFns here (instead of embedding those wrappers as type arguments)
- * keeps declaration emit small: `.d.ts` shows leaf var shapes and bound
- * call signatures, not `ScopeOf<ResolvedVars<entire module graph>>`.
- *
- * Declaration emit stores {@link WithSeedStored} on the fn (var seeds
- * only); terminating `.fn()` intersects a full {@link WithSeed} `.with`.
+ * Flat `.with` seed map: var values plus bound call overrides for `use`
+ * fns. Prefer this on {@link Instance.with} (builder-scoped) - putting
+ * `ScopeOf` / `ModuleFns` onto an exported terminating fn's inferred type
+ * blows past declaration serialize limits (TS7056).
  */
 export type WithSeed<RV, U> = Prettify<WithVarsSeed<RV> & WithFnsSeed<U>>;
 
-/** What declaration emit stores for `W` - var seeds only so TS does not
- * inline `BoundFnCall` per used fn from the builder `use` graph. */
+/**
+ * @deprecated Var-seed half of {@link WithSeed}. Terminating exports no
+ * longer store this on `W` - use {@link WithSeedOpaque} / {@link Instance.with}.
+ */
 export type WithSeedStored<RV, _U = unknown> = WithVarsSeed<RV>;
 
-/** What `v.fn` / `e.fn` returns: contract params plus a stored seed map
- * for `.with`, never the raw ScopeOf / ModuleFns graph. */
+/**
+ * Emit-safe `.with` seed on terminating / exported fns. A plain object
+ * bag - declaration emit never inlines the builder's `ScopeOf` /
+ * `ModuleFns` graph. Precise seed checking lives on {@link Instance.with}.
+ */
+export type WithSeedOpaque = object;
+
+/** What `v.fn` / `e.fn` returns: contract params plus an opaque `.with`
+ * seed slot - never `ScopeOf` / `ModuleFns` / {@link WithSeed}. */
 export type PublicFn<
 	A,
 	R,
@@ -220,12 +226,12 @@ export type PublicFn<
 	I,
 	P extends readonly string[],
 	Er,
-	W = unknown,
+	W = WithSeedOpaque,
 	O = unknown,
 > = FnDefination<A, R, K, I, P, Er, W, O>;
 
-/** Terminating `.fn()` product: compact {@link WithSeedStored} on the
- * fn for declaration emit, full {@link WithSeed} on `.with` while typing. */
+/** Terminating `.fn()` product: opaque `W` so `export const foo = b.fn(...)`
+ * stays under TS7056. Precise seeds: `builder.with(foo, seed)`. */
 type TerminatingFn<
 	A,
 	R,
@@ -233,12 +239,8 @@ type TerminatingFn<
 	I,
 	P extends readonly string[],
 	Er,
-	RV,
-	U,
 	O = unknown,
-> = PublicFn<A, R, K, I, P, Er, WithSeedStored<RV, U>, O> & {
-	with(context: WithSeed<RV, U>): BoundCall<A, R, I, Er>;
-};
+> = PublicFn<A, R, K, I, P, Er, WithSeedOpaque, O>;
 
 /** What `.with` returns: the same callable, context baked in.
  * Re-exported from the package entry so exporting `.with(...)` results
@@ -255,9 +257,10 @@ export interface FnDefination<
 	I = unknown,
 	P extends readonly string[] = readonly string[],
 	Er = NoErrors,
-	/** `.with` seed map ({@link WithSeed}). Defaults keep structural
-	 * `extends FnDefination<any, ...>` checks passing. */
-	W = unknown,
+	/** `.with` seed map. Terminating exports use {@link WithSeedOpaque};
+	 * defaults keep structural `extends FnDefination<any, ...>` checks
+	 * passing. */
+	W = WithSeedOpaque,
 	O = unknown,
 > {
 	(...args: CallArgs<A, I>): R;
@@ -271,10 +274,10 @@ export interface FnDefination<
 	/**
 	 * Call with a HAND-BUILT context. Keys naming a var SEED that var in a
 	 * fresh scope; keys naming a `use` fn OVERRIDE that binding for the
-	 * whole subtree below. Both are typed from the fn's chain - what the
-	 * BUILDER mounted counts, so `signOut.with({ user })` type-checks even
-	 * though `signOut` itself never says `use: [user]`. A parent passed to
-	 * the bound call is FORKED: its vars are copied in, never written back.
+	 * whole subtree below. On terminating / exported fns `W` is
+	 * {@link WithSeedOpaque} (emit-safe); for precise seed checking use
+	 * {@link Instance.with}. A parent passed to the bound call is FORKED:
+	 * its vars are copied in, never written back.
 	 */
 	with(context: W): BoundCall<A, R, I, Er>;
 	/** Brand, so a plugin module can be scanned for its fns. */
@@ -651,9 +654,7 @@ export interface Fn<
 		Prefix extends "" ? string : Prefix,
 		unknown,
 		readonly string[],
-		NoErrors,
-		ScopeOf<[], Base, BasePL>,
-		BaseFns
+		NoErrors
 	>;
 	<K extends LiteralString, R>(
 		key: K,
@@ -672,9 +673,7 @@ export interface Fn<
 		`${Prefix}${K}`,
 		unknown,
 		readonly string[],
-		NoErrors,
-		ScopeOf<[], Base, BasePL>,
-		BaseFns
+		NoErrors
 	>;
 
 	<
@@ -712,8 +711,6 @@ export interface Fn<
 		I,
 		P,
 		Er,
-		ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-		UsableInScope<BaseFns, PL, BasePL>,
 		O
 	>;
 	<
@@ -753,8 +750,6 @@ export interface Fn<
 		I,
 		P,
 		Er,
-		ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-		UsableInScope<BaseFns, PL, BasePL>,
 		O
 	>;
 
@@ -1656,6 +1651,18 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	): OnEntry<`${Prefix}${N}`, Ext>;
 }
 
+/** Bound call from a terminating fn - used by {@link Instance.with}. */
+type BoundCallFrom<F> = F extends FnDefination<
+	infer A,
+	infer R,
+	string,
+	infer I,
+	any,
+	infer Er
+>
+	? BoundCall<A, R, I, Er>
+	: never;
+
 export type Instance<
 	Base,
 	BaseFns,
@@ -1676,6 +1683,16 @@ export type Instance<
 	/** Same as `v.on`, with the prefix on string targets and the handler
 	 * typed against the matched target fn. */
 	on: InstanceOn<Base, BaseFns, Prefix>;
+	/**
+	 * Precise `.with` for fns built on this builder. Seeds are typed from
+	 * the builder's mounted vars / `use` fns - without putting that graph
+	 * onto the fn's exported declaration type (see {@link WithSeedOpaque}).
+	 * Runtime is `fn.with(context)`.
+	 */
+	with<F extends FnDefination<any, any, string, any, any, any>>(
+		fn: F,
+		context: WithSeed<ScopeOf<[], Base, PL>, BaseFns>,
+	): BoundCallFrom<F>;
 	/**
 	 * The context a handler on this builder receives - a TYPE carrier for
 	 * `typeof f.ctx` (helper signatures, plugin contracts). Every handler
@@ -1748,6 +1765,8 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 						a,
 						b,
 					),
+				with: (fn: { with: (context: unknown) => unknown }, context: unknown) =>
+					fn.with(context),
 			};
 		}
 		return defineFn(key || "anonymous", options, handler);

@@ -78,10 +78,22 @@ describe("fn.with", () => {
 		).toBe("mock");
 	});
 
+	it("fn.with stays callable with an opaque seed (emit-safe)", () => {
+		expect(label.with({ user: { id: "ada" } })()).toBe("user:ada");
+		expect(label.with({ nope: 1 } as object)()).toBe("anonymous");
+	});
+});
+
+describe("Instance.with", () => {
+	it("seeds with precise builder-scoped checking", () => {
+		expect(s.with(label, { user: { id: "ada" } })()).toBe("user:ada");
+		expect(s.with(flow, { send: () => "mock" })()).toBe("mock");
+	});
+
 	it("only the chain's vars and fns type-check", () => {
-		// @ts-expect-error - `nope` is neither a var nor a use fn of `label`
-		label.with({ nope: 1 });
+		// @ts-expect-error - `nope` is neither a var nor a use fn of the builder
+		s.with(label, { nope: 1 });
 		// @ts-expect-error - value must match the var's type
-		label.with({ user: { id: 42 } });
+		s.with(label, { user: { id: 42 } });
 	});
 });

@@ -12,5 +12,5 @@
 		"types": ["node"],
 		"rootDir": "../.."
 	},
-	"include": ["./auth-fns.ts"]
+	"include": ["./auth-fns.ts", "./leaf-exports.ts"]
 }

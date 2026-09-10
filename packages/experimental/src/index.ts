@@ -183,6 +183,8 @@ export type {
 	WidenedArgs,
 	WithContext,
 	WithSeed,
+	WithSeedOpaque,
+	WithSeedStored,
 } from "./fn";
 export {
 	type ApplyOn,
