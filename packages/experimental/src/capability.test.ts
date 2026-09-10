@@ -517,7 +517,7 @@ describe("serve", () => {
 				},
 				use: [{ capability }],
 			},
-			async (c) => ({ email: c.input.email, role: c.input.role }),
+			async (c) => ({ email: c.input.email }),
 		);
 
 		const server = await serve(
@@ -532,7 +532,10 @@ describe("serve", () => {
 
 		const agent = await createAgent(transport);
 		await expect(
-			agent.call("user.create", { email: "a@b.c", role: "admin" }),
+			agent.call("user.create", {
+				email: "a@b.c",
+				role: "admin",
+			} as never),
 		).rejects.toThrow(ValidationError);
 
 		await expect(
@@ -540,9 +543,9 @@ describe("serve", () => {
 		).resolves.toEqual({ email: "a@b.c" });
 
 		// In-process uses the same .input view (sync throw at the door).
-		expect(() => createUser({ email: "x@y.z", role: "admin" })).toThrow(
-			ValidationError,
-		);
+		expect(() =>
+			createUser({ email: "x@y.z", role: "admin" } as never),
+		).toThrow(ValidationError);
 		await expect(createUser({ email: "x@y.z" })).resolves.toEqual({
 			email: "x@y.z",
 		});

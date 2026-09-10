@@ -4,6 +4,8 @@ import { v } from "./index";
 import {
 	asType,
 	attrsOf,
+	type InferArgs,
+	type InferInput,
 	isNoInput,
 	isNoOutput,
 	omitFields,
@@ -129,6 +131,55 @@ describe("v.noInput / v.noOutput and schema views", () => {
 			"email" | "passwordHash"
 		>();
 		expectTypeOf<keyof SchemaOutputOf<Row>>().toEqualTypeOf<"id" | "email">();
+	});
+
+	it("object and var .input / .output infer filtered shapes", () => {
+		const schema = v.object({
+			id: v.noInput(v.string()),
+			email: v.string(),
+			secret: v.noOutput(v.string()),
+		});
+		expectTypeOf<InferArgs<typeof schema.input>>().toEqualTypeOf<{
+			email: string;
+			secret: string;
+		}>();
+		expectTypeOf<InferInput<typeof schema.output>>().toEqualTypeOf<{
+			id: string;
+			email: string;
+		}>();
+
+		expectTypeOf<InferArgs<typeof user.input>>().toEqualTypeOf<{
+			email: string;
+			passwordHash: string;
+		}>();
+		expectTypeOf<InferInput<typeof user.output>>().toEqualTypeOf<{
+			id: string;
+			email: string;
+		}>();
+	});
+
+	it("v.fn input/output derive filtered inference", () => {
+		const f = v.fn("attr_views_fn", { input: user, output: user }, (c) => {
+			expectTypeOf(c.input).toEqualTypeOf<{
+				email: string;
+				passwordHash: string;
+			}>();
+			return {
+				id: "1",
+				email: c.input.email,
+				passwordHash: c.input.passwordHash,
+			};
+		});
+		expectTypeOf<Parameters<typeof f>[0]>().toEqualTypeOf<{
+			email: string;
+			passwordHash: string;
+		}>();
+		// Handler return may still mention noOutput fields; the exit door
+		// projects via SchemaOutputOf. Prefer `.output` for the wire shape.
+		expectTypeOf<InferInput<typeof user.output>>().toEqualTypeOf<{
+			id: string;
+			email: string;
+		}>();
 	});
 });
 

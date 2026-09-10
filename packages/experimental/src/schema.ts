@@ -532,18 +532,45 @@ type DropNoOutputKeys<Shape> = {
 		: K]: SchemaOutputOf<Shape[K]>;
 };
 
+/** Object type def that keeps the field map so {@link SchemaInputOf} /
+ * {@link SchemaOutputOf} can see `noInput` / `noOutput` brands. */
+type ObjectDef<S, O, D> = TypeDefination<ArgsShape<S>, O, D> & {
+	name: "object";
+	shape: S;
+	readonly input: TypeDefination<
+		InferArgs<DropNoInputKeys<S>>,
+		DefineOutput<DropNoInputKeys<S>>,
+		D
+	> & {
+		name: "object";
+		shape: DropNoInputKeys<S>;
+	};
+	readonly output: TypeDefination<
+		InferArgs<DropNoOutputKeys<S>>,
+		DefineOutput<DropNoOutputKeys<S>>,
+		D
+	> & {
+		name: "object";
+		shape: DropNoOutputKeys<S>;
+	};
+};
+
 /**
  * Schema with {@link noInput} fields removed. Vars project through
  * `schema`; object type defs / bare shapes drop matching keys.
  */
 export type SchemaInputOf<S> = S extends { $var: true; schema?: infer Sch }
 	? SchemaInputOf<NonNullable<Sch>>
-	: S extends { name: "object"; shape: infer Shape }
+	: S extends { shape: infer Shape }
 		? Shape extends Record<string, any>
 			? TypeDefination<
 					InferArgs<DropNoInputKeys<Shape>>,
-					DefineOutput<DropNoInputKeys<Shape>>
-				>
+					DefineOutput<DropNoInputKeys<Shape>>,
+					S extends TypeDefination<any, any, infer D> ? D : never
+				> & {
+					name: "object";
+					shape: DropNoInputKeys<Shape>;
+				} & (S extends { optional: true } ? { optional: true } : unknown)
 			: S
 		: S extends Record<string, unknown>
 			? S extends TypeDefination<any, any, any>
@@ -557,12 +584,16 @@ export type SchemaInputOf<S> = S extends { $var: true; schema?: infer Sch }
  */
 export type SchemaOutputOf<S> = S extends { $var: true; schema?: infer Sch }
 	? SchemaOutputOf<NonNullable<Sch>>
-	: S extends { name: "object"; shape: infer Shape }
+	: S extends { shape: infer Shape }
 		? Shape extends Record<string, any>
 			? TypeDefination<
 					InferArgs<DropNoOutputKeys<Shape>>,
-					DefineOutput<DropNoOutputKeys<Shape>>
-				>
+					DefineOutput<DropNoOutputKeys<Shape>>,
+					S extends TypeDefination<any, any, infer D> ? D : never
+				> & {
+					name: "object";
+					shape: DropNoOutputKeys<Shape>;
+				} & (S extends { optional: true } ? { optional: true } : unknown)
 			: S
 		: S extends Record<string, unknown>
 			? S extends TypeDefination<any, any, any>
@@ -1505,34 +1536,34 @@ type ObjectFn = {
 			optional: true;
 			default: NullDefault;
 		},
-	): TypeDefination<ArgsShape<S>, O | null, null>;
+	): ObjectDef<S, O | null, null>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			optional: true;
 			default: ObjectDefault<S>;
 		},
-	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
+	): ObjectDef<S, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & { optional: true },
-	): TypeDefination<ArgsShape<S>, OutOf<O, never, true>, undefined>;
+	): ObjectDef<S, OutOf<O, never, true>, undefined>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			default: NullDefault;
 		},
-	): TypeDefination<ArgsShape<S>, O | null, null>;
+	): ObjectDef<S, O | null, null>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options: TypeOptions<DefineOutput<S>, O> & {
 			default: ObjectDefault<S>;
 		},
-	): TypeDefination<ArgsShape<S>, O, ArgsShape<S>>;
+	): ObjectDef<S, O, ArgsShape<S>>;
 	<S, O = DefineOutput<S>>(
 		shape: S,
 		options?: TypeOptions<DefineOutput<S>, O>,
-	): TypeDefination<ArgsShape<S>, O, never>;
+	): ObjectDef<S, O, never>;
 	(): TypeDefination<Record<string, any>, Record<string, any>>;
 };
 

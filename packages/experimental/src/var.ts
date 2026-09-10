@@ -10,6 +10,8 @@ import {
 	type DefineOutput,
 	type InferArgs,
 	type InferInput,
+	type SchemaInputOf,
+	type SchemaOutputOf,
 	type TypeDefination,
 	vTypes,
 } from "./schema";
@@ -42,15 +44,14 @@ export interface VarDefination<
 	$merge?: true | boolean;
 	/**
 	 * Fields without `noInput`. Projects inner `schema`; value type `T`
-	 * stays the full row. Typed loosely so declaration emit stays compact -
-	 * use {@link SchemaInputOf} at call sites that need the projected shape.
+	 * stays the full row.
 	 */
-	readonly input: VarDefination<N, T, any, Source>;
+	readonly input: VarDefination<N, T, SchemaInputOf<Schema>, Source>;
 	/**
 	 * Fields without `noOutput`. Projects inner `schema`; value type `T`
 	 * stays the full row.
 	 */
-	readonly output: VarDefination<N, T, any, Source>;
+	readonly output: VarDefination<N, T, SchemaOutputOf<Schema>, Source>;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;

@@ -98,7 +98,9 @@ describe("v.fn call forms", () => {
 			},
 			(c) => c.input,
 		);
-		expect(() => f({ email: "a@b.c", role: "admin" })).toThrow(/noInput field/);
+		expect(() => f({ email: "a@b.c", role: "admin" } as never)).toThrow(
+			/noInput field/,
+		);
 		expect(f({ email: "a@b.c" })).toEqual({ email: "a@b.c" });
 	});
 });
