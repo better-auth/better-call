@@ -3,19 +3,37 @@ import { createRandomStringGenerator } from "../helpers/random";
 import {
 	type DefineOutput,
 	type InferArgs,
+	type InferInput,
+	isType,
 	type TypeDefination,
 	withAttrs,
 } from "../schema";
 import type { LiteralString } from "../types";
 import type { VarDefination } from "../var";
 
-/** Named stand-in for `v.var(name, { default: null, schema: v.object(shape) })`.
+/** Named stand-in for `v.var(name, { default: null, schema })`.
  * Inferring that return from `v.var` exceeds TS7056 on declaration emit. */
+type ModelSchema<S> =
+	S extends TypeDefination<any, any, any>
+		? S
+		: TypeDefination<InferArgs<S>, DefineOutput<S>, never> & { shape: S };
+
 type ModelVar<N extends LiteralString, S> = VarDefination<
 	N,
-	DefineOutput<S> | null,
-	TypeDefination<InferArgs<S>, DefineOutput<S>, never> & { shape: S }
+	| (S extends TypeDefination<any, any, any> ? InferInput<S> : DefineOutput<S>)
+	| null,
+	ModelSchema<S>
 >;
+
+/** A `v.var` options bag — not a field shape and not a type. */
+type SchemaArg<S> =
+	S extends TypeDefination<any, any, any>
+		? S
+		: S extends { schema: unknown }
+			? "default" extends keyof S
+				? never
+				: S
+			: S;
 
 export const generateId = v.fn(
 	"db.generate_id",
@@ -61,13 +79,16 @@ export const id = <T, O>(
 		{ id: true },
 	) as TypeDefination<T, O, string>;
 
-/** A model var: `v.var(name, { default: null, schema: v.object(shape) })`.
+/** A model var from a type or a plain field object. Default is always null.
  * Import it from the db plugin: `import { schema } from "better-call/plugins/db"`. */
 export const schema = <N extends LiteralString, S>(
 	name: N,
-	shape: S,
+	schema: SchemaArg<S>,
 ): ModelVar<N, S> =>
-	v.var(name, { default: null, schema: v.object(shape) }) as ModelVar<N, S>;
+	v.var(name, {
+		default: null,
+		schema: isType(schema) ? schema : v.object(schema),
+	}) as ModelVar<N, S>;
 
 export const db = {
 	unique,

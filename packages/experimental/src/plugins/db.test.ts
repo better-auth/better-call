@@ -71,7 +71,14 @@ describe("schema", () => {
 		expect(schema).toBe(db.schema);
 	});
 
-	it("wraps v.var with default null and an object schema", () => {
+	it("takes a schema, not a default/schema options bag", () => {
+		schema("dbt_bag", { id: v.string() });
+		schema("dbt_bag_type", v.object({ id: v.string() }));
+		// @ts-expect-error options bag is not a schema or field object
+		schema("dbt_bag_bad", { default: null, schema: v.object({}) });
+	});
+
+	it("wraps v.var with default null and the given schema", () => {
 		const user = schema("dbt_user", {
 			id: db.id(v.string({})),
 			email: db.unique(v.string()),
@@ -81,6 +88,18 @@ describe("schema", () => {
 		expect(user.default).toBeNull();
 		expect(user.schema?.name).toBe("object");
 		expect(attrsOf(user.schema?.shape?.email, "db")).toEqual({ unique: true });
+	});
+
+	it("accepts v.object as well as a plain field object", () => {
+		const typed = schema(
+			"dbt_typed",
+			v.object({
+				id: db.id(v.string({})),
+				tag: v.string(),
+			}),
+		);
+		expect(typed.schema?.name).toBe("object");
+		expect(typed.schema?.shape?.tag).toEqual(v.string());
 	});
 
 	it("types the var as the row or null, and works as a storage model", async () => {
