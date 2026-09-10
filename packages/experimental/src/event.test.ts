@@ -309,4 +309,47 @@ describe("event extension + modules", () => {
 			)(),
 		).toThrow(/tag/);
 	});
+
+	it("publish expects .input; complete resolves .output", async () => {
+		const user = v.var("evt_io_user", {
+			schema: v.object({
+				id: v.noInput(v.string({ default: "minted" })),
+				email: v.string(),
+				passwordHash: v.noOutput(v.string()),
+			}),
+		});
+		const bus = v.event("evt_io", { created: user });
+
+		bus.subscribe(async (e, next) => {
+			if (e.type === "created") {
+				await next({
+					id: "srv-1",
+					passwordHash: "hashed",
+				});
+				return;
+			}
+			await next();
+		});
+
+		expect(() =>
+			bus.publish("created", {
+				email: "a@b.c",
+				id: "smuggle",
+			} as never),
+		).toThrow(/noInput field/);
+
+		const [result, complete] = await bus.publish("created", {
+			email: "a@b.c",
+			passwordHash: "plain",
+		});
+		expectTypeOf(result).toEqualTypeOf<{
+			email: string;
+			passwordHash: string;
+		}>();
+		expect(result).toEqual({ email: "a@b.c", passwordHash: "plain" });
+
+		const out = await complete();
+		expectTypeOf(out).toEqualTypeOf<{ id: string; email: string }>();
+		expect(out).toEqual({ id: "srv-1", email: "a@b.c" });
+	});
 });

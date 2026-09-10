@@ -1,5 +1,18 @@
 import { ValidationError } from "./error";
-import { asType, type InferInput, isVar, validate } from "./schema";
+import {
+	asType,
+	type InferArgs,
+	type InferInput,
+	isNoInput,
+	isNoOutput,
+	isVar,
+	projectValue,
+	rejectFields,
+	type SchemaInputOf,
+	type SchemaOutputOf,
+	toInputSchema,
+	validate,
+} from "./schema";
 import type {
 	LiteralString,
 	Members,
@@ -7,9 +20,24 @@ import type {
 	UnionToIntersection,
 } from "./types";
 
-/** Payload for each kind in an event-type map. */
+/** Handler-visible payload (full schema, including noInput / noOutput). */
 export type EventPayloads<T> = {
 	[K in keyof T]: InferInput<T[K]>;
+};
+
+/** What {@link EventDefination.publish} accepts - the `.input` view. */
+export type EventPublishArgs<T> = {
+	[K in keyof T]: InferArgs<SchemaInputOf<T[K]>>;
+};
+
+/** Validated publish-time payload - parsed `.input` view. */
+export type EventPublishResult<T> = {
+	[K in keyof T]: InferInput<SchemaInputOf<T[K]>>;
+};
+
+/** What `complete()` resolves to - the `.output` view. */
+export type EventCompleteResult<T> = {
+	[K in keyof T]: InferInput<SchemaOutputOf<T[K]>>;
 };
 
 /** Discriminated message handed to subscribers. */
@@ -47,18 +75,21 @@ export interface EventDefination<
 	 */
 	subscribe: (handler: EventHandler<T>) => () => void;
 	/**
-	 * Validate `data` against the kind's schema, run subscribers (direct +
-	 * any mounted via `v.on` / modules), merge `next` mutations, and return:
-	 * - `result`: the validated payload at publish-time
-	 * - `complete`: a promise function resolving to the final payload after
-	 *   the full subscriber chain finishes
+	 * Validate `data` against the kind's `.input` view, run subscribers
+	 * (direct + any mounted via `v.on` / modules), merge `next` mutations,
+	 * and return:
+	 * - `result`: the validated `.input` payload at publish-time
+	 * - `complete`: a promise function resolving to the `.output` payload
+	 *   after the full subscriber chain finishes
 	 */
 	publish: <K extends keyof T & string>(
 		type: K,
-		data: EventPayloads<T>[K],
+		data: EventPublishArgs<T>[K],
 	) =>
-		| [EventPayloads<T>[K], () => Promise<EventPayloads<T>[K]>]
-		| Promise<[EventPayloads<T>[K], () => Promise<EventPayloads<T>[K]>]>;
+		| [EventPublishResult<T>[K], () => Promise<EventCompleteResult<T>[K]>]
+		| Promise<
+				[EventPublishResult<T>[K], () => Promise<EventCompleteResult<T>[K]>]
+		  >;
 	/**
 	 * Mint a NEW event def under the same name with more kinds - the
 	 * re-export pattern (`customize` for vars). Shared bus; widened types.
@@ -307,12 +338,30 @@ const publishOn = (
 	}
 	const effective = applyVarExtsToSchema(schema, varExts);
 	const handlers = [...bus.mounted, ...bus.direct];
-	return thenMaybe(validate(asType(effective), data, path), (parsed) => {
+	// Publish door matches v.fn input: reject smuggled noInput keys, then
+	// validate the `.input` view. Handlers still patch against the full
+	// schema so they can fill noInput fields via `next`.
+	const parseInput = () =>
+		thenMaybe(
+			rejectFields(
+				effective,
+				data,
+				isNoInput,
+				path,
+				"noInput field is not allowed",
+			),
+			() => validate(asType(toInputSchema(effective)), data, path),
+		);
+	return thenMaybe(parseInput(), (parsed) => {
 		const done = runHandlers(handlers, type, parsed, effective, path);
 		return [
 			parsed,
 			() =>
-				isThenable(done) ? (done as Promise<unknown>) : Promise.resolve(done),
+				Promise.resolve(
+					thenMaybe(done, (final) =>
+						projectValue(effective, final, isNoOutput),
+					),
+				),
 		] as [unknown, () => Promise<unknown>];
 	});
 };

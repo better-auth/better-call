@@ -691,9 +691,10 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 /**
  * Strip keys from an already-validated value where `drop` matches the
  * field schema. Used after union arm selection so defaults/transforms
- * from the probe validate are not run a second time.
+ * from the probe validate are not run a second time, and by event
+ * `complete()` to project the `.output` view without re-transforming.
  */
-const omitValue = (
+export const projectValue = (
 	schema: unknown,
 	value: unknown,
 	drop: FieldPred,
@@ -711,15 +712,18 @@ const omitValue = (
 			def.shape as Record<string, unknown>,
 		)) {
 			if (drop(child) || !Object.hasOwn(record, key)) continue;
-			out[key] = omitValue(child, record[key], drop);
+			out[key] = projectValue(child, record[key], drop);
 		}
 		return out;
 	}
 	if (def.name === "array" && def.shape !== undefined && Array.isArray(value)) {
-		return value.map((item) => omitValue(def.shape, item, drop));
+		return value.map((item) => projectValue(def.shape, item, drop));
 	}
 	return value;
 };
+
+/** @deprecated Use {@link projectValue}. */
+const omitValue = projectValue;
 
 /**
  * Throw if any field matching `match` is present on `value` (own key).

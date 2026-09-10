@@ -148,6 +148,7 @@ export {
 	ValidationError,
 } from "./error";
 export type {
+	EventCompleteResult,
 	EventDefination,
 	EventExtension,
 	EventHandler,
@@ -155,6 +156,8 @@ export type {
 	EventNext,
 	EventOnEntry,
 	EventPayloads,
+	EventPublishArgs,
+	EventPublishResult,
 	EventsFrom,
 	ModuleEvents,
 } from "./event";
