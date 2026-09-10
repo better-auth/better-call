@@ -1,54 +1,31 @@
 import { ValidationError } from "../../error";
 import {
-	attrsOf,
+	isNoInput,
+	isNoOutput,
+	noInput,
 	omitFields,
 	parseFields,
 	rejectFields,
-	withAttrs,
 } from "../../schema";
 
-/** Client may not set this field. Wire / capability edges reject it if
- * present; in-process callers may still pass it. */
-export const readonly = <S>(schema: S): S =>
-	withAttrs(schema, "http", { readonly: true });
+/** HTTP-facing alias of {@link noInput} - same `$attrs.v.noInput` gate. */
+export const serverOnly = noInput;
 
 /**
- * Exclude this field from responses. When an fn's `output` schema (often
- * a var) carries it, output validation drops the key.
+ * Drop fields marked `v.noInput`. Used for OpenAPI / client input
+ * contracts; Prefer `schema.input` when the schema already has views.
  */
-export const returned = <S>(schema: S): S =>
-	withAttrs(schema, "http", { returned: true });
-
-/** @deprecated Prefer {@link readonly}. Same wire gate. */
-export const serverOnly = <S>(schema: S): S =>
-	withAttrs(schema, "http", { serverOnly: true });
-
-const httpAttrs = (schema: unknown) => attrsOf(schema, "http");
-
-const isReadonly = (schema: unknown) => {
-	const http = httpAttrs(schema);
-	return http?.readonly === true || http?.serverOnly === true;
-};
-
-const isReturned = (schema: unknown) => httpAttrs(schema)?.returned === true;
+export const clientSchema = <S>(schema: S): S => omitFields(schema, isNoInput);
 
 /**
- * Drop fields marked {@link readonly} / {@link serverOnly}. Used for
- * OpenAPI / client input contracts; {@link InferArgs} on the original
- * schema stays the full shape.
- */
-export const clientSchema = <S>(schema: S): S => omitFields(schema, isReadonly);
-
-/**
- * Drop fields marked {@link returned}. Pair with {@link clientSchema} when
- * projecting an output / response contract.
+ * Drop fields marked `v.noOutput`. Prefer `schema.output` when the schema
+ * already has views.
  */
 export const responseSchema = <S>(schema: S): S =>
-	omitFields(schema, isReturned);
+	omitFields(schema, isNoOutput);
 
 /**
- * Throw if any {@link readonly} / {@link serverOnly} field is present on
- * `value` (own key).
+ * Throw if any `v.noInput` field is present on `value` (own key).
  */
 export const rejectReadonly = (
 	schema: unknown,
@@ -58,20 +35,13 @@ export const rejectReadonly = (
 	rejectFields(
 		schema,
 		value,
-		isReadonly,
+		isNoInput,
 		path,
-		"readonly field is not allowed over the wire",
+		"noInput field is not allowed over the wire",
 	);
 
-/** @deprecated Prefer {@link rejectReadonly}. */
-export const rejectServerOnly = (
-	schema: unknown,
-	value: unknown,
-	path = "input",
-): void | Promise<void> => rejectReadonly(schema, value, path);
-
 /**
- * Wire-side input gate: reject smuggled readonly keys, then validate
+ * Wire-side input gate: reject smuggled noInput keys, then validate
  * against {@link clientSchema}. Built on core {@link parseFields}.
  */
 export const wireInput = <S>(
@@ -81,9 +51,9 @@ export const wireInput = <S>(
 ): unknown =>
 	parseFields(schema, value, {
 		path,
-		reject: isReadonly,
-		omit: isReadonly,
-		rejectMessage: "readonly field is not allowed over the wire",
+		reject: isNoInput,
+		omit: isNoInput,
+		rejectMessage: "noInput field is not allowed over the wire",
 	});
 
 /** Parse a JSON request body and run it through {@link wireInput}. */
@@ -106,8 +76,8 @@ export const fromJsonBody = async <S>(
 	return await wireInput(schema, body, path);
 };
 
-/** True when a field carries {@link returned}. Used by `v.fn` output exit. */
-export const isReturnedField = isReturned;
+/** True when a field carries `v.noOutput`. */
+export const isReturnedField = isNoOutput;
 
 /** Project output schemas the same way `v.fn` does on exit. */
 export const stripReturned = <S>(schema: S): S => responseSchema(schema);

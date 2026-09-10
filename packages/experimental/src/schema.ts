@@ -22,14 +22,13 @@ export type Rules = {
 	check?: (value: any) => boolean | string;
 };
 
-/** Plugin-owned field metadata. Outer key is the plugin namespace
- * (`"http"`, `"db"`, …); core never interprets the contents. */
+/** Field metadata. Outer key is a namespace (`"v"`, `"http"`, `"db"`, …).
+ * Core interprets `"v"` (`noInput` / `noOutput`); plugins own the rest. */
 export type AttrBag = Record<string, Record<string, unknown>>;
 
 export interface TypeDefination<T, O, D = never> extends Rules {
 	name: LiteralString;
 	type?: T;
-	output?: O;
 	shape?: unknown;
 	/** `function` types only: the declared input of the expected fn -
 	 * plain closures get it validated at their door on every call. */
@@ -42,8 +41,19 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	/** When true, `undefined` and `null` pass straight through unvalidated. */
 	optional?: boolean;
 	transform?: (value: any) => O;
-	/** Opaque plugin attributes - ignored by validate / Infer*. */
+	/** Opaque attributes - ignored by validate / Infer* on the full schema. */
 	$attrs?: AttrBag;
+	/**
+	 * Fields without {@link noInput}. Lazy projection; same kind of value
+	 * (type def or var) as this schema.
+	 */
+	readonly input?: unknown;
+	/**
+	 * Fields without {@link noOutput}. Lazy projection; same kind of value
+	 * (type def or var) as this schema. (The type param `O` is the
+	 * transform output - not this view.)
+	 */
+	readonly output?: unknown;
 }
 
 export type TypeOptions<T, O> = {
@@ -428,20 +438,19 @@ const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
 			customize: (opts: any) => unknown;
 			[key: string]: unknown;
 		};
-		return {
+		return attachViews({
 			...v,
 			$attrs: bag,
 			customize: (opts: any) => withAttrBag(v.customize(opts) as S, bag),
-		} as S;
+		} as object) as S;
 	}
-	return { ...asType(schema), $attrs: bag } as S;
+	return attachViews({ ...asType(schema), $attrs: bag }) as S;
 };
 
 /**
- * Attach plugin attributes under `namespace`, deep-merging with any
- * already on the schema. Returns a new type def (or var) with the same
- * value type. Core mostly ignores these - plugin edges and a few
- * exit paths (e.g. `v.fn` stripping `http.returned`) consume them.
+ * Attach attributes under `namespace`, deep-merging with any already on
+ * the schema. Returns a new type def (or var) with the same value type.
+ * Core reads `"v"` (`noInput` / `noOutput`); plugins own other namespaces.
  *
  * Passed a var, attributes land on the var itself (`$attrs`) and the
  * `$var` / `name` / `schema` identity is preserved; `customize` is rebound
@@ -480,6 +489,131 @@ export function attrsOf(
 	return namespace === undefined ? bag : bag[namespace];
 }
 
+/** True when a field is marked {@link noInput}. */
+export const isNoInput = (schema: unknown): boolean =>
+	attrsOf(schema, "v")?.noInput === true;
+
+/** True when a field is marked {@link noOutput}. */
+export const isNoOutput = (schema: unknown): boolean =>
+	attrsOf(schema, "v")?.noOutput === true;
+
+/** Exclude this field from `.input` / fn input validation. */
+export const noInput = <S>(
+	schema: S,
+): S & { $attrs: { v: { noInput: true } } } =>
+	withAttrs(schema, "v", { noInput: true }) as S & {
+		$attrs: { v: { noInput: true } };
+	};
+
+/** Exclude this field from `.output` / fn output validation. */
+export const noOutput = <S>(
+	schema: S,
+): S & { $attrs: { v: { noOutput: true } } } =>
+	withAttrs(schema, "v", { noOutput: true }) as S & {
+		$attrs: { v: { noOutput: true } };
+	};
+
+type HasNoInput<F> = F extends { $attrs: { v: { noInput: true } } }
+	? true
+	: false;
+type HasNoOutput<F> = F extends { $attrs: { v: { noOutput: true } } }
+	? true
+	: false;
+
+type DropNoInputKeys<Shape> = {
+	[K in keyof Shape as HasNoInput<Shape[K]> extends true
+		? never
+		: K]: SchemaInputOf<Shape[K]>;
+};
+
+type DropNoOutputKeys<Shape> = {
+	[K in keyof Shape as HasNoOutput<Shape[K]> extends true
+		? never
+		: K]: SchemaOutputOf<Shape[K]>;
+};
+
+/**
+ * Schema with {@link noInput} fields removed. Vars project through
+ * `schema`; object type defs / bare shapes drop matching keys.
+ */
+export type SchemaInputOf<S> = S extends { $var: true; schema?: infer Sch }
+	? SchemaInputOf<NonNullable<Sch>>
+	: S extends { name: "object"; shape: infer Shape }
+		? Shape extends Record<string, any>
+			? TypeDefination<
+					InferArgs<DropNoInputKeys<Shape>>,
+					DefineOutput<DropNoInputKeys<Shape>>
+				>
+			: S
+		: S extends Record<string, unknown>
+			? S extends TypeDefination<any, any, any>
+				? S
+				: DropNoInputKeys<S>
+			: S;
+
+/**
+ * Schema with {@link noOutput} fields removed. Same projection rules as
+ * {@link SchemaInputOf}.
+ */
+export type SchemaOutputOf<S> = S extends { $var: true; schema?: infer Sch }
+	? SchemaOutputOf<NonNullable<Sch>>
+	: S extends { name: "object"; shape: infer Shape }
+		? Shape extends Record<string, any>
+			? TypeDefination<
+					InferArgs<DropNoOutputKeys<Shape>>,
+					DefineOutput<DropNoOutputKeys<Shape>>
+				>
+			: S
+		: S extends Record<string, unknown>
+			? S extends TypeDefination<any, any, any>
+				? S
+				: DropNoOutputKeys<S>
+			: S;
+
+/**
+ * Lazy `.input` / `.output` getters. Idempotent. Getters call
+ * {@link omitFields} only when read, so this may be defined before
+ * omitFields is initialized.
+ */
+export const attachViews = <S extends object>(schema: S): S => {
+	if (schema === null || typeof schema !== "object") return schema;
+	const proto = schema as S & { input?: unknown; output?: unknown };
+	if (Object.getOwnPropertyDescriptor(proto, "input")?.get) return schema;
+	Object.defineProperty(proto, "input", {
+		configurable: true,
+		enumerable: false,
+		get() {
+			return omitFields(this, isNoInput);
+		},
+	});
+	Object.defineProperty(proto, "output", {
+		configurable: true,
+		enumerable: false,
+		get() {
+			return omitFields(this, isNoOutput);
+		},
+	});
+	return schema;
+};
+
+/** Resolve the input view of a schema (getter or fresh omit). */
+export const toInputSchema = <S>(schema: S): unknown => {
+	if (schema !== null && typeof schema === "object" && "input" in schema) {
+		const view = (schema as { input: unknown }).input;
+		if (view !== undefined) return view;
+	}
+	return omitFields(schema, isNoInput);
+};
+
+/** Resolve the output view of a schema (getter or fresh omit). */
+export const toOutputSchema = <S>(schema: S): unknown => {
+	if (schema !== null && typeof schema === "object" && "output" in schema) {
+		const view = (schema as { output: unknown }).output;
+		if (view !== undefined) return view;
+	}
+	return omitFields(schema, isNoOutput);
+};
+
 /** Decide whether a field schema (type def or var) should be dropped / rejected. */
 export type FieldPred = (schema: unknown) => boolean;
 
@@ -491,10 +625,10 @@ export type FieldPred = (schema: unknown) => boolean;
 export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 	if (isVar(schema)) {
 		const v = schema as { schema?: unknown };
-		return {
+		return attachViews({
 			...(schema as object),
 			schema: v.schema === undefined ? undefined : omitFields(v.schema, drop),
-		} as S;
+		}) as S;
 	}
 	const def = asType(schema);
 	if (def.name === "object" && def.shape !== undefined) {
@@ -505,18 +639,22 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 			if (drop(child)) continue;
 			shape[key] = omitFields(child, drop);
 		}
-		return { ...def, shape } as S;
+		return attachViews({ ...def, shape }) as S;
 	}
 	if (def.name === "array" && def.shape !== undefined) {
-		return { ...def, shape: omitFields(def.shape, drop) } as S;
+		return attachViews({
+			...def,
+			shape: omitFields(def.shape, drop),
+		}) as S;
 	}
 	if (def.name === "union" && Array.isArray(def.shape)) {
-		return {
+		return attachViews({
 			...def,
 			shape: (def.shape as unknown[]).map((option) => omitFields(option, drop)),
-		} as S;
+		}) as S;
 	}
-	return schema;
+	if (schema === null || typeof schema !== "object") return schema;
+	return attachViews(schema as object) as S;
 };
 
 /**
@@ -681,7 +819,7 @@ export type ParseFieldsOptions = {
 /**
  * Parse `value` against `schema`, optionally rejecting and/or omitting
  * fields by attribute predicate. Core stays attribute-key agnostic -
- * callers pass the predicates (e.g. `attrsOf(s, "http")?.readonly`).
+ * callers pass the predicates (e.g. `attrsOf(s, "v")?.noInput`).
  *
  * Unions are special: arm selection uses the FULL schema (so a gated
  * field that fails typechecks on an earlier arm does not get projected
@@ -1206,11 +1344,12 @@ export const validate = (
 };
 
 /** Builds the runtime object; the declared return type is the contract. */
-const build = (name: string, options: any, extra?: any): any => ({
-	name,
-	...extra,
-	...options,
-});
+const build = (name: string, options: any, extra?: any): any =>
+	attachViews({
+		name,
+		...extra,
+		...options,
+	});
 
 /** A default may be the value itself or a factory that mints it fresh on
  * each validate - `() => new Date()`, `() => []`, `async () => id()`, …. */

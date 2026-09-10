@@ -505,8 +505,7 @@ describe("serve", () => {
 			createAgent(transport, { attestation: forged }),
 		).rejects.toThrow(/attestation not signed by this server/);
 	});
-	it("wire rejects http.serverOnly fields; in-process still accepts them", async () => {
-		const { serverOnly } = await import("./plugins/http/attrs");
+	it("wire and in-process both reject v.noInput fields", async () => {
 		const { ValidationError } = await import("./error");
 
 		const createUser = v.fn(
@@ -514,7 +513,7 @@ describe("serve", () => {
 			{
 				input: {
 					email: v.string(),
-					role: serverOnly(v.string({ optional: true })),
+					role: v.noInput(v.string({ optional: true })),
 				},
 				use: [{ capability }],
 			},
@@ -538,12 +537,15 @@ describe("serve", () => {
 
 		await expect(
 			agent.call("user.create", { email: "a@b.c" }),
-		).resolves.toEqual({ email: "a@b.c", role: undefined });
+		).resolves.toEqual({ email: "a@b.c" });
 
-		// Direct in-process call may pass server-only fields.
-		await expect(
-			createUser({ email: "x@y.z", role: "admin" }),
-		).resolves.toEqual({ email: "x@y.z", role: "admin" });
+		// In-process uses the same .input view (sync throw at the door).
+		expect(() => createUser({ email: "x@y.z", role: "admin" })).toThrow(
+			ValidationError,
+		);
+		await expect(createUser({ email: "x@y.z" })).resolves.toEqual({
+			email: "x@y.z",
+		});
 	});
 });
 

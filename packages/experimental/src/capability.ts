@@ -1,5 +1,5 @@
 import { collectFns, type FnDefination, type Module, v } from "./index";
-import { rejectServerOnly } from "./plugins/http/attrs";
+import { isNoInput, rejectFields } from "./schema";
 
 const subtle = globalThis.crypto.subtle;
 
@@ -565,12 +565,17 @@ export const serve = async (
 				const held = await spend(token);
 				c.capability = { ...held, entry: c.input.call };
 			}
-			// Wire edge: reject http.readonly / serverOnly fields before the
-			// target validates (object validate would otherwise strip them
-			// quietly).
+			// Wire edge: reject v.noInput fields before the target validates
+			// (object validate would otherwise strip them quietly).
 			const inputSchema = (target as FnDefination<any, any>).$schema?.input;
 			if (inputSchema !== undefined) {
-				await rejectServerOnly(inputSchema, c.input.input, c.input.call);
+				await rejectFields(
+					inputSchema,
+					c.input.input,
+					isNoInput,
+					c.input.call,
+					"noInput field is not allowed over the wire",
+				);
 			}
 			return (target as (i: unknown, p: unknown) => unknown)(c.input.input, c);
 		},

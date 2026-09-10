@@ -42,14 +42,18 @@ import {
 } from "./module";
 import {
 	asType,
-	attrsOf,
 	type InferArgs,
 	type InferInput,
+	isNoInput,
 	isVar,
 	type OutputSchemaOf,
-	omitFields,
 	outputContract,
+	rejectFields,
+	type SchemaInputOf,
+	type SchemaOutputOf,
 	type TypeDefination,
+	toInputSchema,
+	toOutputSchema,
 	validate,
 	vTypes,
 } from "./schema";
@@ -304,10 +308,10 @@ export interface FnDefination<
 }
 
 export type ArgsOf<I> = I extends readonly unknown[]
-	? { -readonly [K in keyof I]: InferArgs<I[K]> }
+	? { -readonly [K in keyof I]: InferArgs<SchemaInputOf<I[K]>> }
 	: unknown extends I
 		? void
-		: InferArgs<I>;
+		: InferArgs<SchemaInputOf<I>>;
 
 /**
  * Call args of a declaring fn: the declared input, plus whatever mounted
@@ -450,7 +454,9 @@ type VarSurfaceKeys =
 	| "$source"
 	| "$attrs"
 	| "$merge"
-	| "customize";
+	| "customize"
+	| "input"
+	| "output";
 
 type MergeHelpersOnVar<V> = Omit<V, VarSurfaceKeys>;
 
@@ -549,8 +555,8 @@ export type Context<
 	ExtPL = unknown,
 > = {
 	input: unknown extends InputVarExtraOut<ExtPL, I>
-		? InferInput<I>
-		: Prettify<InferInput<I> & InputVarExtraOut<ExtPL, I>>;
+		? InferInput<SchemaInputOf<I>>
+		: Prettify<InferInput<SchemaInputOf<I>> & InputVarExtraOut<ExtPL, I>>;
 	/**
 	 * Mint a DECLARED error - tag-checked, payload validated at creation:
 	 * `throw c.error("invalid_credentials", { attempts: 3 })`. Only tags
@@ -581,7 +587,7 @@ export type Context<
 
 export type InferReturn<O> = unknown extends O
 	? unknown
-	: InferInput<OutputSchemaOf<O>>;
+	: InferInput<SchemaOutputOf<OutputSchemaOf<O>>>;
 
 export interface Fn<
 	Base = unknown,
@@ -862,17 +868,13 @@ const defineFn = (
 
 	// Only the VALIDATION half of the output contract is checked on exit -
 	// a `{ def }`-only output is a documented promise, never a check.
-	// Fields marked `http.returned` are projected out so they never leave
-	// the process through this fn's result (direct in-process data on the
-	// handler's locals is unaffected).
+	// Fields marked `v.noOutput` are projected out via `.output` so they
+	// never leave through this fn's result.
 	const rawOutputValidation = outputContract(options.output).validation;
 	const outputValidation =
 		rawOutputValidation === undefined
 			? undefined
-			: omitFields(
-					rawOutputValidation,
-					(field) => attrsOf(field, "http")?.returned === true,
-				);
+			: toOutputSchema(rawOutputValidation);
 	const errorTypes = declaredErrors
 		? Object.fromEntries(
 				Object.entries(declaredErrors).map(([tag, schema]) => [
@@ -994,11 +996,20 @@ const defineFn = (
 			if (tupleInput) {
 				const attempts = tupleInput.map((def, index) => {
 					try {
-						const result = validate(
-							asType(def),
-							(input as unknown[])[index],
-							`${key}.input[${index}]`,
+						const path = `${key}.input[${index}]`;
+						const raw = (input as unknown[])[index];
+						const gate = rejectFields(
+							def,
+							raw,
+							isNoInput,
+							path,
+							"noInput field is not allowed",
 						);
+						const runValidate = () =>
+							validate(asType(toInputSchema(def)), raw, path);
+						const result = isThenable(gate)
+							? gate.then(runValidate)
+							: runValidate();
 						if (isThenable(result)) {
 							return result.then(
 								(value) => ({ ok: true as const, value }),
@@ -1047,7 +1058,21 @@ const defineFn = (
 			}
 			return options.input === undefined
 				? input
-				: validate(asType(options.input), input, `${key}.input`);
+				: thenMaybe(
+						rejectFields(
+							options.input,
+							input,
+							isNoInput,
+							`${key}.input`,
+							"noInput field is not allowed",
+						),
+						() =>
+							validate(
+								asType(toInputSchema(options.input)),
+								input,
+								`${key}.input`,
+							),
+					);
 		};
 
 		const applyInputExtensions = (parsed: unknown) => {
@@ -1268,7 +1293,7 @@ const defineFn = (
 			);
 
 			// Exit contracts run after the body, whether or not it was async.
-			// Output validation both checks AND projects (so `http.returned`
+			// Output validation both checks AND projects (so `v.noOutput`
 			// fields / undeclared keys leave through the validated shape).
 			const finish = (result: unknown) => {
 				const afterOutput = (out: unknown) => {

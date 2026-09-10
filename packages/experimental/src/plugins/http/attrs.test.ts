@@ -5,10 +5,8 @@ import { asType, attrsOf, validate } from "../../schema";
 import {
 	clientSchema,
 	fromJsonBody,
-	readonly,
 	rejectReadonly,
 	responseSchema,
-	returned,
 	serverOnly,
 	wireInput,
 } from "./attrs";
@@ -16,28 +14,26 @@ import {
 describe("http field attrs", () => {
 	const shape = {
 		id: v.string(),
-		role: readonly(v.string()),
-		password: returned(v.string()),
+		role: v.noInput(v.string()),
+		password: v.noOutput(v.string()),
 		meta: v.object({
 			note: v.string(),
-			secret: readonly(v.string()),
-			hash: returned(v.string()),
+			secret: v.noInput(v.string()),
+			hash: v.noOutput(v.string()),
 		}),
 	};
 
-	it("readonly and returned write $attrs.http", () => {
-		expect(attrsOf(readonly(v.string()), "http")).toEqual({
-			readonly: true,
+	it("serverOnly aliases v.noInput; noOutput writes $attrs.v", () => {
+		expect(attrsOf(serverOnly(v.string()), "v")).toEqual({
+			noInput: true,
 		});
-		expect(attrsOf(returned(v.string()), "http")).toEqual({
-			returned: true,
+		expect(attrsOf(v.noOutput(v.string()), "v")).toEqual({
+			noOutput: true,
 		});
-		expect(attrsOf(serverOnly(v.string()), "http")).toEqual({
-			serverOnly: true,
-		});
+		expect(serverOnly).toBe(v.noInput);
 	});
 
-	it("clientSchema drops readonly fields nested", () => {
+	it("clientSchema drops noInput fields nested", () => {
 		const projected = asType(clientSchema(v.object(shape)));
 		expect(Object.keys(projected.shape as object).sort()).toEqual([
 			"id",
@@ -48,7 +44,7 @@ describe("http field attrs", () => {
 		expect(Object.keys(meta.shape as object).sort()).toEqual(["hash", "note"]);
 	});
 
-	it("responseSchema drops returned fields nested", () => {
+	it("responseSchema drops noOutput fields nested", () => {
 		const projected = asType(responseSchema(v.object(shape)));
 		expect(Object.keys(projected.shape as object).sort()).toEqual([
 			"id",
@@ -62,7 +58,7 @@ describe("http field attrs", () => {
 		]);
 	});
 
-	it("rejectReadonly fails when a readonly key is present", () => {
+	it("rejectReadonly fails when a noInput key is present", () => {
 		expect(() =>
 			rejectReadonly(v.object(shape), {
 				id: "1",
@@ -74,10 +70,10 @@ describe("http field attrs", () => {
 				id: "1",
 				meta: { note: "hi", secret: "x" },
 			}),
-		).toThrow(/readonly field/);
+		).toThrow(/noInput field/);
 	});
 
-	it("wireInput accepts client fields and rejects smuggled readonly", () => {
+	it("wireInput accepts client fields and rejects smuggled noInput", () => {
 		expect(
 			wireInput(v.object(shape), {
 				id: "1",
@@ -94,18 +90,7 @@ describe("http field attrs", () => {
 		).toThrow(ValidationError);
 	});
 
-	it("serverOnly still gates the wire like readonly", () => {
-		const schema = v.object({
-			id: v.string(),
-			role: serverOnly(v.string()),
-		});
-		expect(() => wireInput(schema, { id: "1", role: "admin" })).toThrow(
-			/readonly field/,
-		);
-		expect(wireInput(schema, { id: "1" })).toEqual({ id: "1" });
-	});
-
-	it("in-process validate still accepts readonly fields", () => {
+	it("in-process validate still accepts noInput fields on the full schema", () => {
 		expect(
 			validate(
 				asType(v.object(shape)),
@@ -165,7 +150,7 @@ describe("http field attrs", () => {
 			v.object({
 				kind: v.string({ enum: ["user"] }),
 				id: v.string(),
-				role: readonly(v.string()),
+				role: v.noInput(v.string()),
 			}),
 			v.object({
 				kind: v.string({ enum: ["anon"] }),
@@ -186,7 +171,7 @@ describe("http field attrs", () => {
 
 		expect(() =>
 			rejectReadonly(schema, { kind: "user", id: "1", role: "admin" }),
-		).toThrow(/readonly field/);
+		).toThrow(/noInput field/);
 		expect(wireInput(schema, { kind: "anon", token: "t" })).toEqual({
 			kind: "anon",
 			token: "t",
@@ -202,7 +187,7 @@ describe("http field attrs", () => {
 			v.object({
 				kind: v.string({ enum: ["user"] }),
 				id: v.string(),
-				role: readonly(v.string()),
+				role: v.noInput(v.string()),
 			}),
 			v.object({
 				kind: v.string({ enum: ["anon"] }),
@@ -210,23 +195,20 @@ describe("http field attrs", () => {
 				role: v.string({ optional: true }),
 			}),
 		]);
-		// `role` is readonly on the user arm only; anon may still send it.
+		// `role` is noInput on the user arm only; anon may still send it.
 		expect(
 			wireInput(schema, { kind: "anon", token: "t", role: "guest" }),
 		).toEqual({ kind: "anon", token: "t", role: "guest" });
 		expect(() =>
 			wireInput(schema, { kind: "user", id: "1", role: "admin" }),
-		).toThrow(/readonly field/);
+		).toThrow(/noInput field/);
 	});
 
 	it("union arm selection uses the full schema, not the projection", () => {
-		// Earlier arm gates `role` but only accepts numbers; later arm
-		// accepts the string the client sent. Projecting `role` out would
-		// wrongly pick the first arm and reject.
 		const schema = v.union([
 			v.object({
 				kind: v.string({ enum: ["a"] }),
-				role: readonly(v.number()),
+				role: v.noInput(v.number()),
 			}),
 			v.object({
 				kind: v.string({ enum: ["a"] }),
@@ -239,25 +221,25 @@ describe("http field attrs", () => {
 		});
 	});
 
-	it("wrong-typed readonly keys still reject on projected fallback", () => {
+	it("wrong-typed noInput keys still reject on projected fallback", () => {
 		const schema = v.union([
 			v.object({
 				kind: v.string({ enum: ["user"] }),
 				id: v.string(),
-				role: readonly(v.string()),
+				role: v.noInput(v.string()),
 			}),
 		]);
 		expect(() =>
 			wireInput(schema, { kind: "user", id: "1", role: 123 as never }),
-		).toThrow(/readonly field/);
+		).toThrow(/noInput field/);
 	});
 
-	it("nested unions reject wrong-typed readonly keys too", () => {
+	it("nested unions reject wrong-typed noInput keys too", () => {
 		const schema = v.object({
 			profile: v.union([
 				v.object({
 					kind: v.string({ enum: ["user"] }),
-					role: readonly(v.string()),
+					role: v.noInput(v.string()),
 				}),
 			]),
 		});
@@ -265,6 +247,6 @@ describe("http field attrs", () => {
 			wireInput(schema, {
 				profile: { kind: "user", role: 123 as never },
 			}),
-		).toThrow(/readonly field/);
+		).toThrow(/noInput field/);
 	});
 });

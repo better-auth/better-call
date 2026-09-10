@@ -6,6 +6,7 @@ import { matchesTarget, type OnEntry } from "./module";
 import {
 	type AttrBag,
 	asType,
+	attachViews,
 	type DefineOutput,
 	type InferArgs,
 	type InferInput,
@@ -39,6 +40,17 @@ export interface VarDefination<
 	 * fold same-key helpers onto the value.
 	 */
 	$merge?: true | boolean;
+	/**
+	 * Fields without `noInput`. Projects inner `schema`; value type `T`
+	 * stays the full row. Typed loosely so declaration emit stays compact -
+	 * use {@link SchemaInputOf} at call sites that need the projected shape.
+	 */
+	readonly input: VarDefination<N, T, any, Source>;
+	/**
+	 * Fields without `noOutput`. Projects inner `schema`; value type `T`
+	 * stays the full row.
+	 */
+	readonly output: VarDefination<N, T, any, Source>;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;
@@ -104,7 +116,7 @@ export const makeVar = (name: string, options: any = {}): any => {
 			}),
 	};
 	varRegistry.set(name, def);
-	return def;
+	return attachViews(def);
 };
 
 /**

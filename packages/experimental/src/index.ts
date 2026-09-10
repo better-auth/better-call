@@ -2,7 +2,7 @@ import { type EventDefination, extendEvent, isEvent, makeEvent } from "./event";
 import { type Fn, fnImpl } from "./fn";
 import { extendVar, on } from "./module";
 
-import { type InferInput, vTypes } from "./schema";
+import { type InferInput, noInput, noOutput, vTypes } from "./schema";
 import { makeStorage } from "./storage";
 import type { LiteralString } from "./types";
 import {
@@ -109,6 +109,10 @@ interface V {
 	storage: typeof makeStorage;
 	on: typeof on;
 	extend: typeof extend;
+	/** Exclude a field from `.input` / fn input validation. */
+	noInput: typeof noInput;
+	/** Exclude a field from `.output` / fn output validation. */
+	noOutput: typeof noOutput;
 	string: (typeof vTypes)["string"];
 	number: (typeof vTypes)["number"];
 	boolean: (typeof vTypes)["boolean"];
@@ -129,6 +133,8 @@ export const v: V = {
 	storage: makeStorage,
 	on,
 	extend,
+	noInput,
+	noOutput,
 	...vTypes,
 };
 
@@ -201,17 +207,26 @@ export {
 } from "./module";
 export {
 	type AttrBag,
+	attachViews,
 	attrsOf,
 	type FieldPred,
 	type InferArgs,
 	type InferInput,
 	type InferOutput,
 	type InferType,
+	isNoInput,
+	isNoOutput,
+	noInput,
+	noOutput,
 	omitFields,
 	type ParseFieldsOptions,
 	parseFields,
 	rejectFields,
+	type SchemaInputOf,
+	type SchemaOutputOf,
 	type TypeDefination,
+	toInputSchema,
+	toOutputSchema,
 	withAttrs,
 } from "./schema";
 export type {

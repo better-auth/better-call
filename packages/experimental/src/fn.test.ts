@@ -73,19 +73,33 @@ describe("v.fn call forms", () => {
 		expect(() => make({ ok: "nope" })()).toThrow(/fnt\.split\.output/);
 	});
 
-	it("http.returned fields are stripped from output validation", async () => {
-		const { returned } = await import("./plugins/http/attrs");
-		const user = v.var("fnt_returned_user", {
+	it("v.noOutput fields are stripped from output validation", async () => {
+		const user = v.var("fnt_no_output_user", {
 			schema: v.object({
 				id: v.string(),
-				password: returned(v.string()),
+				password: v.noOutput(v.string()),
 			}),
 		});
-		const f = v.fn("fnt.returned", { output: user }, () => ({
+		const f = v.fn("fnt.noOutput", { output: user }, () => ({
 			id: "1",
 			password: "secret",
 		}));
 		expect(f()).toEqual({ id: "1" });
+	});
+
+	it("v.noInput fields are rejected on in-process fn input", () => {
+		const f = v.fn(
+			"fnt.noInput",
+			{
+				input: {
+					email: v.string(),
+					role: v.noInput(v.string({ optional: true })),
+				},
+			},
+			(c) => c.input,
+		);
+		expect(() => f({ email: "a@b.c", role: "admin" })).toThrow(/noInput field/);
+		expect(f({ email: "a@b.c" })).toEqual({ email: "a@b.c" });
 	});
 });
 

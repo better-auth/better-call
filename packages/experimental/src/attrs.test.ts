@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { ValidationError } from "./error";
 import { v } from "./index";
 import {
 	asType,
 	attrsOf,
+	isNoInput,
+	isNoOutput,
 	omitFields,
 	parseFields,
 	rejectFields,
+	type SchemaInputOf,
+	type SchemaOutputOf,
 	validate,
 	withAttrs,
 } from "./schema";
@@ -16,10 +20,10 @@ describe("schema $attrs", () => {
 		const base = v.string();
 		const once = withAttrs(base, "db", { unique: true });
 		const twice = withAttrs(once, "db", { index: true });
-		const both = withAttrs(twice, "http", { serverOnly: true });
+		const both = withAttrs(twice, "http", { tag: true });
 
 		expect(attrsOf(twice, "db")).toEqual({ unique: true, index: true });
-		expect(attrsOf(both, "http")).toEqual({ serverOnly: true });
+		expect(attrsOf(both, "http")).toEqual({ tag: true });
 		expect(attrsOf(both)?.db).toEqual({ unique: true, index: true });
 		// Original untouched.
 		expect(attrsOf(base)).toBeUndefined();
@@ -44,11 +48,11 @@ describe("schema $attrs", () => {
 			default: null,
 			schema: v.object({ id: v.string() }),
 		});
-		const marked = withAttrs(user, "http", { serverOnly: true });
+		const marked = withAttrs(user, "http", { tag: true });
 		expect(marked.$var).toBe(true);
 		expect(marked.name).toBe("attr_user");
 		expect(typeof marked.customize).toBe("function");
-		expect(attrsOf(marked, "http")).toEqual({ serverOnly: true });
+		expect(attrsOf(marked, "http")).toEqual({ tag: true });
 		// Field schema on the var is untouched.
 		expect(attrsOf(marked.schema)).toBeUndefined();
 	});
@@ -58,27 +62,85 @@ describe("schema $attrs", () => {
 			default: null,
 			schema: v.object({ id: v.string() }),
 		});
-		const marked = withAttrs(user, "http", { serverOnly: true });
+		const marked = withAttrs(user, "http", { tag: true });
 		const widened = marked.customize({
 			schema: (c) => c.add({ role: c.string() }),
 		});
 		expect(widened.$var).toBe(true);
-		expect(attrsOf(widened, "http")).toEqual({ serverOnly: true });
+		expect(attrsOf(widened, "http")).toEqual({ tag: true });
 		expect(
 			(widened.schema as { shape: Record<string, unknown> }).shape.role,
 		).toBeDefined();
 	});
 });
 
+describe("v.noInput / v.noOutput and schema views", () => {
+	const user = v.var("attr_views_user", {
+		schema: v.object({
+			id: v.noInput(v.string()),
+			email: v.string(),
+			passwordHash: v.noOutput(v.string()),
+		}),
+	});
+
+	it("marks $attrs.v", () => {
+		expect(attrsOf(v.noInput(v.string()), "v")).toEqual({ noInput: true });
+		expect(attrsOf(v.noOutput(v.string()), "v")).toEqual({ noOutput: true });
+		expect(isNoInput(v.noInput(v.string()))).toBe(true);
+		expect(isNoOutput(v.noOutput(v.string()))).toBe(true);
+	});
+
+	it("var.input and var.output project nested fields", () => {
+		const inputShape = asType(user.input.schema).shape as Record<
+			string,
+			unknown
+		>;
+		const outputShape = asType(user.output.schema).shape as Record<
+			string,
+			unknown
+		>;
+		expect(Object.keys(inputShape).sort()).toEqual(["email", "passwordHash"]);
+		expect(Object.keys(outputShape).sort()).toEqual(["email", "id"]);
+	});
+
+	it("type .input / .output match omitFields", () => {
+		const schema = v.object({
+			id: v.noInput(v.string()),
+			email: v.string(),
+			secret: v.noOutput(v.string()),
+		});
+		expect(Object.keys(asType(schema.input).shape as object).sort()).toEqual([
+			"email",
+			"secret",
+		]);
+		expect(Object.keys(asType(schema.output).shape as object).sort()).toEqual([
+			"email",
+			"id",
+		]);
+	});
+
+	it("SchemaInputOf / SchemaOutputOf drop gated keys", () => {
+		type Row = {
+			id: ReturnType<typeof v.noInput<ReturnType<typeof v.string>>>;
+			email: ReturnType<typeof v.string>;
+			passwordHash: ReturnType<typeof v.noOutput<ReturnType<typeof v.string>>>;
+		};
+		expectTypeOf<keyof SchemaInputOf<Row>>().toEqualTypeOf<
+			"email" | "passwordHash"
+		>();
+		expectTypeOf<keyof SchemaOutputOf<Row>>().toEqualTypeOf<"id" | "email">();
+	});
+});
+
 describe("omitFields / rejectFields / parseFields", () => {
 	const dropMarked = (schema: unknown) =>
-		attrsOf(schema, "http")?.readonly === true;
+		attrsOf(schema, "v")?.noInput === true;
 	const shape = v.object({
 		id: v.string(),
-		role: withAttrs(v.string(), "http", { readonly: true }),
+		role: v.noInput(v.string()),
 		meta: v.object({
 			note: v.string(),
-			secret: withAttrs(v.string(), "http", { readonly: true }),
+			secret: v.noInput(v.string()),
 		}),
 	});
 
