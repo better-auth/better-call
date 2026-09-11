@@ -12,6 +12,7 @@ import {
 	type InferArgs,
 	type InferInput,
 	isVar,
+	type SchemaInputOf,
 	type TypeDefination,
 	type vTypes,
 } from "./schema";
@@ -683,7 +684,7 @@ export type VarExtensionsFor<PL, K extends string> = UnionToIntersection<
 type VarExtArgsEntry<M, K extends string> = M extends unknown
 	? {
 			[P in keyof M]: M[P] extends VarExtension<K, infer S>
-				? InferArgs<S>
+				? InferArgs<SchemaInputOf<S>>
 				: never;
 		}[keyof M]
 	: never;
@@ -703,7 +704,7 @@ type VarShadowArgsEntry<M, K extends string> = M extends unknown
 					? never
 					: [NonNullable<S>] extends [never]
 						? never
-						: InferArgs<NonNullable<S>>
+						: InferArgs<SchemaInputOf<NonNullable<S>>>
 				: never;
 		}[keyof M]
 	: never;
@@ -728,7 +729,7 @@ type VarShadowValueEntry<M, K extends string> = M extends unknown
 					? never
 					: [NonNullable<S>] extends [never]
 						? never
-						: InferInput<NonNullable<S>>
+						: InferInput<SchemaInputOf<NonNullable<S>>>
 				: never;
 		}[keyof M]
 	: never;

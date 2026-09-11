@@ -747,6 +747,40 @@ describe("fn schema var widening", () => {
 			},
 		);
 	});
+
+	it("input: var.input.customize drops noInput from call args under extend", () => {
+		const user = v.var("fnt_sign_up_user", {
+			schema: v.object({
+				id: v.string(),
+				name: v.string({ optional: true }),
+				private: v.noInput(v.noOutput(v.boolean({ default: false }))),
+				createdAt: v.noInput(v.date()),
+			}),
+		});
+		const withEmail = v.extend(user, {
+			email: v.string(),
+			emailVerified: v.noInput(v.boolean({ default: false })),
+		});
+		const signUp = v.fn({ use: [{ user, withEmail }] }).fn(
+			"fnt.sign_up",
+			{
+				input: user.input.customize({
+					schema: (t) => t.add({ password: t.string() }),
+				}),
+			},
+			(c) => c.input,
+		);
+		type Arg = Parameters<typeof signUp>[0];
+		expectTypeOf<Arg>().toEqualTypeOf<{
+			id: string;
+			name?: string | null;
+			email: string;
+			password: string;
+		}>();
+		expectTypeOf<keyof Arg>().toEqualTypeOf<
+			"id" | "name" | "email" | "password"
+		>();
+	});
 });
 
 describe("declared errors", () => {
