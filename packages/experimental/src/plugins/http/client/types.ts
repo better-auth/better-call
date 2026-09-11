@@ -1,6 +1,11 @@
 import type { BetterFetchOption } from "@better-fetch/fetch";
 import type { FnDefination } from "../../../fn";
 import type { InferArgs } from "../../../schema";
+import type {
+	NestPathEndpoint,
+	Prettify,
+	UnionToIntersection,
+} from "../path-api";
 import type { Store, StoreSnapshot } from "./store";
 
 export type ClientResult<T> = {
@@ -81,19 +86,33 @@ type ClientMethod<I, R, DefaultThrow extends boolean> = unknown extends I
 				opts?: O & ClientFetchOptions,
 			) => Promise<ClientReturn<R, ResolveThrow<DefaultThrow, O>>>;
 
-/** Map a routes module to a nested client call tree. */
-export type InferClientAPI<M, DefaultThrow extends boolean = false> = {
-	[K in keyof M]: M[K] extends { $fn: true; $route: unknown }
-		? M[K] extends FnDefination<any, infer R, any, infer I, any, any>
-			? ClientMethod<I, Awaited<R>, DefaultThrow>
-			: <const O extends ClientFetchOptions | undefined = undefined>(
-					input?: unknown,
-					opts?: O & ClientFetchOptions,
-				) => Promise<ClientReturn<unknown, ResolveThrow<DefaultThrow, O>>>
+type ClientEndpoint<F, DefaultThrow extends boolean> =
+	F extends FnDefination<any, infer R, any, infer I, any, any>
+		? ClientMethod<I, Awaited<R>, DefaultThrow>
+		: <const O extends ClientFetchOptions | undefined = undefined>(
+				input?: unknown,
+				opts?: O & ClientFetchOptions,
+			) => Promise<ClientReturn<unknown, ResolveThrow<DefaultThrow, O>>>;
+
+/** One nested path tree per route leaf (export structure ignored). */
+type ClientPathLeaves<M, DefaultThrow extends boolean> = {
+	[K in keyof M]: M[K] extends {
+		$fn: true;
+		$route: { path: infer P extends string };
+	}
+		? NestPathEndpoint<P, ClientEndpoint<M[K], DefaultThrow>>
 		: M[K] extends Record<string, unknown>
-			? InferClientAPI<M[K], DefaultThrow>
+			? ClientPathLeaves<M[K], DefaultThrow>
 			: never;
-};
+}[keyof M];
+
+/**
+ * Client call tree nested by **route path** (`/sign-up/email` →
+ * `client.signUp.email`), not by export name.
+ */
+export type InferClientAPI<M, DefaultThrow extends boolean = false> = Prettify<
+	UnionToIntersection<ClientPathLeaves<M, DefaultThrow>>
+>;
 
 export type CreateClientOptions<
 	R extends Record<string, unknown> = Record<string, unknown>,

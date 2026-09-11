@@ -62,6 +62,18 @@ export {
 } from "./error";
 export type { CreateHandlerContext, CreateHandlerOptions } from "./handle";
 export { createHandler, handler } from "./handle";
+export type {
+	InferServerAPI,
+	NestPathEndpoint,
+	PathRouteLeaf,
+	PathToKeys,
+} from "./path-api";
+export {
+	buildPathTree,
+	buildServerApi,
+	flattenRouteLeaves,
+	pathToClientKeys,
+} from "./path-api";
 export type { RedirectStatus } from "./redirect";
 export {
 	applyRedirect,
@@ -87,7 +99,7 @@ export {
 	route,
 	routeVar,
 } from "./route";
-export type { CollectedRoute, CreateRouterOptions } from "./router";
+export type { CollectedRoute, CreateRouterOptions, Router } from "./router";
 export { collectRoutes, createRouter } from "./router";
 
 export const http = {

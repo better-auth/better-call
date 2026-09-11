@@ -1,6 +1,7 @@
 import type { FnDefination } from "../../fn";
 import { isFn, isNamespace, type Module } from "../../module";
 import { type CreateHandlerOptions, createHandler } from "./handle";
+import { buildServerApi, type InferServerAPI } from "./path-api";
 import { getRouteMeta, INVALIDATE_HEADER, type RouteMeta } from "./route";
 
 export type CollectedRoute = RouteMeta & {
@@ -63,21 +64,36 @@ export type CreateRouterOptions<PL extends readonly Module[] = readonly []> =
 		basePath?: string;
 	};
 
+/** Fetch handler plus in-process server API keyed by export names. */
+export type Router<
+	R extends Record<string, unknown> = Record<string, unknown>,
+> = ((request: Request) => Promise<Response>) & {
+	/** Call endpoints in-process by **export name** (`api.signUpEmail`). */
+	api: InferServerAPI<R>;
+	/** Collected `$route` endpoints (path + method + export name). */
+	routes: CollectedRoute[];
+};
+
 /**
  * Path+method dispatcher over fns that declare
  * `use: [route({ path, method })]`.
  *
+ * Returns a fetch handler with:
+ * - `.api` — in-process calls keyed by **variable/export name**
+ * - `.routes` — the collected route table
+ *
  * On success, writes `x-better-call-invalidate` from the final
  * `c.route.invalidate` (static seed plus any runtime pushes).
  */
-export function createRouter(
-	routes: Record<string, unknown>,
+export function createRouter<const R extends Record<string, unknown>>(
+	routes: R,
 	options?: CreateRouterOptions,
-): (request: Request) => Promise<Response> {
+): Router<R> {
 	const table = collectRoutes(routes);
 	const basePath = options?.basePath?.replace(/\/$/, "") ?? "";
+	const api = buildServerApi(routes) as InferServerAPI<R>;
 
-	return createHandler(async (c) => {
+	const handle = createHandler(async (c) => {
 		const req = c.req;
 		if (!req) {
 			c.res = c.res ?? { headers: new Headers() };
@@ -136,4 +152,6 @@ export function createRouter(
 
 		return result;
 	}, options);
+
+	return Object.assign(handle, { api, routes: table }) as Router<R>;
 }

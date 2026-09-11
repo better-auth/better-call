@@ -1,6 +1,6 @@
 import { createFetch } from "@better-fetch/fetch";
-import { isFn, isNamespace } from "../../../module";
-import { getRouteMeta, INVALIDATE_HEADER } from "../route";
+import { buildPathTree, flattenRouteLeaves } from "../path-api";
+import { INVALIDATE_HEADER } from "../route";
 import { createStore, type Store } from "./store";
 import type {
 	ClientFetchOptions,
@@ -26,30 +26,6 @@ const parseInvalidateHeader = (value: string | null): string[] => {
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
-};
-
-const collectRouteTree = (
-	module: Record<string, unknown>,
-): Record<string, unknown> => {
-	const out: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(module)) {
-		if (isFn(value)) {
-			const meta = getRouteMeta(value);
-			if (meta) {
-				out[key] = {
-					$route: meta,
-					$fn: true,
-					$schema: (value as { $schema?: unknown }).$schema,
-				};
-			}
-			continue;
-		}
-		if (isNamespace(value)) {
-			const nested = collectRouteTree(value as Record<string, unknown>);
-			if (Object.keys(nested).length > 0) out[key] = nested;
-		}
-	}
-	return out;
 };
 
 const createProxy = (
@@ -180,7 +156,7 @@ export function createClient<const O extends CreateClientOptions<any>>(
 		return wrapped;
 	};
 
-	const tree = collectRouteTree(options.routes);
+	const tree = buildPathTree(flattenRouteLeaves(options.routes));
 	const api = createProxy(tree, runFetch);
 
 	const client = api as InferClientAPI<

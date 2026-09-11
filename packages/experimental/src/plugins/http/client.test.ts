@@ -118,6 +118,43 @@ describe("route()", () => {
 		const table = collectRoutes(routes);
 		expect(table.map((r) => r.name).sort()).toEqual(["getSession", "signIn"]);
 	});
+
+	it("client nests by path; router.api uses export names", async () => {
+		session = { user: null };
+		const router = createRouter(routes);
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes,
+			fetchOptions: {
+				customFetchImpl: async (url, init) => router(new Request(url, init)),
+			},
+		});
+
+		// Path `/sign-in/email` → client.signIn.email (not export name `signIn`)
+		expectTypeOf(client.signIn.email).toBeCallableWith({
+			email: "a@b.c",
+			password: "x",
+		});
+		expectTypeOf(client.getSession).toBeCallableWith();
+
+		// Server API keeps the export name
+		expectTypeOf(router.api.signIn).toEqualTypeOf(signIn);
+		expectTypeOf(router.api.getSession).toEqualTypeOf(getSession);
+
+		const fromServer = await router.api.signIn({
+			email: "server@x.com",
+			password: "pw",
+		});
+		expect(fromServer).toEqual({ token: "tok_1" });
+		expect(session.user?.email).toBe("server@x.com");
+
+		const fromClient = await client.signIn.email(
+			{ email: "client@x.com", password: "pw" },
+			{ throw: true },
+		);
+		expect(fromClient).toEqual({ token: "tok_1" });
+		expect(session.user?.email).toBe("client@x.com");
+	});
 });
 
 describe("createRouter", () => {
@@ -198,7 +235,7 @@ describe("createClient", () => {
 			user: null,
 		});
 
-		const { data, error } = await client.signIn({
+		const { data, error } = await client.signIn.email({
 			email: "ada@lovelace.dev",
 			password: "pw",
 		});
@@ -246,7 +283,7 @@ describe("createClient", () => {
 		await sessionStore?.refetch();
 		expect(sessionStore?.get().data?.user?.email).toBe("old@x.com");
 
-		await client.signIn(
+		await client.signIn.email(
 			{ email: "new@x.com", password: "pw" },
 			{ disableInvalidate: true },
 		);
@@ -265,7 +302,7 @@ describe("createClient", () => {
 			},
 		});
 
-		const data = await client.signIn({
+		const data = await client.signIn.email({
 			email: "ada@lovelace.dev",
 			password: "pw",
 		});
@@ -286,7 +323,7 @@ describe("createClient", () => {
 			},
 		});
 
-		const data = await client.signIn(
+		const data = await client.signIn.email(
 			{ email: "ada@lovelace.dev", password: "pw" },
 			{ throw: true },
 		);
@@ -306,7 +343,7 @@ describe("createClient", () => {
 			},
 		});
 
-		const result = await client.signIn(
+		const result = await client.signIn.email(
 			{ email: "ada@lovelace.dev", password: "pw" },
 			{ throw: false },
 		);
