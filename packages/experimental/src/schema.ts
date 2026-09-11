@@ -852,19 +852,22 @@ export type ParseFieldsOptions = {
 };
 
 /**
- * Parse `value` against `schema`, optionally rejecting and/or omitting
- * fields by attribute predicate. Core stays attribute-key agnostic -
- * callers pass the predicates (e.g. `attrsOf(s, "v")?.noInput`).
+ * Validate `value` against `schema` (vars unwrap to their inner schema).
+ * Return type is the post-transform shape — same idea as Zod's `.parse()`.
  *
- * Unions are special: arm selection uses the FULL schema (so a gated
- * field that fails typechecks on an earlier arm does not get projected
- * away and steal the match), then reject/omit run on that arm only.
+ * Optionally reject and/or omit fields by attribute predicate; core stays
+ * attribute-key agnostic (e.g. `attrsOf(s, "v")?.noInput`). Unions select
+ * an arm with the FULL schema first, then reject/omit on that arm only.
+ *
+ * With async defaults the runtime value may be a Promise; await when needed.
+ * `omit` / `reject` do not narrow the return type — pass `schema.input` /
+ * a projected schema when you want that shape typed.
  */
 export const parseFields = <S>(
 	schema: S,
 	value: unknown,
 	options: ParseFieldsOptions = {},
-): unknown => {
+): InferInput<S> => {
 	const path = options.path ?? "input";
 	const reject = options.reject;
 	const omit = options.omit;
@@ -936,14 +939,14 @@ export const parseFields = <S>(
 			}
 			return afterMatch(matched);
 		};
-		return tryArm(0);
+		return tryArm(0) as InferInput<S>;
 	}
 
 	const projected = omit ? omitFields(schema, omit) : schema;
 	const finish = () => validate(asType(projected), value, path);
-	if (!reject) return finish();
+	if (!reject) return finish() as InferInput<S>;
 	const gated = rejectFields(schema, value, reject, path, rejectMessage);
-	return isThenable(gated) ? gated.then(finish) : finish();
+	return (isThenable(gated) ? gated.then(finish) : finish()) as InferInput<S>;
 };
 
 const isThenable = (value: unknown): value is Promise<unknown> =>

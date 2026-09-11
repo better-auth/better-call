@@ -235,6 +235,16 @@ describe("omitFields / rejectFields / parseFields", () => {
 		).toThrow(ValidationError);
 	});
 
+	it("parseFields infers the post-validate shape (vars unwrap)", () => {
+		const user = v.var("parse_infer_user", {
+			schema: v.object({ id: v.string(), n: v.number() }),
+		});
+		const parsed = parseFields(user, { id: "1", n: 2 });
+		expect(parsed).toEqual({ id: "1", n: 2 });
+		expectTypeOf(parsed).toEqualTypeOf<{ id: string; n: number }>();
+		expectTypeOf(parsed).toEqualTypeOf<InferInput<typeof user>>();
+	});
+
 	it("omitFields projects through a var schema", () => {
 		const user = v.var("parse_user", {
 			schema: shape,

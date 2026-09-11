@@ -30,10 +30,14 @@ export type RouteState = {
 	invalidate: string[];
 };
 
-export type RouteMeta = {
-	path: string;
-	method: string;
-	invalidate: readonly string[];
+export type RouteMeta<
+	P extends string = string,
+	M extends string = string,
+	I extends readonly string[] = readonly string[],
+> = {
+	path: P;
+	method: M;
+	invalidate: I;
 };
 
 /** Header carrying the final invalidate list on successful responses. */

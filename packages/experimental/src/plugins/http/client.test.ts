@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "../../index";
 import {
 	collectRoutes,
@@ -55,6 +55,28 @@ const signIn = v.fn(
 const routes = { getSession, signIn };
 
 describe("route()", () => {
+	it("keeps path/method/invalidate as string literals", () => {
+		const r = route({
+			path: "/sign-in/email",
+			method: "POST",
+			invalidate: ["session"],
+		});
+		expectTypeOf(r.path).toEqualTypeOf<"/sign-in/email">();
+		expectTypeOf(r.method).toEqualTypeOf<"POST">();
+		expectTypeOf(r.invalidate).toEqualTypeOf<readonly ["session"]>();
+
+		const getSessionRoute = getSession.$route;
+		const signInRoute = signIn.$route;
+		if (!getSessionRoute || !signInRoute) {
+			throw new Error("expected $route on stamped fns");
+		}
+		expectTypeOf(getSessionRoute.path).toEqualTypeOf<"/get-session">();
+		expectTypeOf(getSessionRoute.method).toEqualTypeOf<"GET">();
+		expectTypeOf(signInRoute.path).toEqualTypeOf<"/sign-in/email">();
+		expectTypeOf(signInRoute.method).toEqualTypeOf<"POST">();
+		expectTypeOf(signInRoute.invalidate).toEqualTypeOf<readonly ["session"]>();
+	});
+
 	it("stamps $route on the fn", () => {
 		expect(getRouteMeta(getSession)).toEqual({
 			path: "/get-session",
@@ -76,6 +98,20 @@ describe("route()", () => {
 			revokeOthers: true,
 		});
 		expect(result).toEqual({ token: "tok_1" });
+	});
+
+	it("allows {} when the endpoint has no input", () => {
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes,
+			fetchOptions: {
+				customFetchImpl: async () => new Response("{}"),
+			},
+		});
+		// No-input GET: omit, undefined, or {}.
+		expectTypeOf(client.getSession).toBeCallableWith();
+		expectTypeOf(client.getSession).toBeCallableWith({});
+		expectTypeOf(client.getSession).toBeCallableWith(undefined);
 	});
 
 	it("collectRoutes finds route fns", () => {
@@ -215,5 +251,74 @@ describe("createClient", () => {
 			{ disableInvalidate: true },
 		);
 		expect(sessionStore?.get().data?.user?.email).toBe("old@x.com");
+	});
+
+	it("create-time throw: true returns data only", async () => {
+		session = { user: null };
+		const handler = createRouter(routes);
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes,
+			fetchOptions: {
+				throw: true,
+				customFetchImpl: async (url, init) => handler(new Request(url, init)),
+			},
+		});
+
+		const data = await client.signIn({
+			email: "ada@lovelace.dev",
+			password: "pw",
+		});
+		expect(data).toEqual({ token: "tok_1" });
+		expectTypeOf(data).toEqualTypeOf<{ token: string }>();
+		// @ts-expect-error result is data, not { data, error }
+		expect(data.error).toBeUndefined();
+	});
+
+	it("per-call throw: true returns data only", async () => {
+		session = { user: null };
+		const handler = createRouter(routes);
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes,
+			fetchOptions: {
+				customFetchImpl: async (url, init) => handler(new Request(url, init)),
+			},
+		});
+
+		const data = await client.signIn(
+			{ email: "ada@lovelace.dev", password: "pw" },
+			{ throw: true },
+		);
+		expect(data).toEqual({ token: "tok_1" });
+		expectTypeOf(data).toEqualTypeOf<{ token: string }>();
+	});
+
+	it("create-time throw: true can be overridden per-call", async () => {
+		session = { user: null };
+		const handler = createRouter(routes);
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes,
+			fetchOptions: {
+				throw: true,
+				customFetchImpl: async (url, init) => handler(new Request(url, init)),
+			},
+		});
+
+		const result = await client.signIn(
+			{ email: "ada@lovelace.dev", password: "pw" },
+			{ throw: false },
+		);
+		expect(result.error).toBeNull();
+		expect(result.data).toEqual({ token: "tok_1" });
+		expectTypeOf(result).toEqualTypeOf<{
+			data: { token: string } | null;
+			error: {
+				message: string;
+				status: number;
+				statusText: string;
+			} | null;
+		}>();
 	});
 });

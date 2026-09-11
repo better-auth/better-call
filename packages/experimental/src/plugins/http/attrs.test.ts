@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { ValidationError } from "../../error";
 import { v } from "../../index";
-import { asType, attrsOf, validate } from "../../schema";
+import {
+	asType,
+	attrsOf,
+	type InferInput,
+	type SchemaInputOf,
+	validate,
+} from "../../schema";
 import {
 	clientSchema,
 	fromJsonBody,
@@ -74,20 +80,23 @@ describe("http field attrs", () => {
 	});
 
 	it("wireInput accepts client fields and rejects smuggled noInput", () => {
-		expect(
-			wireInput(v.object(shape), {
-				id: "1",
-				password: "secret",
-				meta: { note: "hi", hash: "h" },
-			}),
-		).toEqual({
+		const schema = v.object(shape);
+		const parsed = wireInput(schema, {
 			id: "1",
 			password: "secret",
 			meta: { note: "hi", hash: "h" },
 		});
-		expect(() =>
-			wireInput(v.object(shape), { id: "1", role: "admin" }),
-		).toThrow(ValidationError);
+		expect(parsed).toEqual({
+			id: "1",
+			password: "secret",
+			meta: { note: "hi", hash: "h" },
+		});
+		expectTypeOf(parsed).toEqualTypeOf<
+			InferInput<SchemaInputOf<typeof schema>>
+		>();
+		expect(() => wireInput(schema, { id: "1", role: "admin" })).toThrow(
+			ValidationError,
+		);
 	});
 
 	it("in-process validate still accepts noInput fields on the full schema", () => {

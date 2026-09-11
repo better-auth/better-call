@@ -8,6 +8,7 @@ import type {
 	ClientResult,
 	CreateClientOptions,
 	InferClientAPI,
+	InferThrowFromOptions,
 	ResolvedResource,
 } from "./types";
 
@@ -57,7 +58,7 @@ const createProxy = (
 		route: RouteNode,
 		input: unknown,
 		opts?: ClientFetchOptions,
-	) => Promise<ClientResult<unknown>>,
+	) => Promise<unknown>,
 ): Record<string, unknown> => {
 	const target: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(tree)) {
@@ -79,9 +80,9 @@ const createProxy = (
 	return target;
 };
 
-export function createClient<const R extends Record<string, unknown>>(
-	options: CreateClientOptions<R>,
-): InferClientAPI<R> & {
+export function createClient<const O extends CreateClientOptions<any>>(
+	options: O,
+): InferClientAPI<O["routes"], InferThrowFromOptions<O>> & {
 	$fetch: ReturnType<typeof createFetch>;
 	$store: {
 		resources: Record<string, ResolvedResource>;
@@ -89,9 +90,14 @@ export function createClient<const R extends Record<string, unknown>>(
 	};
 	plugins: ClientPlugin[];
 } {
+	const defaultThrow = options.fetchOptions?.throw === true;
+	// Always capture as a value at the transport layer so we can still read
+	// invalidate headers; `throw` is applied after success/error is known.
+	const { throw: _throwOpt, ...restFetchOptions } = options.fetchOptions ?? {};
 	const $fetch = createFetch({
 		baseURL: options.baseURL,
-		...options.fetchOptions,
+		...restFetchOptions,
+		throw: false,
 	});
 
 	const resources: Record<string, ResolvedResource> = {};
@@ -110,8 +116,9 @@ export function createClient<const R extends Record<string, unknown>>(
 		route: RouteNode,
 		input: unknown,
 		opts?: ClientFetchOptions,
-	): Promise<ClientResult<unknown>> => {
+	): Promise<unknown> => {
 		const { disableInvalidate, ...fetchOpts } = opts ?? {};
+		const shouldThrow = opts?.throw ?? defaultThrow;
 		const method = route.method.toUpperCase();
 		const isGet = method === "GET" || method === "HEAD";
 
@@ -121,6 +128,7 @@ export function createClient<const R extends Record<string, unknown>>(
 				? { query: (input as Record<string, unknown>) ?? undefined }
 				: { body: input as Record<string, unknown> }),
 			...fetchOpts,
+			throw: false,
 		} as Parameters<typeof $fetch>[1]);
 
 		const data = (result as { data?: unknown }).data ?? null;
@@ -146,7 +154,20 @@ export function createClient<const R extends Record<string, unknown>>(
 			}
 		}
 
-		return {
+		if (shouldThrow) {
+			if (err) {
+				const error = new Error(err.message ?? "Request failed") as Error & {
+					status?: number;
+					statusText?: string;
+				};
+				error.status = err.status ?? 500;
+				error.statusText = err.statusText ?? "";
+				throw error;
+			}
+			return data;
+		}
+
+		const wrapped: ClientResult<unknown> = {
 			data: err ? null : data,
 			error: err
 				? {
@@ -156,12 +177,16 @@ export function createClient<const R extends Record<string, unknown>>(
 					}
 				: null,
 		};
+		return wrapped;
 	};
 
 	const tree = collectRouteTree(options.routes);
 	const api = createProxy(tree, runFetch);
 
-	const client = api as InferClientAPI<R> & {
+	const client = api as InferClientAPI<
+		O["routes"],
+		InferThrowFromOptions<O>
+	> & {
 		$fetch: typeof $fetch;
 		$store: {
 			resources: Record<string, ResolvedResource>;
@@ -177,16 +202,18 @@ export function createClient<const R extends Record<string, unknown>>(
 	for (const plugin of client.plugins) {
 		const ctx = {
 			client: client as unknown as Record<string, unknown>,
-			$fetch: (path: string, fetchOpts?: ClientFetchOptions) =>
-				runFetch(
+			$fetch: async (path: string, fetchOpts?: ClientFetchOptions) => {
+				const result = await runFetch(
 					{
 						path,
 						method: String(fetchOpts?.method ?? "GET"),
 						invalidate: [],
 					},
 					fetchOpts?.body ?? fetchOpts?.query,
-					fetchOpts,
-				),
+					{ ...fetchOpts, throw: false },
+				);
+				return result as ClientResult<unknown>;
+			},
 		};
 		const pluginResources = plugin.getResources?.(ctx) ?? {};
 		for (const [name, resource] of Object.entries(pluginResources)) {
@@ -223,4 +250,11 @@ export function createClient<const R extends Record<string, unknown>>(
 	return client;
 }
 
-export type { ClientPlugin, ClientResult, CreateClientOptions, InferClientAPI };
+export type {
+	ClientPlugin,
+	ClientResult,
+	CreateClientOptions,
+	InferClientAPI,
+	InferThrowDefault,
+	InferThrowFromOptions,
+};

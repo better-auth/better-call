@@ -1,11 +1,13 @@
 import { ValidationError } from "../../error";
 import {
+	type InferInput,
 	isNoInput,
 	isNoOutput,
 	noInput,
 	omitFields,
 	parseFields,
 	rejectFields,
+	type SchemaInputOf,
 } from "../../schema";
 
 /** HTTP-facing alias of {@link noInput} - same `$attrs.v.noInput` gate. */
@@ -43,25 +45,26 @@ export const rejectReadonly = (
 /**
  * Wire-side input gate: reject smuggled noInput keys, then validate
  * against {@link clientSchema}. Built on core {@link parseFields}.
+ * Typed as the client projection ({@link SchemaInputOf}).
  */
 export const wireInput = <S>(
 	schema: S,
 	value: unknown,
 	path = "input",
-): unknown =>
+): InferInput<SchemaInputOf<S>> =>
 	parseFields(schema, value, {
 		path,
 		reject: isNoInput,
 		omit: isNoInput,
 		rejectMessage: "noInput field is not allowed over the wire",
-	});
+	}) as InferInput<SchemaInputOf<S>>;
 
 /** Parse a JSON request body and run it through {@link wireInput}. */
 export const fromJsonBody = async <S>(
 	request: Request,
 	schema: S,
 	path = "body",
-): Promise<unknown> => {
+): Promise<InferInput<SchemaInputOf<S>>> => {
 	let body: unknown;
 	try {
 		body = await request.json();

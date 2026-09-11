@@ -243,6 +243,33 @@ type TerminatingFn<
 	O = unknown,
 > = PublicFn<A, R, K, I, P, Er, WithSeedOpaque, O>;
 
+/**
+ * Pull HTTP `route({ path, method, invalidate })` meta out of a `use`
+ * list so `$route.path` stays a string literal (not widened `string`).
+ * Structural — no import from the http plugin.
+ */
+type ExtractHttpRoute<PL> = PL extends readonly unknown[]
+	? {
+			[Idx in keyof PL]: PL[Idx] extends {
+				readonly $route: true;
+				readonly path: infer Path extends string;
+				readonly method: infer Method extends string;
+				readonly invalidate?: infer Inv;
+			}
+				? {
+						path: Path;
+						method: Method;
+						invalidate: Inv extends readonly string[] ? Inv : readonly [];
+					}
+				: never;
+		}[number]
+	: never;
+
+/** Intersect literal `$route` onto a terminating fn when `use` has route(). */
+type StampHttpRoute<F, PL> = [ExtractHttpRoute<PL>] extends [never]
+	? F
+	: F & { readonly $route: ExtractHttpRoute<PL> };
+
 /** What `.with` returns: the same callable, context baked in.
  * Re-exported from the package entry so exporting `.with(...)` results
  * stays declaration-emit portable under node16. */
@@ -715,14 +742,17 @@ export interface Fn<
 				ChainPL<BasePL, PL>
 			>,
 		) => R,
-	): TerminatingFn<
-		WidenedArgs<I, ChainPL<BasePL, PL>>,
-		R,
-		Prefix extends "" ? string : Prefix,
-		I,
-		P,
-		Er,
-		O
+	): StampHttpRoute<
+		TerminatingFn<
+			WidenedArgs<I, ChainPL<BasePL, PL>>,
+			R,
+			Prefix extends "" ? string : Prefix,
+			I,
+			P,
+			Er,
+			O
+		>,
+		PL
 	>;
 	<
 		K extends LiteralString,
@@ -754,14 +784,17 @@ export interface Fn<
 				ChainPL<BasePL, PL>
 			>,
 		) => R,
-	): TerminatingFn<
-		WidenedArgs<I, ChainPL<BasePL, PL>>,
-		R,
-		`${Prefix}${K}`,
-		I,
-		P,
-		Er,
-		O
+	): StampHttpRoute<
+		TerminatingFn<
+			WidenedArgs<I, ChainPL<BasePL, PL>>,
+			R,
+			`${Prefix}${K}`,
+			I,
+			P,
+			Er,
+			O
+		>,
+		PL
 	>;
 
 	/* ---- NO handler: a builder. Keys concatenate, `use` accumulates,

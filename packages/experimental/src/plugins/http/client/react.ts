@@ -5,6 +5,7 @@ import type {
 	ClientPlugin,
 	CreateClientOptions,
 	InferClientAPI,
+	InferThrowFromOptions,
 	ResolvedResource,
 } from "./types";
 
@@ -36,9 +37,9 @@ function bindResourceHook<T>(
  * Same as the vanilla client, but resource accessors (`useSession`, …)
  * are React hooks via `useSyncExternalStore`.
  */
-export function createClient<const R extends Record<string, unknown>>(
-	options: CreateClientOptions<R>,
-): InferClientAPI<R> & {
+export function createClient<const O extends CreateClientOptions<any>>(
+	options: O,
+): InferClientAPI<O["routes"], InferThrowFromOptions<O>> & {
 	$fetch: ReturnType<typeof createVanillaClient>["$fetch"];
 	$store: ReturnType<typeof createVanillaClient>["$store"];
 	plugins: ClientPlugin[];
@@ -48,14 +49,20 @@ export function createClient<const R extends Record<string, unknown>>(
 		const hookName = `use${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 		(client as Record<string, unknown>)[hookName] = bindResourceHook(resource);
 	}
-	return client as InferClientAPI<R> & {
+	return client as InferClientAPI<O["routes"], InferThrowFromOptions<O>> & {
 		$fetch: typeof client.$fetch;
 		$store: typeof client.$store;
 		plugins: ClientPlugin[];
 	} & Record<string, unknown>;
 }
 
-export type { ClientPlugin, CreateClientOptions, InferClientAPI };
+export type {
+	ClientPlugin,
+	CreateClientOptions,
+	InferClientAPI,
+	InferThrowDefault,
+	InferThrowFromOptions,
+} from "./types";
 
 export function useStore<T>(
 	resource: ResolvedResource<T>,
