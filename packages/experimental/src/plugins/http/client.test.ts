@@ -4,8 +4,10 @@ import {
 	collectRoutes,
 	createClient,
 	createRouter,
+	err,
 	getRouteMeta,
 	INVALIDATE_HEADER,
+	NOT_FOUND,
 	route,
 } from "./index";
 
@@ -186,12 +188,89 @@ describe("createRouter", () => {
 		});
 	});
 
-	it("returns 404 for unknown routes", async () => {
+	it("returns stable not_found for unknown routes", async () => {
 		const handler = createRouter(routes);
 		const res = await handler(
 			new Request("http://localhost/missing", { method: "GET" }),
 		);
 		expect(res.status).toBe(404);
+		await expect(res.json()).resolves.toEqual(NOT_FOUND);
+	});
+
+	it("strict basePath 404s outside the mount prefix", async () => {
+		const handler = createRouter(routes, { basePath: "/api/auth" });
+		const outside = await handler(
+			new Request("http://localhost/sign-in/email", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ email: "a@b.c", password: "x" }),
+			}),
+		);
+		expect(outside.status).toBe(404);
+		await expect(outside.json()).resolves.toEqual(NOT_FOUND);
+
+		session = { user: null };
+		const inside = await handler(
+			new Request("http://localhost/api/auth/sign-in/email", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ email: "a@b.c", password: "x" }),
+			}),
+		);
+		expect(inside.status).toBe(200);
+		await expect(inside.json()).resolves.toEqual({ token: "tok_1" });
+	});
+
+	it("declared errors use try + applyError and keep res headers", async () => {
+		const deny = v.fn(
+			"deny.route",
+			{
+				use: [route({ path: "/deny", method: "POST" })],
+				errors: {
+					forbidden: err(403, "Forbidden"),
+				},
+			},
+			(c) => {
+				c.res = c.res ?? { headers: new Headers() };
+				c.res.headers.set("set-cookie", "sid=1; Path=/");
+				throw c.error("forbidden");
+			},
+		);
+		const handler = createRouter({ deny });
+		const res = await handler(
+			new Request("http://localhost/deny", { method: "POST" }),
+		);
+		expect(res.status).toBe(403);
+		await expect(res.json()).resolves.toEqual({ error: "forbidden" });
+		expect(res.headers.get("set-cookie")).toBe("sid=1; Path=/");
+	});
+
+	it("endpoint Response return is passed through", async () => {
+		const bounce = v.fn(
+			"bounce.route",
+			{ use: [route({ path: "/bounce", method: "GET" })] },
+			() => Response.redirect("https://example.com/x", 302),
+		);
+		const handler = createRouter({ bounce });
+		const res = await handler(
+			new Request("http://localhost/bounce", { method: "GET" }),
+		);
+		expect(res.status).toBe(302);
+		expect(res.headers.get("location")).toBe("https://example.com/x");
+	});
+
+	it("dispatch can be hooked via v.on", async () => {
+		const seen: string[] = [];
+		const gate = v.on("http.router.dispatch", async (c, next) => {
+			seen.push(c.req?.path ?? "");
+			return next();
+		});
+		const handler = createRouter(routes, { use: [gate] });
+		await handler(
+			new Request("http://localhost/get-session", { method: "GET" }),
+		);
+		expect(seen).toEqual(["/get-session"]);
+		expect(handler.dispatch).toBeTypeOf("function");
 	});
 });
 

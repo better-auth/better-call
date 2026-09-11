@@ -15,7 +15,7 @@ import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
 import { getRouteMeta, INVALIDATE_HEADER, route, routeVar } from "./route";
-import { collectRoutes, createRouter } from "./router";
+import { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
 export {
 	clientSchema,
@@ -100,7 +100,7 @@ export {
 	routeVar,
 } from "./route";
 export type { CollectedRoute, CreateRouterOptions, Router } from "./router";
-export { collectRoutes, createRouter } from "./router";
+export { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
 export const http = {
 	req,
@@ -111,6 +111,7 @@ export const http = {
 	createHandler,
 	createRouter,
 	collectRoutes,
+	NOT_FOUND,
 	route,
 	routeVar,
 	getRouteMeta,
