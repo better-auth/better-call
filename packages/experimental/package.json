@@ -22,12 +22,19 @@
 		"dev": "tsdown --watch"
 	},
 	"peerDependencies": {
+		"react": ">=18.0.0",
 		"zod": "^4.0.0"
 	},
 	"peerDependenciesMeta": {
 		"zod": {
 			"optional": true
+		},
+		"react": {
+			"optional": true
 		}
+	},
+	"dependencies": {
+		"@better-fetch/fetch": "^1.1.21"
 	},
 	"exports": {
 		".": {
@@ -74,6 +81,28 @@
 				"default": "./dist/plugins/http.cjs"
 			}
 		},
+		"./plugins/http/client": {
+			"dev-source": "./src/plugins/http/client/index.ts",
+			"import": {
+				"types": "./dist/plugins/http/client/index.d.mts",
+				"default": "./dist/plugins/http/client/index.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/http/client/index.d.cts",
+				"default": "./dist/plugins/http/client/index.cjs"
+			}
+		},
+		"./plugins/http/react": {
+			"dev-source": "./src/plugins/http/client/react.ts",
+			"import": {
+				"types": "./dist/plugins/http/client/react.d.mts",
+				"default": "./dist/plugins/http/client/react.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/http/client/react.d.cts",
+				"default": "./dist/plugins/http/client/react.cjs"
+			}
+		},
 		"./plugins/read-only": {
 			"dev-source": "./src/plugins/read-only.ts",
 			"import": {
@@ -110,5 +139,8 @@
 	},
 	"files": [
 		"dist"
-	]
+	],
+	"devDependencies": {
+		"@types/react": "^19.3.0"
+	}
 }

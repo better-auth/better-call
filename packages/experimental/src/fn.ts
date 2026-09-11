@@ -212,8 +212,9 @@ export type WithSeedStored<RV, _U = unknown> = WithVarsSeed<RV>;
 
 /**
  * Emit-safe `.with` seed on terminating / exported fns. A plain object
- * bag - declaration emit never inlines the builder's `ScopeOf` /
- * `ModuleFns` graph. Precise seed checking lives on {@link Instance.with}.
+ * bag - declaration emit never expands the builder's `ScopeOf` /
+ * `ModuleFns` graph into the public type. Precise seed checking lives on
+ * {@link Instance.with}.
  */
 export type WithSeedOpaque = object;
 
@@ -296,6 +297,16 @@ export interface FnDefination<
 		requires?: readonly string[];
 		/** Declared idempotence - same args, same result, safe to repeat. */
 		idempotent?: boolean;
+	};
+	/**
+	 * HTTP route meta when `use` includes `route({ path, method, ... })`
+	 * from `better-call/plugins/http`. Stamped at definition for the
+	 * router and typed client.
+	 */
+	readonly $route?: {
+		path: string;
+		method: string;
+		invalidate: readonly string[];
 	};
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
@@ -1466,6 +1477,34 @@ const defineFn = (
 		return bound;
 	};
 
+	// HTTP `route({ path, method })` modules stamp `$route` for the
+	// router / client without a hard dependency on the http plugin.
+	let routeMeta:
+		| { path: string; method: string; invalidate: readonly string[] }
+		| undefined;
+	for (const mod of modules) {
+		const candidate = mod as {
+			$route?: unknown;
+			path?: unknown;
+			method?: unknown;
+			invalidate?: unknown;
+		};
+		if (
+			candidate.$route === true &&
+			typeof candidate.path === "string" &&
+			typeof candidate.method === "string"
+		) {
+			routeMeta = {
+				path: candidate.path,
+				method: candidate.method.toUpperCase(),
+				invalidate: Array.isArray(candidate.invalidate)
+					? [...(candidate.invalidate as string[])]
+					: [],
+			};
+			break;
+		}
+	}
+
 	return Object.assign(callable, {
 		$fn: true as const,
 		key,
@@ -1485,6 +1524,7 @@ const defineFn = (
 				: {}),
 			...(options.idempotent === true ? { idempotent: true } : {}),
 		},
+		...(routeMeta ? { $route: routeMeta } : {}),
 	});
 };
 
@@ -1652,16 +1692,10 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 }
 
 /** Bound call from a terminating fn - used by {@link Instance.with}. */
-type BoundCallFrom<F> = F extends FnDefination<
-	infer A,
-	infer R,
-	string,
-	infer I,
-	any,
-	infer Er
->
-	? BoundCall<A, R, I, Er>
-	: never;
+type BoundCallFrom<F> =
+	F extends FnDefination<infer A, infer R, string, infer I, any, infer Er>
+		? BoundCall<A, R, I, Er>
+		: never;
 
 export type Instance<
 	Base,
