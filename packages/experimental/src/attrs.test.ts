@@ -164,16 +164,34 @@ describe("v.noInput / v.noOutput and schema views", () => {
 			email: v.string(),
 			secret: v.noOutput(v.string()),
 		});
-		expect(Object.getOwnPropertyDescriptor(schema.input, "input")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(schema.input, "output")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(schema.output, "input")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(schema.output, "output")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(user.input, "input")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(user.input, "output")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(user.output, "input")).toBeUndefined();
-		expect(Object.getOwnPropertyDescriptor(user.output, "output")).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(schema.input, "input"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(schema.input, "output"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(schema.output, "input"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(schema.output, "output"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(user.input, "input"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(user.input, "output"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(user.output, "input"),
+		).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(user.output, "output"),
+		).toBeUndefined();
 		// Primitives never grew views — no self-referential chain.
-		expect(Object.getOwnPropertyDescriptor(v.string(), "input")).toBeUndefined();
+		expect(
+			Object.getOwnPropertyDescriptor(v.string(), "input"),
+		).toBeUndefined();
 
 		type ViewKeys<T> = Extract<keyof T, "input" | "output">;
 		expectTypeOf<ViewKeys<typeof schema.input>>().toEqualTypeOf<never>();
