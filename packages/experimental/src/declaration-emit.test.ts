@@ -130,8 +130,11 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			expect(dts).toMatch(/export declare const signInEmail:/);
 			expect(dts).toMatch(/export declare const bound:/);
 			// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
-			expect(dts).toMatch(/import\("better-call"\)\.FnErrorsOf/);
+			// Error maps ride as FnDefination / BoundCall type args (with
+			// TypeDefination fields); FnErrorsOf only surfaces on .try results.
+			expect(dts).toMatch(/import\("better-call"\)\.FnDefination/);
 			expect(dts).toMatch(/import\("better-call"\)\.BoundCall/);
+			expect(dts).toMatch(/import\("better-call"\)\.TypeDefination/);
 			expect(dts).not.toMatch(/dist\/fn\.mjs/);
 		} finally {
 			rmSync(consumerDir, { recursive: true, force: true });
