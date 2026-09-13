@@ -5,6 +5,7 @@ import {
 	type InferArgs,
 	type InferInput,
 	isType,
+	noInput,
 	type TypeDefination,
 	withAttrs,
 } from "../schema";
@@ -69,15 +70,18 @@ export const references = <S>(
 };
 
 /** Mark a primary key and install {@link generateId} as the field default
- * so validate / v.fn / storage.create all mint an id when the key is omitted. */
+ * so validate / v.fn / storage.create all mint an id when the key is omitted.
+ * Also tags {@link noInput} so wire / fn callers cannot smuggle an id. */
 export const id = <T, O>(
 	schema: TypeDefination<T, O, any>,
-): TypeDefination<T, O, string> =>
-	withAttrs(
-		{ ...schema, default: generateId } as TypeDefination<T, O, string>,
-		"db",
-		{ id: true },
-	) as TypeDefination<T, O, string>;
+): TypeDefination<T, O, string> & { $attrs: { v: { noInput: true } } } =>
+	noInput(
+		withAttrs(
+			{ ...schema, default: generateId } as TypeDefination<T, O, string>,
+			"db",
+			{ id: true },
+		),
+	) as TypeDefination<T, O, string> & { $attrs: { v: { noInput: true } } };
 
 /** A model var from a type or a plain field object. Default is always null.
  * Import it from the db plugin: `import { schema } from "better-call/plugins/db"`. */

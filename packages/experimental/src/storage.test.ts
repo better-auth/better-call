@@ -471,7 +471,7 @@ describe("v.storage", () => {
 			},
 		});
 		expect(db.id(v.string({}))).toMatchObject({
-			$attrs: { db: { id: true } },
+			$attrs: { db: { id: true }, v: { noInput: true } },
 		});
 	});
 

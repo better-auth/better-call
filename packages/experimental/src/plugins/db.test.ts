@@ -28,9 +28,10 @@ describe("generateId", () => {
 });
 
 describe("db.id", () => {
-	it("marks $attrs.db.id and installs generateId as the default factory", () => {
+	it("marks $attrs.db.id, v.noInput, and installs generateId as the default factory", () => {
 		const field = id(v.string({}));
 		expect(attrsOf(field, "db")).toEqual({ id: true });
+		expect(attrsOf(field, "v")).toEqual({ noInput: true });
 		expect(field.default).toBe(generateId);
 	});
 
