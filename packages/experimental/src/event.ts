@@ -3,14 +3,17 @@ import {
 	asType,
 	type InferArgs,
 	type InferInput,
+	isFnSchema,
 	isNoInput,
 	isNoOutput,
+	isType,
 	isVar,
 	projectValue,
 	rejectFields,
 	type SchemaInputOf,
 	type SchemaOutputOf,
 	toInputSchema,
+	toOutputSchema,
 	validate,
 } from "./schema";
 import type {
@@ -20,24 +23,84 @@ import type {
 	UnionToIntersection,
 } from "./types";
 
+/**
+ * Explicit publish/complete doors for one kind. Only `input` / `output`
+ * keys - anything else is a bare object shape (e.g. `{ account }`).
+ * Either side may be omitted; the other stands in for both.
+ */
+export type EventKindIO<I = unknown, O = unknown> = {
+	input?: I;
+	output?: O;
+};
+
+/**
+ * True when `S` is `{ input?, output? }` rather than a schema / shape.
+ * Vars, type defs, and fn schemas are never IO wrappers; a plain object
+ * whose keys are only `input` / `output` is.
+ */
+export type IsEventKindIO<S> = S extends { $var: true }
+	? false
+	: S extends { $fnSchema: unknown }
+		? false
+		: S extends { name: string }
+			? // Type defs (and vars, already excluded) expose `name`.
+				false
+			: S extends EventKindIO
+				? Exclude<keyof S, "input" | "output"> extends never
+					? true
+					: false
+				: false;
+
+/** Schema used at the publish door for kind `S`. */
+export type EventKindInputOf<S> =
+	IsEventKindIO<S> extends true
+		? S extends { input: infer I }
+			? I
+			: S extends { output: infer O }
+				? O
+				: unknown
+		: S;
+
+/** Schema used at the complete door for kind `S`. */
+export type EventKindOutputOf<S> =
+	IsEventKindIO<S> extends true
+		? S extends { output: infer O }
+			? O
+			: S extends { input: infer I }
+				? I
+				: unknown
+		: S;
+
+/** Handler-visible payload for one kind (full schemas, not projected). */
+export type EventKindPayloadOf<S> =
+	IsEventKindIO<S> extends true
+		? S extends { input: infer I; output: infer O }
+			? Prettify<InferInput<I> & InferInput<O>>
+			: S extends { input: infer I }
+				? InferInput<I>
+				: S extends { output: infer O }
+					? InferInput<O>
+					: unknown
+		: InferInput<S>;
+
 /** Handler-visible payload (full schema, including noInput / noOutput). */
 export type EventPayloads<T> = {
-	[K in keyof T]: InferInput<T[K]>;
+	[K in keyof T]: EventKindPayloadOf<T[K]>;
 };
 
 /** What {@link EventDefination.publish} accepts - the `.input` view. */
 export type EventPublishArgs<T> = {
-	[K in keyof T]: InferArgs<SchemaInputOf<T[K]>>;
+	[K in keyof T]: InferArgs<SchemaInputOf<EventKindInputOf<T[K]>>>;
 };
 
 /** Validated publish-time payload - parsed `.input` view. */
 export type EventPublishResult<T> = {
-	[K in keyof T]: InferInput<SchemaInputOf<T[K]>>;
+	[K in keyof T]: InferInput<SchemaInputOf<EventKindInputOf<T[K]>>>;
 };
 
 /** What `complete()` resolves to - the `.output` view. */
 export type EventCompleteResult<T> = {
-	[K in keyof T]: InferInput<SchemaOutputOf<T[K]>>;
+	[K in keyof T]: InferInput<SchemaOutputOf<EventKindOutputOf<T[K]>>>;
 };
 
 /** Discriminated message handed to subscribers. */
@@ -269,6 +332,74 @@ const runHandlers = (
 	return run(0, initial);
 };
 
+/** Runtime check for {@link EventKindIO} - not a var / type / fn schema. */
+export const isEventKindIO = (
+	value: unknown,
+): value is { input?: unknown; output?: unknown } => {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	if (isVar(value) || isFnSchema(value) || isType(value)) return false;
+	const keys = Object.keys(value as object);
+	return (
+		keys.length > 0 && keys.every((key) => key === "input" || key === "output")
+	);
+};
+
+type ResolvedKind = {
+	inputSchema: unknown;
+	outputSchema: unknown;
+	patchSchema: unknown;
+	/** Distinct custom output schema - complete validates against it. */
+	customOutput: boolean;
+};
+
+/** Merge object shapes so `next` patches can touch fields from either door. */
+const mergePatchSchemas = (a: unknown, b: unknown): unknown => {
+	if (b === undefined || a === b) return a;
+	if (a === undefined) return b;
+	const da = asType(a);
+	const db = asType(b);
+	if (
+		da.name === "object" &&
+		db.name === "object" &&
+		da.shape !== undefined &&
+		db.shape !== undefined
+	) {
+		return {
+			name: "object" as const,
+			shape: {
+				...(da.shape as Record<string, unknown>),
+				...(db.shape as Record<string, unknown>),
+			},
+		};
+	}
+	return a;
+};
+
+/** Resolve a kind to publish / patch / complete schemas. */
+const resolveKind = (schema: unknown): ResolvedKind => {
+	if (isEventKindIO(schema)) {
+		const inputSchema = schema.input ?? schema.output;
+		const outputSchema = schema.output ?? schema.input;
+		return {
+			inputSchema,
+			outputSchema,
+			patchSchema: mergePatchSchemas(inputSchema, outputSchema),
+			customOutput:
+				schema.input !== undefined &&
+				schema.output !== undefined &&
+				schema.input !== schema.output,
+		};
+	}
+	return {
+		inputSchema: schema,
+		outputSchema: schema,
+		patchSchema: schema,
+		customOutput: false,
+	};
+};
+
 /** A var extension's extra fields, applied to event payloads that infer
  * from that var when publishing inside a mounted scope. */
 export type EventVarExt = { name: string; schema: unknown };
@@ -280,6 +411,21 @@ const applyVarExtsToSchema = (
 	exts: readonly EventVarExt[],
 ): unknown => {
 	if (exts.length === 0) return schema;
+	if (isEventKindIO(schema)) {
+		const input =
+			schema.input !== undefined
+				? applyVarExtsToSchema(schema.input, exts)
+				: undefined;
+		const output =
+			schema.output !== undefined
+				? applyVarExtsToSchema(schema.output, exts)
+				: undefined;
+		if (input === schema.input && output === schema.output) return schema;
+		return {
+			...(input !== undefined ? { input } : {}),
+			...(output !== undefined ? { output } : {}),
+		};
+	}
 	if (isVar(schema)) {
 		const name = (schema as { name: string }).name;
 		const inner = (schema as { schema?: unknown }).schema ?? {};
@@ -337,29 +483,36 @@ const publishOn = (
 		throw new Error(`${path}: unknown event kind "${type}"`);
 	}
 	const effective = applyVarExtsToSchema(schema, varExts);
+	const doors = resolveKind(effective);
 	const handlers = [...bus.mounted, ...bus.direct];
 	// Publish door matches v.fn input: reject smuggled noInput keys, then
-	// validate the `.input` view. Handlers still patch against the full
-	// schema so they can fill noInput fields via `next`.
+	// validate the `.input` view. Handlers patch against the resolved
+	// patch schema (full schema, or input∪output when doors differ).
 	const parseInput = () =>
 		thenMaybe(
 			rejectFields(
-				effective,
+				doors.inputSchema,
 				data,
 				isNoInput,
 				path,
 				"noInput field is not allowed",
 			),
-			() => validate(asType(toInputSchema(effective)), data, path),
+			() => validate(asType(toInputSchema(doors.inputSchema)), data, path),
 		);
 	return thenMaybe(parseInput(), (parsed) => {
-		const done = runHandlers(handlers, type, parsed, effective, path);
+		const done = runHandlers(handlers, type, parsed, doors.patchSchema, path);
 		return [
 			parsed,
 			() =>
 				Promise.resolve(
 					thenMaybe(done, (final) =>
-						projectValue(effective, final, isNoOutput),
+						doors.customOutput
+							? validate(
+									asType(toOutputSchema(doors.outputSchema)),
+									final,
+									path,
+								)
+							: projectValue(doors.outputSchema, final, isNoOutput),
 					),
 				),
 		] as [unknown, () => Promise<unknown>];

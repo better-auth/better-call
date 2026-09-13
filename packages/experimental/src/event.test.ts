@@ -352,4 +352,96 @@ describe("event extension + modules", () => {
 		expectTypeOf(out).toEqualTypeOf<{ id: string; email: string }>();
 		expect(out).toEqual({ id: "srv-1", email: "a@b.c" });
 	});
+
+	it("accepts explicit { input, output } doors on a kind", async () => {
+		const bus = v.event("evt_io_custom", {
+			renamed: {
+				input: v.object({ id: v.string(), name: v.string() }),
+				output: v.object({
+					id: v.string(),
+					name: v.string(),
+					renamedAt: v.string(),
+				}),
+			},
+		});
+
+		bus.subscribe(async (e, next) => {
+			if (e.type === "renamed") {
+				await next({ renamedAt: "t1" });
+				return;
+			}
+			await next();
+		});
+
+		const [result, complete] = await bus.publish("renamed", {
+			id: "1",
+			name: "Ada",
+		});
+		expectTypeOf(result).toEqualTypeOf<{ id: string; name: string }>();
+		expect(result).toEqual({ id: "1", name: "Ada" });
+
+		const out = await complete();
+		expectTypeOf(out).toEqualTypeOf<{
+			id: string;
+			name: string;
+			renamedAt: string;
+		}>();
+		expect(out).toEqual({ id: "1", name: "Ada", renamedAt: "t1" });
+	});
+
+	it("explicit doors may reuse schema .input / .output views", async () => {
+		const user = v.var("evt_io_views_user", {
+			schema: v.object({
+				id: v.noInput(v.string({ default: "minted" })),
+				email: v.string(),
+				passwordHash: v.noOutput(v.string()),
+			}),
+		});
+		const bus = v.event("evt_io_views", {
+			created: { input: user.input, output: user.output },
+		});
+
+		bus.subscribe(async (e, next) => {
+			if (e.type === "created") {
+				await next({ id: "srv-2" });
+				return;
+			}
+			await next();
+		});
+
+		const [result, complete] = await bus.publish("created", {
+			email: "a@b.c",
+			passwordHash: "plain",
+		});
+		expectTypeOf(result).toEqualTypeOf<{
+			email: string;
+			passwordHash: string;
+		}>();
+		expect(result).toEqual({ email: "a@b.c", passwordHash: "plain" });
+
+		const out = await complete();
+		expectTypeOf(out).toEqualTypeOf<{ id: string; email: string }>();
+		expect(out).toEqual({ id: "srv-2", email: "a@b.c" });
+	});
+
+	it("var extensions widen explicit input/output doors", async () => {
+		const account = v.var("evt_io_var_account", {
+			schema: v.object({ id: v.string() }),
+		});
+		const withTag = v.extend(account, { tag: v.string() });
+		const bus = v.event("evt_io_var", {
+			created: { input: account, output: account },
+		});
+
+		const f = v.fn({ use: [{ bus, account, withTag }] }, async (c) => {
+			const [result, complete] = await c.bus.publish("created", {
+				id: "1",
+				tag: "vip",
+			});
+			expectTypeOf(result).toEqualTypeOf<{ id: string; tag: string }>();
+			await complete();
+			return result;
+		});
+		await expect(f()).resolves.toEqual({ id: "1", tag: "vip" });
+	});
 });

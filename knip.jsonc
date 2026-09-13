@@ -4,8 +4,9 @@
 		"./packages/*": {
 			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [
-				// implicit dependencies
-				"zod"
+				// optional peers for optional entry surfaces
+				"zod",
+				"react"
 			]
 		},
 		// WIP package: treat all sources as entries so the settling export
@@ -14,8 +15,9 @@
 			"entry": ["src/**/*.ts!"],
 			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [
-				// implicit dependencies
-				"zod"
+				// optional peers for optional entry surfaces
+				"zod",
+				"react"
 			]
 		}
 	}

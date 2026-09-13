@@ -152,6 +152,10 @@ export type {
 	EventDefination,
 	EventExtension,
 	EventHandler,
+	EventKindInputOf,
+	EventKindIO,
+	EventKindOutputOf,
+	EventKindPayloadOf,
 	EventMessage,
 	EventNext,
 	EventOnEntry,
@@ -159,12 +163,14 @@ export type {
 	EventPublishArgs,
 	EventPublishResult,
 	EventsFrom,
+	IsEventKindIO,
 	ModuleEvents,
 } from "./event";
 export {
 	extendEvent,
 	isEvent,
 	isEventExtension,
+	isEventKindIO,
 	isEventOn,
 	makeEvent,
 } from "./event";

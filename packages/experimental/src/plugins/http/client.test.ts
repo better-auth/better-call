@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "../../index";
+import type { Module } from "../../module";
 import {
 	collectRoutes,
 	createClient,
@@ -265,12 +266,23 @@ describe("createRouter", () => {
 			seen.push(c.req?.path ?? "");
 			return next();
 		});
+		// Bare `v.on` is wrapped by normalizeUse at runtime.
 		const handler = createRouter(routes, { use: [gate] });
 		await handler(
 			new Request("http://localhost/get-session", { method: "GET" }),
 		);
 		expect(seen).toEqual(["/get-session"]);
 		expect(handler.dispatch).toBeTypeOf("function");
+	});
+
+	it("accepts use as a module tuple or readonly Module[]", () => {
+		const gate = v.on("http.router.dispatch", async (_c, next) => next());
+		const plugin = { gate };
+		expectTypeOf(createRouter).toBeCallableWith(routes, { use: [plugin] });
+		const modules = [plugin] as readonly Module[];
+		expectTypeOf(createRouter).toBeCallableWith(routes, { use: modules });
+		const handler = createRouter(routes, { use: modules });
+		expect(handler.routes.length).toBeGreaterThan(0);
 	});
 });
 

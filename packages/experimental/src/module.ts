@@ -2,6 +2,7 @@ import {
 	type EventDefination,
 	type EventHandler,
 	type EventOnEntry,
+	type IsEventKindIO,
 	isEvent,
 	isEventExtension,
 	isEventOn,
@@ -853,23 +854,40 @@ type ApplyOnVarHelpers<V, PL> = [Exclude<keyof V, VarSurfaceKey>] extends [
  * Kinds whose payload references a var `PL` mutates. `never` when none -
  * {@link ApplyOn} then leaves the event as written.
  */
+/** Var extras for a kind - unwraps `{ input, output }` doors. */
+type EventKindVarExtraOut<PL, S> =
+	IsEventKindIO<S> extends true
+		? (S extends { input: infer I } ? InputVarExtraOut<PL, I> : unknown) &
+				(S extends { output: infer O } ? InputVarExtraOut<PL, O> : unknown)
+		: InputVarExtraOut<PL, S>;
+
 type EventVarExtraKeys<PL, T> = {
-	[K in keyof T]: unknown extends InputVarExtraOut<PL, T[K]> ? never : K;
+	[K in keyof T]: unknown extends EventKindVarExtraOut<PL, T[K]> ? never : K;
 }[keyof T];
 
 /**
- * Rewrite one event kind so {@link EventPayloads} sees mounted
- * `v.extend` / customize fields. Unchanged kinds keep their schema;
- * widened kinds wrap the merged payload as a type def so `InferInput`
+ * Rewrite one payload schema so {@link EventPayloads} sees mounted
+ * `v.extend` / customize fields. Unchanged schemas keep their identity;
+ * widened ones wrap the merged payload as a type def so `InferInput`
  * (and Date / class leaves) do not get remapped as object shapes.
  */
-type WidenEventKind<S, PL> =
+type WidenEventKindSchema<S, PL> =
 	unknown extends InputVarExtraOut<PL, S>
 		? S
 		: TypeDefination<
 				Prettify<InferInput<S> & InputVarExtraOut<PL, S>>,
 				Prettify<InferInput<S> & InputVarExtraOut<PL, S>>
 			>;
+
+/** Widen a kind - recurse into explicit `{ input, output }` doors. */
+type WidenEventKind<S, PL> =
+	IsEventKindIO<S> extends true
+		? {
+				[P in keyof S]: P extends "input" | "output"
+					? WidenEventKindSchema<S[P], PL>
+					: S[P];
+			}
+		: WidenEventKindSchema<S, PL>;
 
 type WidenEventTypes<T, PL> = {
 	[K in keyof T]: WidenEventKind<T[K], PL>;

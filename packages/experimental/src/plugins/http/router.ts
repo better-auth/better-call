@@ -130,10 +130,10 @@ const normalizeUse = (mods: readonly unknown[]): Module[] =>
 		return mod as Module;
 	});
 
-export function createRouter<const R extends Record<string, unknown>>(
-	routes: R,
-	options?: CreateRouterOptions,
-): Router<R> {
+export function createRouter<
+	const R extends Record<string, unknown>,
+	const PL extends readonly Module[] = readonly [],
+>(routes: R, options?: CreateRouterOptions<PL>): Router<R> {
 	const table = collectRoutes(routes);
 	const basePath = options?.basePath?.replace(/\/$/, "") ?? "";
 	const api = buildServerApi(routes) as InferServerAPI<R>;
