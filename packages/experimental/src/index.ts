@@ -272,4 +272,4 @@ export {
 	type WhereOps,
 } from "./storage";
 export type { LiteralString, Prettify } from "./types";
-export type { VarCustomizer, VarDefination, VarMap } from "./var";
+export type { VarCustomizer, VarDefination, VarMap, VarView } from "./var";

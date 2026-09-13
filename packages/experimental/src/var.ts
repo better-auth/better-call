@@ -17,6 +17,17 @@ import {
 } from "./schema";
 import type { LiteralString, Prettify } from "./types";
 
+/**
+ * A var after `.input` / `.output` projection — same surface as
+ * {@link VarDefination} except further `.input` / `.output` are gone.
+ */
+export type VarView<
+	N extends LiteralString,
+	T,
+	Schema = unknown,
+	Source extends string = never,
+> = Omit<VarDefination<N, T, Schema, Source>, "input" | "output">;
+
 export interface VarDefination<
 	N extends LiteralString,
 	T,
@@ -44,14 +55,14 @@ export interface VarDefination<
 	$merge?: true | boolean;
 	/**
 	 * Fields without `noInput`. Projects inner `schema`; value type `T`
-	 * stays the full row.
+	 * stays the full row. Terminal — does not chain.
 	 */
-	readonly input: VarDefination<N, T, SchemaInputOf<Schema>, Source>;
+	readonly input: VarView<N, T, SchemaInputOf<Schema>, Source>;
 	/**
 	 * Fields without `noOutput`. Projects inner `schema`; value type `T`
-	 * stays the full row.
+	 * stays the full row. Terminal — does not chain.
 	 */
-	readonly output: VarDefination<N, T, SchemaOutputOf<Schema>, Source>;
+	readonly output: VarView<N, T, SchemaOutputOf<Schema>, Source>;
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;

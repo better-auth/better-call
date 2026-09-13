@@ -158,6 +158,30 @@ describe("v.noInput / v.noOutput and schema views", () => {
 		}>();
 	});
 
+	it(".input / .output views do not chain", () => {
+		const schema = v.object({
+			id: v.noInput(v.string()),
+			email: v.string(),
+			secret: v.noOutput(v.string()),
+		});
+		expect(Object.getOwnPropertyDescriptor(schema.input, "input")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(schema.input, "output")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(schema.output, "input")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(schema.output, "output")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(user.input, "input")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(user.input, "output")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(user.output, "input")).toBeUndefined();
+		expect(Object.getOwnPropertyDescriptor(user.output, "output")).toBeUndefined();
+		// Primitives never grew views — no self-referential chain.
+		expect(Object.getOwnPropertyDescriptor(v.string(), "input")).toBeUndefined();
+
+		type ViewKeys<T> = Extract<keyof T, "input" | "output">;
+		expectTypeOf<ViewKeys<typeof schema.input>>().toEqualTypeOf<never>();
+		expectTypeOf<ViewKeys<typeof schema.output>>().toEqualTypeOf<never>();
+		expectTypeOf<ViewKeys<typeof user.input>>().toEqualTypeOf<never>();
+		expectTypeOf<ViewKeys<typeof user.output>>().toEqualTypeOf<never>();
+	});
+
 	it("v.fn input/output derive filtered inference", () => {
 		const f = v.fn("attr_views_fn", { input: user, output: user }, (c) => {
 			expectTypeOf(c.input).toEqualTypeOf<{

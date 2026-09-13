@@ -43,17 +43,6 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	transform?: (value: any) => O;
 	/** Opaque attributes - ignored by validate / Infer* on the full schema. */
 	$attrs?: AttrBag;
-	/**
-	 * Fields without {@link noInput}. Lazy projection; same kind of value
-	 * (type def or var) as this schema.
-	 */
-	readonly input?: unknown;
-	/**
-	 * Fields without {@link noOutput}. Lazy projection; same kind of value
-	 * (type def or var) as this schema. (The type param `O` is the
-	 * transform output - not this view.)
-	 */
-	readonly output?: unknown;
 }
 
 export type TypeOptions<T, O> = {
@@ -80,13 +69,10 @@ type OutOf<O, D, Opt> = [Opt] extends [true]
 	: O;
 
 /**
- * Recover a type's output `O`. Plain `infer O` from
- * `TypeDefination<any, infer O, …>` drops `| undefined` because `output?`
- * is optional and TypeScript attributes the undefined to the property.
- * When the third type arg is `undefined` (optional, no default), put
- * `| undefined | null` back so handlers see the same absence validate
- * produces at runtime. When the default itself is `null`, put `| null`
- * back the same way.
+ * Recover a type's output `O`. When the third type arg is `undefined`
+ * (optional, no default), put `| undefined | null` back so handlers see
+ * the same absence validate produces at runtime. When the default itself
+ * is `null`, put `| null` back the same way.
  */
 type OutputOf<F> =
 	F extends TypeDefination<any, infer O, infer D>
@@ -444,7 +430,9 @@ const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
 			customize: (opts: any) => withAttrBag(v.customize(opts) as S, bag),
 		} as object) as S;
 	}
-	return attachViews({ ...asType(schema), $attrs: bag }) as S;
+	const def = { ...asType(schema), $attrs: bag };
+	// Views only exist on objects / vars — do not reattach on primitives.
+	return (def.name === "object" ? attachViews(def) : def) as S;
 };
 
 /**
@@ -532,27 +520,42 @@ type DropNoOutputKeys<Shape> = {
 		: K]: SchemaOutputOf<Shape[K]>;
 };
 
-/** Object type def that keeps the field map so {@link SchemaInputOf} /
- * {@link SchemaOutputOf} can see `noInput` / `noOutput` brands. */
-type ObjectDef<S, O, D> = TypeDefination<ArgsShape<S>, O, D> & {
+/**
+ * Object type def without `.input` / `.output` — the projected view
+ * returned by those getters. Terminal: further `.input` / `.output` are
+ * not part of the type (and are undefined at runtime).
+ */
+type ObjectView<In, S, O, D> = TypeDefination<In, O, D> & {
 	name: "object";
 	shape: S;
-	readonly input: TypeDefination<
+};
+
+/** Object type def that keeps the field map so {@link SchemaInputOf} /
+ * {@link SchemaOutputOf} can see `noInput` / `noOutput` brands.
+ * `.input` / `.output` are terminal — they do not chain. */
+type ObjectDef<S, O, D> = ObjectView<ArgsShape<S>, S, O, D> & {
+	/**
+	 * Fields without {@link noInput}. Lazy projection; same kind of value
+	 * as this schema, without further `.input` / `.output`.
+	 */
+	readonly input: ObjectView<
 		InferArgs<DropNoInputKeys<S>>,
+		DropNoInputKeys<S>,
 		DefineOutput<DropNoInputKeys<S>>,
 		D
-	> & {
-		name: "object";
-		shape: DropNoInputKeys<S>;
-	};
-	readonly output: TypeDefination<
+	>;
+	/**
+	 * Fields without {@link noOutput}. Lazy projection; same kind of value
+	 * as this schema, without further `.input` / `.output`. (The type
+	 * param `O` on {@link TypeDefination} is the transform output — not
+	 * this view.)
+	 */
+	readonly output: ObjectView<
 		InferArgs<DropNoOutputKeys<S>>,
+		DropNoOutputKeys<S>,
 		DefineOutput<DropNoOutputKeys<S>>,
 		D
-	> & {
-		name: "object";
-		shape: DropNoOutputKeys<S>;
-	};
+	>;
 };
 
 /**
@@ -602,9 +605,9 @@ export type SchemaOutputOf<S> = S extends { $var: true; schema?: infer Sch }
 			: S;
 
 /**
- * Lazy `.input` / `.output` getters. Idempotent. Getters call
- * {@link omitFields} only when read, so this may be defined before
- * omitFields is initialized.
+ * Lazy `.input` / `.output` getters on a source schema. Projected views
+ * from {@link omitFields} do not get getters, so `.input` / `.output` do
+ * not chain (`schema.input.input` is undefined).
  */
 export const attachViews = <S extends object>(schema: S): S => {
 	if (schema === null || typeof schema !== "object") return schema;
@@ -656,10 +659,11 @@ export type FieldPred = (schema: unknown) => boolean;
 export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 	if (isVar(schema)) {
 		const v = schema as { schema?: unknown };
-		return attachViews({
+		// Do not attachViews — projected schemas are terminal.
+		return {
 			...(schema as object),
 			schema: v.schema === undefined ? undefined : omitFields(v.schema, drop),
-		}) as S;
+		} as S;
 	}
 	const def = asType(schema);
 	if (def.name === "object" && def.shape !== undefined) {
@@ -670,22 +674,22 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 			if (drop(child)) continue;
 			shape[key] = omitFields(child, drop);
 		}
-		return attachViews({ ...def, shape }) as S;
+		return { ...def, shape } as S;
 	}
 	if (def.name === "array" && def.shape !== undefined) {
-		return attachViews({
+		return {
 			...def,
 			shape: omitFields(def.shape, drop),
-		}) as S;
+		} as S;
 	}
 	if (def.name === "union" && Array.isArray(def.shape)) {
-		return attachViews({
+		return {
 			...def,
 			shape: (def.shape as unknown[]).map((option) => omitFields(option, drop)),
-		}) as S;
+		} as S;
 	}
 	if (schema === null || typeof schema !== "object") return schema;
-	return attachViews(schema as object) as S;
+	return schema;
 };
 
 /**
@@ -1381,13 +1385,17 @@ export const validate = (
 	return def.transform ? def.transform(value) : value;
 };
 
-/** Builds the runtime object; the declared return type is the contract. */
-const build = (name: string, options: any, extra?: any): any =>
-	attachViews({
+/** Builds the runtime object; the declared return type is the contract.
+ * `.input` / `.output` views attach only on objects (and vars via
+ * {@link makeVar}) — projected views and primitives stay terminal. */
+const build = (name: string, options: any, extra?: any): any => {
+	const def = {
 		name,
 		...extra,
 		...options,
-	});
+	};
+	return name === "object" ? attachViews(def) : def;
+};
 
 /** A default may be the value itself or a factory that mints it fresh on
  * each validate - `() => new Date()`, `() => []`, `async () => id()`, …. */
