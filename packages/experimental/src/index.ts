@@ -227,6 +227,7 @@ export {
 	type InferType,
 	isNoInput,
 	isNoOutput,
+	isSchemaView,
 	noInput,
 	noOutput,
 	omitFields,

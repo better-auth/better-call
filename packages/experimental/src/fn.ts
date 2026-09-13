@@ -45,6 +45,7 @@ import {
 	type InferArgs,
 	type InferInput,
 	isNoInput,
+	isSchemaView,
 	isVar,
 	type OutputSchemaOf,
 	outputContract,
@@ -1037,13 +1038,17 @@ const defineFn = (
 					try {
 						const path = `${key}.input[${index}]`;
 						const raw = (input as unknown[])[index];
-						const gate = rejectFields(
-							def,
-							raw,
-							isNoInput,
-							path,
-							"noInput field is not allowed",
-						);
+						// Projected views are the contract as written — noInput
+						// fields kept by `.output` are allowed through.
+						const gate = isSchemaView(def)
+							? undefined
+							: rejectFields(
+									def,
+									raw,
+									isNoInput,
+									path,
+									"noInput field is not allowed",
+								);
 						const runValidate = () =>
 							validate(asType(toInputSchema(def)), raw, path);
 						const result = isThenable(gate)
@@ -1098,13 +1103,15 @@ const defineFn = (
 			return options.input === undefined
 				? input
 				: thenMaybe(
-						rejectFields(
-							options.input,
-							input,
-							isNoInput,
-							`${key}.input`,
-							"noInput field is not allowed",
-						),
+						isSchemaView(options.input)
+							? undefined
+							: rejectFields(
+									options.input,
+									input,
+									isNoInput,
+									`${key}.input`,
+									"noInput field is not allowed",
+								),
 						() =>
 							validate(
 								asType(toInputSchema(options.input)),

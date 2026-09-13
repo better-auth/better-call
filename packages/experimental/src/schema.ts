@@ -523,11 +523,14 @@ type DropNoOutputKeys<Shape> = {
 /**
  * Object type def without `.input` / `.output` — the projected view
  * returned by those getters. Terminal: further `.input` / `.output` are
- * not part of the type (and are undefined at runtime).
+ * not part of the type (and are undefined at runtime). `$view` marks the
+ * projection so {@link SchemaInputOf} / {@link toInputSchema} do not
+ * re-strip `noInput` when an `.output` view is used as a fn input.
  */
 type ObjectView<In, S, O, D> = TypeDefination<In, O, D> & {
 	name: "object";
 	shape: S;
+	$view: true;
 };
 
 /** Object type def that keeps the field map so {@link SchemaInputOf} /
@@ -561,48 +564,56 @@ type ObjectDef<S, O, D> = ObjectView<ArgsShape<S>, S, O, D> & {
 /**
  * Schema with {@link noInput} fields removed. Vars project through
  * `schema`; object type defs / bare shapes drop matching keys.
+ * Already-projected views (`$view`) are left alone so `input: schema.output`
+ * keeps the output shape instead of re-dropping `noInput` fields.
  */
-export type SchemaInputOf<S> = S extends { $var: true; schema?: infer Sch }
-	? SchemaInputOf<NonNullable<Sch>>
-	: S extends { shape: infer Shape }
-		? Shape extends Record<string, any>
-			? TypeDefination<
-					InferArgs<DropNoInputKeys<Shape>>,
-					DefineOutput<DropNoInputKeys<Shape>>,
-					S extends TypeDefination<any, any, infer D> ? D : never
-				> & {
-					name: "object";
-					shape: DropNoInputKeys<Shape>;
-				} & (S extends { optional: true } ? { optional: true } : unknown)
-			: S
-		: S extends Record<string, unknown>
-			? S extends TypeDefination<any, any, any>
-				? S
-				: DropNoInputKeys<S>
-			: S;
+export type SchemaInputOf<S> = S extends { $view: true }
+	? S
+	: S extends { $var: true; schema?: infer Sch }
+		? SchemaInputOf<NonNullable<Sch>>
+		: S extends { shape: infer Shape }
+			? Shape extends Record<string, any>
+				? TypeDefination<
+						InferArgs<DropNoInputKeys<Shape>>,
+						DefineOutput<DropNoInputKeys<Shape>>,
+						S extends TypeDefination<any, any, infer D> ? D : never
+					> & {
+						name: "object";
+						shape: DropNoInputKeys<Shape>;
+						$view: true;
+					} & (S extends { optional: true } ? { optional: true } : unknown)
+				: S
+			: S extends Record<string, unknown>
+				? S extends TypeDefination<any, any, any>
+					? S
+					: DropNoInputKeys<S>
+				: S;
 
 /**
  * Schema with {@link noOutput} fields removed. Same projection rules as
  * {@link SchemaInputOf}.
  */
-export type SchemaOutputOf<S> = S extends { $var: true; schema?: infer Sch }
-	? SchemaOutputOf<NonNullable<Sch>>
-	: S extends { shape: infer Shape }
-		? Shape extends Record<string, any>
-			? TypeDefination<
-					InferArgs<DropNoOutputKeys<Shape>>,
-					DefineOutput<DropNoOutputKeys<Shape>>,
-					S extends TypeDefination<any, any, infer D> ? D : never
-				> & {
-					name: "object";
-					shape: DropNoOutputKeys<Shape>;
-				} & (S extends { optional: true } ? { optional: true } : unknown)
-			: S
-		: S extends Record<string, unknown>
-			? S extends TypeDefination<any, any, any>
-				? S
-				: DropNoOutputKeys<S>
-			: S;
+export type SchemaOutputOf<S> = S extends { $view: true }
+	? S
+	: S extends { $var: true; schema?: infer Sch }
+		? SchemaOutputOf<NonNullable<Sch>>
+		: S extends { shape: infer Shape }
+			? Shape extends Record<string, any>
+				? TypeDefination<
+						InferArgs<DropNoOutputKeys<Shape>>,
+						DefineOutput<DropNoOutputKeys<Shape>>,
+						S extends TypeDefination<any, any, infer D> ? D : never
+					> & {
+						name: "object";
+						shape: DropNoOutputKeys<Shape>;
+						$view: true;
+					} & (S extends { optional: true } ? { optional: true } : unknown)
+				: S
+			: S extends Record<string, unknown>
+				? S extends TypeDefination<any, any, any>
+					? S
+					: DropNoOutputKeys<S>
+				: S;
 
 /**
  * Lazy `.input` / `.output` getters on a source schema. Projected views
@@ -630,8 +641,17 @@ export const attachViews = <S extends object>(schema: S): S => {
 	return schema;
 };
 
+/** True when `schema` is already an `.input` / `.output` projection. */
+export const isSchemaView = (schema: unknown): boolean =>
+	schema !== null &&
+	typeof schema === "object" &&
+	(schema as { $view?: unknown }).$view === true;
+
 /** Resolve the input view of a schema (getter or fresh omit). */
 export const toInputSchema = <S>(schema: S): unknown => {
+	// Terminal projections are the contract as written — do not re-strip
+	// `noInput` (that would collapse `schema.output` back to `.input`).
+	if (isSchemaView(schema)) return schema;
 	if (schema !== null && typeof schema === "object" && "input" in schema) {
 		const view = (schema as { input: unknown }).input;
 		if (view !== undefined) return view;
@@ -641,6 +661,7 @@ export const toInputSchema = <S>(schema: S): unknown => {
 
 /** Resolve the output view of a schema (getter or fresh omit). */
 export const toOutputSchema = <S>(schema: S): unknown => {
+	if (isSchemaView(schema)) return schema;
 	if (schema !== null && typeof schema === "object" && "output" in schema) {
 		const view = (schema as { output: unknown }).output;
 		if (view !== undefined) return view;
@@ -663,6 +684,7 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 		return {
 			...(schema as object),
 			schema: v.schema === undefined ? undefined : omitFields(v.schema, drop),
+			$view: true,
 		} as S;
 	}
 	const def = asType(schema);
@@ -674,18 +696,20 @@ export const omitFields = <S>(schema: S, drop: FieldPred): S => {
 			if (drop(child)) continue;
 			shape[key] = omitFields(child, drop);
 		}
-		return { ...def, shape } as S;
+		return { ...def, shape, $view: true } as S;
 	}
 	if (def.name === "array" && def.shape !== undefined) {
 		return {
 			...def,
 			shape: omitFields(def.shape, drop),
+			$view: true,
 		} as S;
 	}
 	if (def.name === "union" && Array.isArray(def.shape)) {
 		return {
 			...def,
 			shape: (def.shape as unknown[]).map((option) => omitFields(option, drop)),
+			$view: true,
 		} as S;
 	}
 	if (schema === null || typeof schema !== "object") return schema;

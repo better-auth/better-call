@@ -6,6 +6,7 @@ import {
 	isFnSchema,
 	isNoInput,
 	isNoOutput,
+	isSchemaView,
 	isType,
 	isVar,
 	projectValue,
@@ -490,13 +491,15 @@ const publishOn = (
 	// patch schema (full schema, or input∪output when doors differ).
 	const parseInput = () =>
 		thenMaybe(
-			rejectFields(
-				doors.inputSchema,
-				data,
-				isNoInput,
-				path,
-				"noInput field is not allowed",
-			),
+			isSchemaView(doors.inputSchema)
+				? undefined
+				: rejectFields(
+						doors.inputSchema,
+						data,
+						isNoInput,
+						path,
+						"noInput field is not allowed",
+					),
 			() => validate(asType(toInputSchema(doors.inputSchema)), data, path),
 		);
 	return thenMaybe(parseInput(), (parsed) => {

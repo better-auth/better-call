@@ -223,6 +223,27 @@ describe("v.noInput / v.noOutput and schema views", () => {
 			email: string;
 		}>();
 	});
+
+	it("v.fn input: schema.output keeps the output projection", () => {
+		const f = v.fn(
+			"attr_views_fn_out",
+			{ input: user.output, output: user.output },
+			(c) => {
+				expectTypeOf(c.input).toEqualTypeOf<{
+					id: string;
+					email: string;
+				}>();
+				return c.input;
+			},
+		);
+		expectTypeOf<Parameters<typeof f>[0]>().toEqualTypeOf<{
+			id: string;
+			email: string;
+		}>();
+		expect(
+			f({ id: "1", email: "a@b.c" }),
+		).toEqual({ id: "1", email: "a@b.c" });
+	});
 });
 
 describe("omitFields / rejectFields / parseFields", () => {

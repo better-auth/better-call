@@ -20,13 +20,17 @@ import type { LiteralString, Prettify } from "./types";
 /**
  * A var after `.input` / `.output` projection — same surface as
  * {@link VarDefination} except further `.input` / `.output` are gone.
+ * `$view` brands the projection so fn input typing/validation treat it as
+ * the contract as written (see {@link SchemaInputOf}).
  */
 export type VarView<
 	N extends LiteralString,
 	T,
 	Schema = unknown,
 	Source extends string = never,
-> = Omit<VarDefination<N, T, Schema, Source>, "input" | "output">;
+> = Omit<VarDefination<N, T, Schema, Source>, "input" | "output"> & {
+	$view: true;
+};
 
 export interface VarDefination<
 	N extends LiteralString,
