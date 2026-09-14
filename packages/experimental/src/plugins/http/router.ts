@@ -1,7 +1,7 @@
 import type { FnDefination } from "../../fn";
 import { v } from "../../index";
 import { isFn, isNamespace, type Module } from "../../module";
-import { applyError } from "./error";
+import { applyError, encodeError } from "./error";
 import { type CreateHandlerOptions, createHandler } from "./handle";
 import { buildServerApi, type InferServerAPI } from "./path-api";
 import { req } from "./request";
@@ -12,6 +12,10 @@ export type CollectedRoute = RouteMeta & {
 	/** Dotted export path, e.g. `signIn.email`. */
 	name: string;
 	fn: FnDefination<any, any, any, any, any, any>;
+	/** Retained fn contract (`$schema`) for OpenAPI / docs hosts. */
+	schema?: FnDefination<any, any, any, any, any, any>["$schema"];
+	/** Fn key - OpenAPI `operationId`. */
+	key: string;
 };
 
 /** Walk a module (and nested namespaces) for fns stamped with `$route`. */
@@ -28,6 +32,8 @@ export function collectRoutes(
 				out.push({
 					name: path,
 					fn: value as FnDefination<any, any, any, any, any, any>,
+					key: (value as { key: string }).key,
+					schema: (value as { $schema?: CollectedRoute["schema"] }).$schema,
 					...meta,
 				});
 			}
@@ -111,7 +117,7 @@ export type Router<
  * - `.dispatch` — dispatch fn (for v.on hooks) (`v.on(router.dispatch, …)`)
  *
  * Declared endpoint errors use `.try` + {@link applyError} and return
- * `{ error: tag }` while preserving `c.res.headers`. Unknown paths /
+ * the {@link encodeError} JSON body while preserving `c.res.headers`. Unknown paths /
  * methods return `{ error: "not_found" }` (404).
  *
  * On success, writes `x-better-call-invalidate` from the final
@@ -201,8 +207,13 @@ export function createRouter<
 			if (!tried.ok) {
 				c.res = c.res ?? { headers: new Headers() };
 				applyError(c.res, matched.fn.$schema?.errors, tried.error);
-				c.res.status ??= 400;
-				return jsonResponse(c, { error: tried.error.tag }, c.res.status);
+				const encoded = encodeError(tried.error);
+				c.res.status ??= encoded?.status ?? 400;
+				return jsonResponse(
+					c,
+					encoded?.body ?? { error: tried.error.tag },
+					c.res.status,
+				);
 			}
 
 			const invalidate = (c as { route?: { invalidate?: string[] } }).route
@@ -217,6 +228,11 @@ export function createRouter<
 
 			// Endpoint may return a Response directly (redirects, custom bodies).
 			if (tried.value instanceof Response) return tried.value;
+
+			if (matched.status !== undefined) {
+				c.res = c.res ?? { headers: new Headers() };
+				c.res.status ??= matched.status;
+			}
 
 			return jsonResponse(c, tried.value ?? null);
 		});

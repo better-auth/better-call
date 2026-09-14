@@ -56,6 +56,30 @@ const createProxy = (
 	return target;
 };
 
+
+/** Pull `:param` keys out of `input`, fill the URL, return leftover fields. */
+const applyPathParams = (
+	path: string,
+	input: unknown,
+): { path: string; rest: Record<string, unknown> | undefined } => {
+	const values =
+		input && typeof input === "object" && !Array.isArray(input)
+			? { ...(input as Record<string, unknown>) }
+			: undefined;
+	const filled = path.replace(/:([A-Za-z0-9_]+)/g, (_, name: string) => {
+		if (!values || values[name] === undefined || values[name] === null) {
+			throw new Error(`Missing path param "${name}" for ${path}`);
+		}
+		const raw = values[name];
+		delete values[name];
+		return encodeURIComponent(String(raw));
+	});
+	return {
+		path: filled,
+		rest: values && Object.keys(values).length > 0 ? values : undefined,
+	};
+};
+
 export function createClient<const O extends CreateClientOptions<any>>(
 	options: O,
 ): InferClientAPI<O["routes"], InferThrowFromOptions<O>> & {
@@ -97,12 +121,13 @@ export function createClient<const O extends CreateClientOptions<any>>(
 		const shouldThrow = opts?.throw ?? defaultThrow;
 		const method = route.method.toUpperCase();
 		const isGet = method === "GET" || method === "HEAD";
+		const { path, rest } = applyPathParams(route.path, input);
 
-		const result = await $fetch(route.path, {
+		const result = await $fetch(path, {
 			method: method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
 			...(isGet
-				? { query: (input as Record<string, unknown>) ?? undefined }
-				: { body: input as Record<string, unknown> }),
+				? { query: rest }
+				: { body: rest }),
 			...fetchOpts,
 			throw: false,
 		} as Parameters<typeof $fetch>[1]);

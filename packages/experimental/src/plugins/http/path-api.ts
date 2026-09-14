@@ -63,6 +63,8 @@ export type PathRouteLeaf = {
 	path: string;
 	method: string;
 	invalidate: readonly string[];
+	/** Declared success status when set on the route. */
+	status?: number;
 	fn: FnDefination<any, any, any, any, any, any>;
 	/** Dotted export name (`signInEmail` or `auth.signInEmail`). */
 	name: string;
@@ -85,6 +87,7 @@ export function flattenRouteLeaves(
 					path: meta.path,
 					method: meta.method,
 					invalidate: meta.invalidate,
+					...(meta.status !== undefined ? { status: meta.status } : {}),
 					fn: value as FnDefination<any, any, any, any, any, any>,
 					schema: (value as { $schema?: unknown }).$schema,
 				});
@@ -131,6 +134,7 @@ export function buildPathTree(
 				path: leaf.path,
 				method: leaf.method,
 				invalidate: leaf.invalidate,
+				...(leaf.status !== undefined ? { status: leaf.status } : {}),
 			},
 			$schema: leaf.schema,
 		};

@@ -20,6 +20,12 @@ export type RouteOptions<
 	method: M;
 	/** Resource names the client should refresh after a successful call. */
 	invalidate?: I;
+	/**
+	 * Declared success status for this operation (default 200). Used by the
+	 * router when the handler does not set `c.res.status`, and by OpenAPI
+	 * as the primary success response code.
+	 */
+	status?: number;
 };
 
 /** Mutable per-call route state seeded by {@link route} into `c.route`. */
@@ -38,6 +44,8 @@ export type RouteMeta<
 	path: P;
 	method: M;
 	invalidate: I;
+	/** Declared success status when set on {@link route}. */
+	status?: number;
 };
 
 /** Header carrying the final invalidate list on successful responses. */
@@ -56,6 +64,7 @@ export type RouteModule<
 	readonly path: P;
 	readonly method: M;
 	readonly invalidate: I;
+	readonly status?: number;
 	readonly route: typeof routeVar;
 };
 
@@ -80,6 +89,7 @@ export function route<
 		path,
 		method,
 		invalidate,
+		...(options.status !== undefined ? { status: options.status } : {}),
 		route: routeVar,
 		// Seed `c.route` before the handler (and any other interceptors).
 		$routeSeed: v.on("*", (c, next) => {
@@ -109,6 +119,7 @@ export function getRouteMeta(fn: unknown): RouteMeta | undefined {
 			path: stamped.path,
 			method: stamped.method,
 			invalidate: stamped.invalidate ?? [],
+			...(stamped.status !== undefined ? { status: stamped.status } : {}),
 		};
 	}
 	return undefined;
@@ -129,5 +140,6 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
 		path: mod.path,
 		method: String(mod.method).toUpperCase(),
 		invalidate: [...(mod.invalidate ?? [])],
+		...(mod.status !== undefined ? { status: mod.status } : {}),
 	};
 }

@@ -242,7 +242,13 @@ describe("createRouter", () => {
 			new Request("http://localhost/deny", { method: "POST" }),
 		);
 		expect(res.status).toBe(403);
-		await expect(res.json()).resolves.toEqual({ error: "forbidden" });
+		const body = await res.json();
+		expect(body).toMatchObject({
+			name: "FnError",
+			tag: "forbidden",
+			status: 403,
+			message: "Forbidden",
+		});
 		expect(res.headers.get("set-cookie")).toBe("sid=1; Path=/");
 	});
 
@@ -448,5 +454,59 @@ describe("createClient", () => {
 				statusText: string;
 			} | null;
 		}>();
+	});
+});
+
+describe("path params", () => {
+	it("substitutes :param from input and keeps the rest as query/body", async () => {
+		const seen: { url: string; method: string; body: string | null }[] = [];
+		const getPost = v.fn(
+			"posts.get",
+			{
+				input: {
+					id: v.string(),
+					q: v.string({ optional: true }),
+				},
+				output: { id: v.string() },
+				use: [route({ path: "/posts/:id", method: "GET" })],
+			},
+			(c) => ({ id: c.input.id }),
+		);
+		const updateItem = v.fn(
+			"items.update",
+			{
+				input: {
+					id: v.string(),
+					title: v.string(),
+				},
+				output: { id: v.string(), title: v.string() },
+				use: [route({ path: "/items/:id", method: "PATCH" })],
+			},
+			(c) => ({ id: c.input.id, title: c.input.title }),
+		);
+		const handler = createRouter({ getPost, updateItem });
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes: { getPost, updateItem },
+			fetchOptions: {
+				customFetchImpl: async (url, init) => {
+					seen.push({
+						url: String(url),
+						method: String(init?.method ?? "GET"),
+						body: typeof init?.body === "string" ? init.body : null,
+					});
+					return handler(new Request(String(url), init));
+				},
+			},
+		});
+
+		await client.posts.id({ id: "p1", q: "x" });
+		expect(seen[0]?.url).toContain("/posts/p1");
+		expect(seen[0]?.url).toContain("q=x");
+
+		await client.items.id({ id: "i2", title: "hello" });
+		expect(seen[1]?.url).toMatch(/\/items\/i2$/);
+		expect(seen[1]?.body).toContain("hello");
+		expect(seen[1]?.body).not.toContain('"id"');
 	});
 });

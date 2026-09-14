@@ -256,11 +256,13 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 				readonly path: infer Path extends string;
 				readonly method: infer Method extends string;
 				readonly invalidate?: infer Inv;
+				readonly status?: infer Status;
 			}
 				? {
 						path: Path;
 						method: Method;
 						invalidate: Inv extends readonly string[] ? Inv : readonly [];
+						status?: Status extends number ? Status : never;
 					}
 				: never;
 		}[number]
@@ -325,6 +327,14 @@ export interface FnDefination<
 		requires?: readonly string[];
 		/** Declared idempotence - same args, same result, safe to repeat. */
 		idempotent?: boolean;
+		/** Short human title - OpenAPI summary, MCP tool title, etc. */
+		summary?: string;
+		/** Longer explanation - OpenAPI description, MCP tool description. */
+		description?: string;
+		/** Grouping labels - OpenAPI tags, MCP categories, etc. */
+		tags?: readonly string[];
+		/** Marked as retired - OpenAPI deprecated, MCP destructive hints, etc. */
+		deprecated?: boolean;
 	};
 	/**
 	 * HTTP route meta when `use` includes `route({ path, method, ... })`
@@ -335,6 +345,8 @@ export interface FnDefination<
 		path: string;
 		method: string;
 		invalidate: readonly string[];
+		/** Declared success status when not the default 200. */
+		status?: number;
 	};
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
@@ -423,6 +435,23 @@ export type OptionType<
 	 * an fn can be readonly and still hit a non-idempotent API.
 	 */
 	idempotent?: boolean;
+	/**
+	 * Short human title retained on `$schema` for hosts that render the fn
+	 * (OpenAPI `summary`, MCP tool title, docs cards).
+	 */
+	summary?: string;
+	/**
+	 * Longer explanation retained on `$schema` (OpenAPI `description`,
+	 * MCP tool description, docs).
+	 */
+	description?: string;
+	/**
+	 * Grouping labels retained on `$schema` (OpenAPI `tags`, MCP
+	 * categories, docs sections).
+	 */
+	tags?: readonly string[];
+	/** When true, hosts should treat the fn as retired (`deprecated`). */
+	deprecated?: boolean;
 	input?: I;
 	/**
 	 * The fn's return contract. A bare schema is BOTH the signature and
@@ -1520,7 +1549,12 @@ const defineFn = (
 	// HTTP `route({ path, method })` modules stamp `$route` for the
 	// router / client without a hard dependency on the http plugin.
 	let routeMeta:
-		| { path: string; method: string; invalidate: readonly string[] }
+		| {
+				path: string;
+				method: string;
+				invalidate: readonly string[];
+				status?: number;
+		  }
 		| undefined;
 	for (const mod of modules) {
 		const candidate = mod as {
@@ -1528,6 +1562,7 @@ const defineFn = (
 			path?: unknown;
 			method?: unknown;
 			invalidate?: unknown;
+			status?: unknown;
 		};
 		if (
 			candidate.$route === true &&
@@ -1540,6 +1575,9 @@ const defineFn = (
 				invalidate: Array.isArray(candidate.invalidate)
 					? [...(candidate.invalidate as string[])]
 					: [],
+				...(typeof candidate.status === "number"
+					? { status: candidate.status }
+					: {}),
 			};
 			break;
 		}
@@ -1563,6 +1601,12 @@ const defineFn = (
 				? { requires: options.requires as readonly string[] }
 				: {}),
 			...(options.idempotent === true ? { idempotent: true } : {}),
+			...(options.summary !== undefined ? { summary: options.summary } : {}),
+			...(options.description !== undefined
+				? { description: options.description }
+				: {}),
+			...(options.tags !== undefined ? { tags: [...options.tags] } : {}),
+			...(options.deprecated === true ? { deprecated: true } : {}),
 		},
 		...(routeMeta ? { $route: routeMeta } : {}),
 	});

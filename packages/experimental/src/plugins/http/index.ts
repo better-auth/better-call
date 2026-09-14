@@ -15,6 +15,7 @@ import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
 import { getRouteMeta, INVALIDATE_HEADER, route, routeVar } from "./route";
+import { schemaToOpenAPI, toOpenAPI } from "./openapi";
 import { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
 export {
@@ -102,6 +103,23 @@ export {
 export type { CollectedRoute, CreateRouterOptions, Router } from "./router";
 export { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
+export type {
+	OpenAPIDocument,
+	OpenAPIOperation,
+	OpenAPIParameter,
+	OpenAPIPathItem,
+	OpenAPIRequestBody,
+	OpenAPIResponse,
+	OpenAPISchemaObject,
+	ToOpenAPIOptions,
+} from "./openapi";
+export {
+	pathParamNames,
+	schemaToOpenAPI,
+	toOpenAPI,
+	toOpenAPIPath,
+} from "./openapi";
+
 export const http = {
 	req,
 	res,
@@ -137,4 +155,6 @@ export const http = {
 	stripReturned,
 	wireInput,
 	fromJsonBody,
+	toOpenAPI,
+	schemaToOpenAPI,
 };
