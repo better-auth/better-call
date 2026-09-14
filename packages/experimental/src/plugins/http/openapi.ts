@@ -402,3 +402,99 @@ export function toOpenAPI(
 		paths,
 	};
 }
+
+/* --------------------------------- Scalar --------------------------------- */
+
+export type ScalarOptions = {
+	/** Document `<title>` / Scalar page title. */
+	title?: string;
+	/** Meta description. */
+	description?: string;
+	/** Scalar theme id (e.g. `"saturn"`, `"purple"`, `"kepler"`). */
+	theme?: string;
+	/** Favicon URL or data URI. */
+	favicon?: string;
+	/** CDN script URL for `@scalar/api-reference`. */
+	cdn?: string;
+	/**
+	 * Serve the OpenAPI document from this URL instead of inlining it.
+	 * Useful when the JSON is already mounted (see router `openapi.jsonPath`).
+	 */
+	url?: string;
+	/** Extra Scalar `createApiReference` options (merged in). */
+	configuration?: Record<string, unknown>;
+};
+
+const DEFAULT_SCALAR_CDN =
+	"https://cdn.jsdelivr.net/npm/@scalar/api-reference";
+
+/** Escape a JSON payload for safe embedding inside a `<script>` tag. */
+const jsonForScript = (value: unknown): string =>
+	JSON.stringify(value).replace(/</g, "\\u003c");
+
+/**
+ * Render a Scalar API Reference HTML page for an OpenAPI document.
+ *
+ * Uses the CDN standalone build (`Scalar.createApiReference`) with the
+ * document inlined as `content`, unless {@link ScalarOptions.url} is set.
+ */
+export function getScalarHTML(
+	document: OpenAPIDocument | Record<string, unknown>,
+	options?: ScalarOptions,
+): string {
+	const info =
+		document && typeof document === "object" && "info" in document
+			? (document as OpenAPIDocument).info
+			: undefined;
+	const title = options?.title ?? info?.title ?? "API Reference";
+	const description =
+		options?.description ?? info?.description ?? "OpenAPI Reference";
+	const theme = options?.theme ?? "saturn";
+	const cdn = options?.cdn ?? DEFAULT_SCALAR_CDN;
+
+	const config: Record<string, unknown> = {
+		theme,
+		...(options?.favicon ? { favicon: options.favicon } : {}),
+		...(options?.configuration ?? {}),
+	};
+	if (options?.url) {
+		config.url = options.url;
+	} else {
+		config.content = document;
+	}
+
+	return `<!doctype html>
+<html>
+  <head>
+    <title>${escapeHtml(title)}</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="${escapeHtml(description)}" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="${escapeHtml(cdn)}"></script>
+    <script>
+      Scalar.createApiReference("#app", ${jsonForScript(config)});
+    </script>
+  </body>
+</html>`;
+}
+
+const escapeHtml = (value: string): string =>
+	value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+
+/**
+ * Build an OpenAPI document from routes / a router, then render Scalar HTML.
+ */
+export function scalarHTML(
+	source: Router | CollectedRoute[] | Record<string, unknown>,
+	options?: ToOpenAPIOptions & { scalar?: ScalarOptions },
+): string {
+	const { scalar, ...openAPIOptions } = options ?? {};
+	return getScalarHTML(toOpenAPI(source, openAPIOptions), scalar);
+}
