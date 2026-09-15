@@ -15,8 +15,7 @@ import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
 import {
-	$applyFnOptions,
-	$fnOptions,
+	httpOptions,
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	route,
@@ -102,7 +101,7 @@ export { fromRequest, req, toHttpRequest } from "./request";
 export type { HttpResponse } from "./response";
 export { res, toResponse } from "./response";
 export type {
-	HttpFnOptions,
+	HttpOptions,
 	RouteMeta,
 	RouteMethod,
 	RouteModule,
@@ -110,8 +109,7 @@ export type {
 	RouteState,
 } from "./route";
 export {
-	$applyFnOptions,
-	$fnOptions,
+	httpOptions,
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	isRouteModule,
@@ -151,6 +149,7 @@ export {
 } from "./openapi";
 
 export const http = {
+	httpOptions,
 	req,
 	res,
 	cookieOptions,
@@ -162,8 +161,6 @@ export const http = {
 	NOT_FOUND,
 	route,
 	routeVar,
-	$fnOptions,
-	$applyFnOptions,
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	createClient,

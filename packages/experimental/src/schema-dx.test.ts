@@ -40,6 +40,18 @@ describe("v.string type-arg + optional DX", () => {
 		expectTypeOf<InferType<typeof field>>().toEqualTypeOf<"a" | "b">();
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<"a" | "b">();
 	});
+
+	it("literal: true types as LiteralString (not bare string)", () => {
+		const field = v.string({ literal: true, optional: true });
+		expectTypeOf<InferType<typeof field>>().toEqualTypeOf<
+			import("./types").LiteralString
+		>();
+		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<
+			import("./types").LiteralString | null
+		>();
+		// Runtime still accepts any string.
+		expect(validate(field, "/sign-up/email", "path")).toBe("/sign-up/email");
+	});
 });
 
 describe("other vTypes type-arg + optional DX", () => {

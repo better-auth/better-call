@@ -113,7 +113,8 @@ export type TargetMatches<N, K extends string> = N extends "*"
  * concept, only a usage: mounting someone else's module. Always an
  * object, never a bare member: `use: [{ createUser }]`, not
  * `use: [createUser]`. The `never` marks reject bare members at the type
- * level; `resolveModules` rejects them at runtime.
+ * level; `resolveModules` rejects them at runtime. Bare
+ * {@link VarExtension}s are allowed via {@link UseEntry}.
  */
 export type Module = Record<string, unknown> & {
 	$var?: never;
@@ -125,18 +126,13 @@ export type Module = Record<string, unknown> & {
 	 * through - its `$on` is the hook-mounting METHOD, not the brand. */
 	$on?: (...args: never[]) => unknown;
 	$fn?: never;
-	/**
-	 * Extra keys this module unlocks on `v.fn` options when mounted via
-	 * `use`. Type carrier only - pair with {@link ApplyFnOptions} at runtime.
-	 */
-	$fnOptions?: unknown;
-	/**
-	 * Mutate the fn options bag before `use` is resolved (e.g. synthesize a
-	 * `route(...)` module from `path`). Called for every mounted module that
-	 * defines it.
-	 */
-	$applyFnOptions?: (options: Record<string, any>) => void;
 };
+
+/**
+ * A mountable `use` entry: a plain {@link Module}, or a bare
+ * {@link VarExtension} (auto-wrapped by {@link resolveModules}).
+ */
+export type UseEntry = Module | VarExtension<string, any, any>;
 
 /** A module member that can NEST other members: a plain record that is
  * not itself branded. Fn defs are callable, so they never match. Storage
@@ -156,17 +152,21 @@ type GroupMember<V> = V extends
 		? V
 		: never;
 
-type VarEntryUnion<M> = {
-	[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
-		? { [P in N]: T }
-		: M[K] extends VarExtension<infer N, any, infer BT>
-			? unknown extends BT
-				? never
-				: { [P in N]: BT }
-			: [GroupMember<M[K]>] extends [never]
-				? never
-				: VarEntryUnion<GroupMember<M[K]>>;
-}[keyof M];
+type VarEntryUnion<M> = M extends VarExtension<infer N, any, infer BT>
+	? unknown extends BT
+		? never
+		: { [P in N]: BT }
+	: {
+			[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
+				? { [P in N]: T }
+				: M[K] extends VarExtension<infer N, any, infer BT>
+					? unknown extends BT
+						? never
+						: { [P in N]: BT }
+					: [GroupMember<M[K]>] extends [never]
+						? never
+						: VarEntryUnion<GroupMember<M[K]>>;
+		}[keyof M];
 
 /**
  * Vars a module exports, keyed by their DECLARED name, not export name.
@@ -230,52 +230,28 @@ export type FnsFrom<M> = M extends unknown ? FnEntries<M> : never;
 
 export type ModuleFns<PL> = UnionToIntersection<FnsFrom<Members<PL>>>;
 
-/**
- * Extra `v.fn` option keys contributed by a single module via `$fnOptions`.
- * `unknown` / missing carriers contribute nothing.
- */
-type FnOptionsOf<M> = M extends { $fnOptions: infer O }
-	? unknown extends O
-		? never
-		: O
-	: never;
-
-/**
- * Intersection of every `$fnOptions` on modules in `PL`. `unknown` when
- * nothing contributes - so intersecting onto `OptionType` is a no-op.
- * The `[never]` guard matters: `UnionToIntersection<never>` is `unknown`,
- * and without the guard a `use` list with no `$fnOptions` would still be
- * fine, but a mix of contributing and empty modules must not collapse.
- */
-export type FnOptionsFromPL<PL> = [FnOptionsOf<Members<PL>>] extends [never]
-	? unknown
-	: UnionToIntersection<FnOptionsOf<Members<PL>>>;
-
-/** Runtime hook name modules use to apply contributed fn options. */
-export type ApplyFnOptions = (options: Record<string, any>) => void;
-
-/** Keys that are module meta, not walkable members. */
-export const FN_OPTIONS_META_KEYS = new Set([
-	"$fnOptions",
-	"$applyFnOptions",
-]);
-
 export const isFn = (value: any): value is FnDefination<any, any> =>
 	typeof value === "function" && value?.$fn === true;
 
 /**
  * Guard the module list: modules are plain records, and passing a bare
- * fn/var/extension/`on` entry is almost always a mistake (a bare fn would
- * otherwise look like a factory and get CALLED). Fail loudly instead.
+ * fn/var/`on` entry is almost always a mistake (a bare fn would otherwise
+ * look like a factory and get CALLED). Fail loudly instead.
+ *
+ * Bare {@link VarExtension}s are the exception — `use: [httpOptions]` is
+ * wrapped as `{ [name]: extension }` so plugins can mount an options
+ * extend without an extra object literal.
  */
 export const resolveModules = (
-	modules: readonly Module[],
+	modules: readonly unknown[],
 ): Record<string, unknown>[] =>
 	modules.map((mod) => {
+		if (isVarExtension(mod)) {
+			return { [mod.name]: mod };
+		}
 		if (
 			isFn(mod) ||
 			isVar(mod) ||
-			isVarExtension(mod) ||
 			isOn(mod) ||
 			isEvent(mod) ||
 			isEventExtension(mod) ||
@@ -381,7 +357,6 @@ export const collectUsable = (
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
-			if (FN_OPTIONS_META_KEYS.has(name)) continue;
 			if (
 				isFn(value) ||
 				isVar(value) ||
@@ -708,34 +683,42 @@ export function extendVar(
 		: { $varExtend: true, name: target.name, schema, base: target };
 }
 
-type VarExtEntry<M, K extends string> = M extends unknown
-	? {
-			[P in keyof M]: M[P] extends VarExtension<K, infer S>
-				? InferInput<S>
-				: never;
-		}[keyof M]
-	: never;
+type VarExtEntry<M, K extends string> = M extends VarExtension<K, infer S>
+	? InferInput<S>
+	: M extends unknown
+		? {
+				[P in keyof M]: M[P] extends VarExtension<K, infer S>
+					? InferInput<S>
+					: never;
+			}[keyof M]
+		: never;
 
 /**
  * Shape additions modules in `PL` mount on var `K`. Resolves to `unknown`
  * when none - which intersects away harmlessly.
  */
-export type VarExtensionsFor<PL, K extends string> = UnionToIntersection<
-	VarExtEntry<Members<PL>, K>
->;
+export type VarExtensionsFor<PL, K extends string> = [
+	VarExtEntry<Members<PL>, K>,
+] extends [never]
+	? unknown
+	: UnionToIntersection<VarExtEntry<Members<PL>, K>>;
 
-type VarExtArgsEntry<M, K extends string> = M extends unknown
-	? {
-			[P in keyof M]: M[P] extends VarExtension<K, infer S>
-				? InferArgs<SchemaInputOf<S>>
-				: never;
-		}[keyof M]
-	: never;
+type VarExtArgsEntry<M, K extends string> = M extends VarExtension<K, infer S>
+	? InferArgs<SchemaInputOf<S>>
+	: M extends unknown
+		? {
+				[P in keyof M]: M[P] extends VarExtension<K, infer S>
+					? InferArgs<SchemaInputOf<S>>
+					: never;
+			}[keyof M]
+		: never;
 
 /** The ARGS side of the same extensions - what a caller must send. */
-export type VarExtensionArgsFor<PL, K extends string> = UnionToIntersection<
-	VarExtArgsEntry<Members<PL>, K>
->;
+export type VarExtensionArgsFor<PL, K extends string> = [
+	VarExtArgsEntry<Members<PL>, K>,
+] extends [never]
+	? unknown
+	: UnionToIntersection<VarExtArgsEntry<Members<PL>, K>>;
 
 /** The args side of every VAR named `K` a module set declares - a
  * `customize`d re-export shadows by NAME, so mounting it counts as a

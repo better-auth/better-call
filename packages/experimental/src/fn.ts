@@ -22,7 +22,6 @@ import {
 	type ApplyOns,
 	collectMergeSeeds,
 	collectUsable,
-	type FnOptionsFromPL,
 	type InputVarExtra,
 	type InputVarExtraOut,
 	isFn,
@@ -31,16 +30,21 @@ import {
 	isVarExtension,
 	type Module,
 	type ModuleFns,
+	type UseEntry,
 	matchesTarget,
 	type OnEntry,
 	on as onImpl,
 	resolveModules,
 	type TargetMatches,
 	type VarExtension,
+	type VarExtensionArgsFor,
 	type VarGetContext,
 	type VarSetContext,
 	type WithDerived,
 } from "./module";
+import { type OptionType } from "./fn-options";
+export type { OptionType } from "./fn-options";
+export { fnOptions, fnOptionsSchema } from "./fn-options";
 import {
 	asType,
 	type InferArgs,
@@ -269,11 +273,10 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 		}[number]
 	: never;
 
-/**
- * Default HTTP method when `path` is set without `method`: mirrors
- * better-auth client inference — POST if `input` is declared, else GET.
- */
-/** POST when options declare `input`, otherwise GET (better-auth client). */
+
+/** Extra `v.fn` option keys from `v.extend(fnOptions, …)` modules in scope. */
+type FnOptsExt<PL> = VarExtensionArgsFor<PL, "fnOptions">;
+
 /** POST when input is declared, else GET (better-auth client default). */
 type DefaultRouteMethod<I> = [unknown] extends [I]
 	? "GET"
@@ -396,8 +399,8 @@ export type WidenedArgs<I, ExtPL> =
 
 /** Full module chain a builder has accumulated - parent scopes first. */
 type ChainPL<
-	BasePL extends readonly Module[],
-	PL extends readonly Module[],
+	BasePL extends readonly UseEntry[],
+	PL extends readonly UseEntry[],
 > = readonly [...BasePL, ...PL];
 
 
@@ -410,83 +413,10 @@ type ChainPL<
  */
 type UsableInScope<
 	BaseFns,
-	PL extends readonly Module[],
-	BasePL extends readonly Module[],
+	PL extends readonly UseEntry[],
+	BasePL extends readonly UseEntry[],
 > = ApplyOns<ModuleFns<PL> & BaseFns, ChainPL<BasePL, PL>>;
 
-export type OptionType<
-	I,
-	O,
-	P,
-	Q,
-	PL,
-	RO extends boolean = boolean,
-	Er = any,
-> = {
-	/**
-	 * The fn's DECLARED failures: tag -> payload schema. The THIRD
-	 * contract door - input validates on entry, output on exit, errors at
-	 * `throw c.error(tag, data)`. Once declared, any UNTAGGED throw
-	 * escaping the body is a defect and comes out as `UnexpectedError`.
-	 * Used fns with `errors` return a `.try` result when called on `c`,
-	 * so their tags do not become part of this fn's public channel.
-	 */
-	errors?: Er;
-	/**
-	 * A readonly fn cannot write vars - not in its handler, not in
-	 * anything it calls, not from interceptors mounted on it. Enforced at
-	 * the type level (vars readonly on `c`, declared writers uncallable)
-	 * and at runtime (the whole subtree's store locks).
-	 */
-	readonly?: RO;
-	/**
-	 * Declared idempotence: calling with the same args always produces the
-	 * same result and repeating the call is harmless - a read, a lookup, a
-	 * pure computation. Part of the retained contract (`$schema`), so
-	 * hosts may DEDUPE calls: the script engine serves repeated
-	 * same-args calls to an idempotent fn from one dispatch per session.
-	 * Note this is a different promise than `readonly` (writes no vars) -
-	 * an fn can be readonly and still hit a non-idempotent API.
-	 */
-	idempotent?: boolean;
-	/**
-	 * Short human title retained on `$schema` for hosts that render the fn
-	 * (OpenAPI `summary`, MCP tool title, docs cards).
-	 */
-	summary?: string;
-	/**
-	 * Longer explanation retained on `$schema` (OpenAPI `description`,
-	 * MCP tool description, docs).
-	 */
-	description?: string;
-	/**
-	 * Grouping labels retained on `$schema` (OpenAPI `tags`, MCP
-	 * categories, docs sections).
-	 */
-	tags?: readonly string[];
-	/** When true, hosts should treat the fn as retired (`deprecated`). */
-	deprecated?: boolean;
-	input?: I;
-	/**
-	 * The fn's return contract. A bare schema is BOTH the signature and
-	 * the exit check; the wrapper `{ def?, validation? }` splits them -
-	 * `{ def }` documents the return (tool cards, handler typing) without
-	 * runtime validation, `validation` is the schema the exit check runs
-	 * (defaults to none in the wrapper form).
-	 */
-	output?: O;
-	/** Vars this fn guarantees to set. Checked on exit. */
-	provides?: P;
-	/** Vars that must already be set. Checked on entry, before the body. */
-	requires?: Q;
-	/**
-	 * Module namespaces to pull in. Their vars come into scope, their fns
-	 * land directly on `c` already bound to this context (a plain-record
-	 * member nests as a NAMESPACE: `c.cookies.setCookie`), and their `on`
-	 * entries stay active for everything below.
-	 */
-	use?: PL;
-};
 
 /** Call args of a used fn: parent context is already applied, so no
  * trailing parent slot - only the declared input (positional or object). */
@@ -677,7 +607,7 @@ export type InferReturn<O> = unknown extends O
 export interface Fn<
 	Base = unknown,
 	BaseFns = unknown,
-	BasePL extends readonly Module[] = [],
+	BasePL extends readonly UseEntry[] = [],
 	Prefix extends string = "",
 > {
 	/**
@@ -763,7 +693,7 @@ export interface Fn<
 		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
@@ -772,9 +702,9 @@ export interface Fn<
 		const Inv extends readonly string[] = readonly [],
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptionsFromPL<ChainPL<BasePL, PL>> &
-			(FnOptionsFromPL<ChainPL<BasePL, PL>> extends {
-				path?: string;
+			FnOptsExt<ChainPL<BasePL, PL>> &
+			(FnOptsExt<ChainPL<BasePL, PL>> extends {
+				path?: infer _Path;
 			}
 				? {
 						path: Path;
@@ -822,7 +752,7 @@ export interface Fn<
 		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
@@ -832,9 +762,9 @@ export interface Fn<
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptionsFromPL<ChainPL<BasePL, PL>> &
-			(FnOptionsFromPL<ChainPL<BasePL, PL>> extends {
-				path?: string;
+			FnOptsExt<ChainPL<BasePL, PL>> &
+			(FnOptsExt<ChainPL<BasePL, PL>> extends {
+				path?: infer _Path;
 			}
 				? {
 						path: Path;
@@ -880,14 +810,14 @@ export interface Fn<
 		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
 		Er extends Record<string, unknown> = NoErrors,
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptionsFromPL<ChainPL<BasePL, PL>>,
+			FnOptsExt<ChainPL<BasePL, PL>>,
 		fn: (
 			ctx: Context<
 				I,
@@ -922,7 +852,7 @@ export interface Fn<
 		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		RO extends boolean = false,
@@ -930,7 +860,7 @@ export interface Fn<
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptionsFromPL<ChainPL<BasePL, PL>>,
+			FnOptsExt<ChainPL<BasePL, PL>>,
 		fn: (
 			ctx: Context<
 				I,
@@ -969,11 +899,11 @@ export interface Fn<
 	<
 		I,
 		O,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
-		options: OptionType<I, O, P, Q, PL> & FnOptionsFromPL<ChainPL<BasePL, PL>>,
+		options: OptionType<I, O, P, Q, PL> & FnOptsExt<ChainPL<BasePL, PL>>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -986,12 +916,12 @@ export interface Fn<
 		K extends LiteralString,
 		I,
 		O,
-		const PL extends readonly Module[] = [],
+		const PL extends readonly UseEntry[] = [],
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
 		key: K,
-		options: OptionType<I, O, P, Q, PL> & FnOptionsFromPL<ChainPL<BasePL, PL>>,
+		options: OptionType<I, O, P, Q, PL> & FnOptsExt<ChainPL<BasePL, PL>>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -1022,15 +952,35 @@ const defineFn = (
 	options: OptionType<any, any, any, any, any>,
 	declared: (c: any) => any,
 ) => {
-	// Modules in `use` may contribute options (e.g. http `path` → route()).
-	// Apply those hooks before resolving `use`, so synthesized modules are
-	// included in the same pass as explicit ones.
-	const initial = resolveModules((options.use ?? []) as Module[]);
-	for (const mod of initial) {
-		const apply = (mod as Module).$applyFnOptions;
-		if (typeof apply === "function") {
-			apply(options as Record<string, any>);
-		}
+	// `path` on options (unlocked by `v.extend(fnOptions, …)`) synthesizes a
+	// route module into `use` before resolve — same seed + `$route` stamp as
+	// `route({ path, method })`, without a core→http import.
+	const opts = options as Record<string, any>;
+	if (typeof opts.path === "string") {
+		const path = opts.path as string;
+		const method = String(
+			opts.method ?? (opts.input !== undefined ? "POST" : "GET"),
+		).toUpperCase();
+		const invalidate = (opts.invalidate ?? []) as string[];
+		const status = opts.status as number | undefined;
+		opts.use = [
+			...((opts.use ?? []) as Module[]),
+			{
+				$route: true,
+				path,
+				method,
+				invalidate,
+				...(status !== undefined ? { status } : {}),
+				$routeSeed: onImpl("*", (c: any, next: any) => {
+					c.route = {
+						path,
+						method,
+						invalidate: [...invalidate],
+					};
+					return next();
+				}),
+			},
+		];
 	}
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
@@ -1928,7 +1878,7 @@ type BoundCallFrom<F> =
 export type Instance<
 	Base,
 	BaseFns,
-	PL extends readonly Module[] = [],
+	PL extends readonly UseEntry[] = [],
 	Prefix extends string = "",
 	I = unknown,
 	O = unknown,

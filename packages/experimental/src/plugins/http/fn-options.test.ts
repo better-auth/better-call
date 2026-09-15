@@ -1,8 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "../../index";
-import { collectRoutes, getRouteMeta, http, route } from "./index";
+import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
 
-describe("http $fnOptions — path on fn options", () => {
+describe("httpOptions — path on fn options", () => {
 	it("unlocks path when http is in parent use", () => {
 		const e = v.fn("auth.", { use: [http] });
 		const signUpEmail = e.fn(
@@ -18,6 +18,34 @@ describe("http $fnOptions — path on fn options", () => {
 		});
 		expectTypeOf(signUpEmail.$route!.path).toEqualTypeOf<"/sign-up/email">();
 		expectTypeOf(signUpEmail.$route!.method).toEqualTypeOf<"GET">();
+	});
+
+	it("unlocks path with use: [{ httpOptions }]", () => {
+		const ping = v.fn(
+			"ping",
+			{ use: [{ httpOptions }], path: "/ping", method: "GET" },
+			() => "pong",
+		);
+		expect(getRouteMeta(ping)).toEqual({
+			path: "/ping",
+			method: "GET",
+			invalidate: [],
+		});
+		expectTypeOf(ping.$route!.path).toEqualTypeOf<"/ping">();
+	});
+
+	it("unlocks path with bare use: [httpOptions]", () => {
+		const ping = v.fn(
+			"ping",
+			{ use: [httpOptions], path: "/ping", method: "GET" },
+			() => "pong",
+		);
+		expect(getRouteMeta(ping)).toEqual({
+			path: "/ping",
+			method: "GET",
+			invalidate: [],
+		});
+		expectTypeOf(ping.$route!.path).toEqualTypeOf<"/ping">();
 	});
 
 	it("defaults method to POST when input is declared", () => {
@@ -99,5 +127,23 @@ describe("http $fnOptions — path on fn options", () => {
 	it("rejects path without http in use (type)", () => {
 		// @ts-expect-error path is not a core OptionType key
 		v.fn("nope", { path: "/nope" }, () => null);
+	});
+
+	it("core option keys still typecheck without http", () => {
+		const echo = v.fn(
+			"echo",
+			{
+				input: { msg: v.string() },
+				output: { msg: v.string() },
+				errors: { bad: v.object({ reason: v.string() }) },
+				summary: "Echo",
+				description: "Returns the message",
+				tags: ["demo"],
+				idempotent: true,
+			},
+			(c) => ({ msg: c.input.msg }),
+		);
+		expect(echo.$schema?.input).toBeDefined();
+		expectTypeOf(echo).toBeFunction();
 	});
 });

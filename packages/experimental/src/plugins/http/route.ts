@@ -1,5 +1,7 @@
+import { fnOptions } from "../../fn-options";
 import { v } from "../../index";
 import { isFn, type Module } from "../../module";
+import type { LiteralString } from "../../types";
 
 /** HTTP methods the router / client understand. */
 export type RouteMethod =
@@ -150,33 +152,26 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
  * Extra `v.fn` option keys unlocked when `http` (or this marker) is in `use`.
  * Prefer `{ path }` over `use: [route({ path, method })]` for new code.
  */
-export type HttpFnOptions = {
-	path?: string;
+export type HttpOptions = {
+	path?: LiteralString;
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
 };
 
-/** Type carrier mounted on the `http` module (and as a named export). */
-export const $fnOptions = {} as HttpFnOptions;
-
 /**
- * When `path` is set, synthesize a {@link route} module into `use`.
- * Method defaults like better-auth's client: POST if `input` is declared,
- * otherwise GET.
+ * Extends core {@link fnOptions} with HTTP route keys. Mount via
+ * `use: [httpOptions]`, `use: [{ httpOptions }]`, or `use: [http]` to unlock
+ * `{ path, method?, … }` on `v.fn` options (runtime stamps `$route` when
+ * `path` is set). `path` uses `literal: true` so call-site paths stay
+ * narrow (`"/a"` not `string`).
  */
-export function $applyFnOptions(options: Record<string, any>): void {
-	if (typeof options.path !== "string") return;
-	const method =
-		(options.method as RouteMethod | undefined) ??
-		(options.input !== undefined ? "POST" : "GET");
-	options.use = [
-		...((options.use ?? []) as Module[]),
-		route({
-			path: options.path,
-			method,
-			invalidate: options.invalidate,
-			status: options.status,
-		}),
-	];
-}
+export const httpOptions = v.extend(fnOptions, {
+	path: v.string({ literal: true, optional: true }),
+	method: v.string({
+		optional: true,
+		enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+	}),
+	invalidate: v.array(v.string(), { optional: true }),
+	status: v.number({ optional: true }),
+});

@@ -148,7 +148,16 @@ type StringOptions<E extends string, O> = TypeOptions<E, O> &
 		| "startsWith"
 		| "endsWith"
 		| "check"
-	> & { enum?: readonly E[] };
+	> & {
+		enum?: readonly E[];
+		/**
+		 * Prefer string LITERALS under inference (`"/a"` not bare `string`).
+		 * For free-form values (paths, ids) where call sites should keep the
+		 * written literal. Runtime still accepts any string. Prefer `enum`
+		 * when the allowed set is closed.
+		 */
+		literal?: boolean;
+	};
 
 type ArrayOptions<E, O> = TypeOptions<FieldOut<E>[], O> &
 	Pick<Rules, "min" | "max" | "length" | "check">;
@@ -1490,6 +1499,43 @@ type NullDefault = null | (() => null | Promise<null>);
  * does not lock `optional` / `default` to their defaults.
  */
 type StringFn = {
+	/** `literal: true` — InferArgs is {@link LiteralString}, so call-site
+	 * literals stay narrow under intersection (unlike bare `string`). */
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & {
+			literal: true;
+			optional: true;
+			default: NullDefault;
+		},
+	): TypeDefination<LiteralString, O | null, null>;
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & {
+			literal: true;
+			optional: true;
+			default: DefaultInput<string>;
+		},
+	): TypeDefination<LiteralString, O, string>;
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & {
+			literal: true;
+			optional: true;
+		},
+	): TypeDefination<LiteralString, OutOf<O, never, true>, undefined>;
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & {
+			literal: true;
+			default: NullDefault;
+		},
+	): TypeDefination<LiteralString, O | null, null>;
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & {
+			literal: true;
+			default: DefaultInput<string>;
+		},
+	): TypeDefination<LiteralString, O, string>;
+	<O = LiteralString>(
+		options: StringOptions<LiteralString, O> & { literal: true },
+	): TypeDefination<LiteralString, O, never>;
 	<const E extends string, O = E>(
 		options: StringOptions<E, O> & {
 			optional: true;
@@ -1768,7 +1814,9 @@ type UnionFn = {
 
 export const vTypes = {
 	/** An `enum` narrows both sides to the literal union: `v.string({
-	 * enum: ["a", "b"] })` types as `"a" | "b"`, not `string`. */
+	 * enum: ["a", "b"] })` types as `"a" | "b"`, not `string`. Pass
+	 * `literal: true` for open strings that should stay narrow under
+	 * inference (`"/path"` not `string`) — see {@link LiteralString}. */
 	string: ((options?: any) => build("string", options)) as StringFn,
 	number: ((options?: any) => build("number", options)) as NumberFn,
 	boolean: ((options?: any) => build("boolean", options)) as BooleanFn,

@@ -137,13 +137,15 @@ export function createHandler<
 	run: (c: CreateHandlerContext<PL>) => R | Promise<R>,
 	options?: CreateHandlerOptions<PL>,
 ): (request: Request) => Promise<Response> {
-	const use = [base, ...(options?.use ?? [])] as EdgeModules<PL>;
 	const encodeOptions: EncodeErrorOptions | undefined =
 		options?.messages !== undefined || options?.message !== undefined
 			? { messages: options.messages, message: options.message }
 			: undefined;
+	// Concrete `[base, …]` tuple (not a generic `PL` array) so `v.fn` picks the
+	// builder overload; a bare `Module[]` / `UseEntry[]` under generic `PL`
+	// fails overload resolution once `httpOptions` widens option keys.
 	const entry = v
-		.fn({ use })
+		.fn({ use: [base, ...(options?.use ?? [])] as readonly [typeof base] })
 		.fn(
 			"http.create_handler",
 			{ input: { request: v.any<Request>() } },

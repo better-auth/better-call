@@ -192,14 +192,13 @@ export type {
 	WithSeedOpaque,
 	WithSeedStored,
 } from "./fn";
+export { fnOptions, fnOptionsSchema } from "./fn";
 export {
-	type ApplyFnOptions,
 	type ApplyOn,
 	type ApplyOns,
 	collectFns,
 	collectUsable,
 	type ExtendedArgs,
-	type FnOptionsFromPL,
 	type InputVarExtra,
 	type InputVarExtraOut,
 	type Interceptor,
@@ -210,9 +209,11 @@ export {
 	type Module,
 	type ModuleFns,
 	type ModuleVars,
+	type UseEntry,
 	type OnDefaultContext,
 	type OnEntry,
 	type VarExtension,
+	type VarExtensionArgsFor,
 	type VarExtensionsFor,
 	type VarGetContext,
 	type VarSetContext,
