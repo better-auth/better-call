@@ -152,21 +152,22 @@ type GroupMember<V> = V extends
 		? V
 		: never;
 
-type VarEntryUnion<M> = M extends VarExtension<infer N, any, infer BT>
-	? unknown extends BT
-		? never
-		: { [P in N]: BT }
-	: {
-			[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
-				? { [P in N]: T }
-				: M[K] extends VarExtension<infer N, any, infer BT>
-					? unknown extends BT
-						? never
-						: { [P in N]: BT }
-					: [GroupMember<M[K]>] extends [never]
-						? never
-						: VarEntryUnion<GroupMember<M[K]>>;
-		}[keyof M];
+type VarEntryUnion<M> =
+	M extends VarExtension<infer N, any, infer BT>
+		? unknown extends BT
+			? never
+			: { [P in N]: BT }
+		: {
+				[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
+					? { [P in N]: T }
+					: M[K] extends VarExtension<infer N, any, infer BT>
+						? unknown extends BT
+							? never
+							: { [P in N]: BT }
+						: [GroupMember<M[K]>] extends [never]
+							? never
+							: VarEntryUnion<GroupMember<M[K]>>;
+			}[keyof M];
 
 /**
  * Vars a module exports, keyed by their DECLARED name, not export name.
@@ -683,15 +684,16 @@ export function extendVar(
 		: { $varExtend: true, name: target.name, schema, base: target };
 }
 
-type VarExtEntry<M, K extends string> = M extends VarExtension<K, infer S>
-	? InferInput<S>
-	: M extends unknown
-		? {
-				[P in keyof M]: M[P] extends VarExtension<K, infer S>
-					? InferInput<S>
-					: never;
-			}[keyof M]
-		: never;
+type VarExtEntry<M, K extends string> =
+	M extends VarExtension<K, infer S>
+		? InferInput<S>
+		: M extends unknown
+			? {
+					[P in keyof M]: M[P] extends VarExtension<K, infer S>
+						? InferInput<S>
+						: never;
+				}[keyof M]
+			: never;
 
 /**
  * Shape additions modules in `PL` mount on var `K`. Resolves to `unknown`
@@ -703,15 +705,16 @@ export type VarExtensionsFor<PL, K extends string> = [
 	? unknown
 	: UnionToIntersection<VarExtEntry<Members<PL>, K>>;
 
-type VarExtArgsEntry<M, K extends string> = M extends VarExtension<K, infer S>
-	? InferArgs<SchemaInputOf<S>>
-	: M extends unknown
-		? {
-				[P in keyof M]: M[P] extends VarExtension<K, infer S>
-					? InferArgs<SchemaInputOf<S>>
-					: never;
-			}[keyof M]
-		: never;
+type VarExtArgsEntry<M, K extends string> =
+	M extends VarExtension<K, infer S>
+		? InferArgs<SchemaInputOf<S>>
+		: M extends unknown
+			? {
+					[P in keyof M]: M[P] extends VarExtension<K, infer S>
+						? InferArgs<SchemaInputOf<S>>
+						: never;
+				}[keyof M]
+			: never;
 
 /** The ARGS side of the same extensions - what a caller must send. */
 export type VarExtensionArgsFor<PL, K extends string> = [

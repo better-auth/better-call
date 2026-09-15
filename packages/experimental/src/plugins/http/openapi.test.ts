@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { memoryAdapter, v } from "../../index";
-import { createClient } from "./client";
+import { id, schema } from "../db";
 import { err } from "./error";
 import {
 	collectModelsFromUse,
@@ -13,7 +13,6 @@ import {
 } from "./openapi";
 import { route } from "./route";
 import { createRouter } from "./router";
-import { id, schema } from "../db";
 
 describe("toOpenAPIPath", () => {
 	it("converts :param segments to {param}", () => {
@@ -153,13 +152,12 @@ const createUser = v.fn(
 const routes = { getUser, createUser };
 
 describe("toOpenAPI", () => {
-
 	it("stamps docs from v.fn and status from route()", () => {
 		expect(getUser.$schema?.summary).toBe("Get user");
 		expect(getUser.$schema?.tags).toEqual(["users"]);
 		expect(createUser.$schema?.deprecated).toBe(true);
 		expect(createUser.$route?.status).toBe(201);
-		expectTypeOf(createUser.$route!.status).toEqualTypeOf<201 | undefined>();
+		expectTypeOf(createUser.$route?.status).toEqualTypeOf<201 | undefined>();
 	});
 
 	it("derives paths, params, body, and error responses", () => {
@@ -211,15 +209,17 @@ describe("toOpenAPI", () => {
 		const doc = toOpenAPI(router, { basePath: "/api" });
 		expect(doc.paths["/api/users/{id}"]?.get?.operationId).toBe("users.get");
 		expect(router.routes.some((r) => r.key === "users.get")).toBe(true);
-		expect(router.routes.find((r) => r.key === "users.get")?.schema?.summary).toBe(
-			"Get user",
-		);
+		expect(
+			router.routes.find((r) => r.key === "users.get")?.schema?.summary,
+		).toBe("Get user");
 	});
 });
 
 describe("Scalar", () => {
 	it("getScalarHTML embeds the document and Scalar bootstrap", () => {
-		const doc = toOpenAPI(routes, { info: { title: "Users", version: "1.0.0" } });
+		const doc = toOpenAPI(routes, {
+			info: { title: "Users", version: "1.0.0" },
+		});
 		const html = getScalarHTML(doc, { theme: "purple", title: "Users API" });
 		expect(html).toContain("<!doctype html>");
 		expect(html).toContain("Users API");
@@ -276,7 +276,9 @@ describe("Scalar", () => {
 		expect(html).toContain("/docs/openapi.json");
 		expect(html).toContain("kepler");
 
-		const built = router.openapi({ info: { title: "FromHelper", version: "9" } });
+		const built = router.openapi({
+			info: { title: "FromHelper", version: "9" },
+		});
 		expect(built.info.title).toBe("FromHelper");
 	});
 

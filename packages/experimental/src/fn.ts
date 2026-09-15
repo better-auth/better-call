@@ -18,6 +18,7 @@ import {
 	mountEventOn,
 	publishEvent,
 } from "./event";
+import type { OptionType } from "./fn-options";
 import {
 	type ApplyOns,
 	collectMergeSeeds,
@@ -30,21 +31,22 @@ import {
 	isVarExtension,
 	type Module,
 	type ModuleFns,
-	type UseEntry,
 	matchesTarget,
 	type OnEntry,
 	on as onImpl,
 	resolveModules,
 	type TargetMatches,
+	type UseEntry,
 	type VarExtension,
 	type VarExtensionArgsFor,
 	type VarGetContext,
 	type VarSetContext,
 	type WithDerived,
 } from "./module";
-import { type OptionType } from "./fn-options";
+
 export type { OptionType } from "./fn-options";
 export { fnOptions, fnOptionsSchema } from "./fn-options";
+
 import {
 	asType,
 	type InferArgs,
@@ -273,7 +275,6 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 		}[number]
 	: never;
 
-
 /** Extra `v.fn` option keys from `v.extend(fnOptions, …)` modules in scope. */
 type FnOptsExt<PL> = VarExtensionArgsFor<PL, "fnOptions">;
 
@@ -403,7 +404,6 @@ type ChainPL<
 	PL extends readonly UseEntry[],
 > = readonly [...BasePL, ...PL];
 
-
 /**
  * Used fns / groups as the call site sees them: every usable from this
  * `use` and the builder chain, rewritten with extensions + customize
@@ -416,7 +416,6 @@ type UsableInScope<
 	PL extends readonly UseEntry[],
 	BasePL extends readonly UseEntry[],
 > = ApplyOns<ModuleFns<PL> & BaseFns, ChainPL<BasePL, PL>>;
-
 
 /** Call args of a used fn: parent context is already applied, so no
  * trailing parent slot - only the declared input (positional or object). */

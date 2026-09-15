@@ -3,14 +3,10 @@ import { v } from "../../index";
 import { isFn, isNamespace, type Module } from "../../module";
 import { applyError, encodeError } from "./error";
 import { type CreateHandlerOptions, createHandler } from "./handle";
+import { isOpenAPIModule, type ToOpenAPIOptions, toOpenAPI } from "./openapi";
 import { buildServerApi, type InferServerAPI } from "./path-api";
 import { req } from "./request";
 import { res } from "./response";
-import {
-	isOpenAPIModule,
-	toOpenAPI,
-	type ToOpenAPIOptions,
-} from "./openapi";
 import { getRouteMeta, INVALIDATE_HEADER, type RouteMeta } from "./route";
 
 export type CollectedRoute = RouteMeta & {
@@ -168,7 +164,6 @@ export function createRouter<
 			}
 
 			const rawPath = request.path;
-
 
 			// Strict basePath: outside the mount prefix is not_found.
 			if (basePath && !rawPath.startsWith(basePath)) {

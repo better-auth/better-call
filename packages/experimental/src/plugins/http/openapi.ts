@@ -9,11 +9,7 @@ import {
 } from "../../schema";
 import { isStorage } from "../../storage";
 import { statusOf } from "./error";
-import {
-	collectRoutes,
-	type CollectedRoute,
-	type Router,
-} from "./router";
+import { type CollectedRoute, collectRoutes, type Router } from "./router";
 
 export type OpenAPISchemaObject = {
 	type?: string | string[];
@@ -122,7 +118,7 @@ export const toOpenAPIPath = (path: string): string =>
 	path.replace(PATH_PARAM, "{$1}");
 
 export const pathParamNames = (path: string): string[] =>
-	[...path.matchAll(PATH_PARAM)].map((m) => m[1]!).filter(Boolean);
+	[...path.matchAll(PATH_PARAM)].flatMap((m) => (m[1] ? [m[1]] : []));
 
 type RulesLike = {
 	min?: number;
@@ -249,10 +245,7 @@ function typeDefToOpenAPI(
 	if (def.example !== undefined) out.example = def.example;
 	if (def.examples !== undefined) out.examples = [...def.examples];
 	if (def.deprecated === true) out.deprecated = true;
-	if (
-		def.default !== undefined &&
-		typeof def.default !== "function"
-	) {
+	if (def.default !== undefined && typeof def.default !== "function") {
 		out.default = def.default;
 	}
 	if (isNoInput(source)) out.readOnly = true;
@@ -278,8 +271,9 @@ const errorResponseSchema = (
 	tag: string,
 	decl: unknown,
 ): OpenAPISchemaObject => {
-	const dataSchema =
-		schemaToOpenAPI(isPlainObject(decl) ? decl : {}) ?? { type: "object" };
+	const dataSchema = schemaToOpenAPI(isPlainObject(decl) ? decl : {}) ?? {
+		type: "object",
+	};
 	const status = statusOf(decl);
 	return {
 		type: "object",
@@ -385,7 +379,7 @@ export function collectModelsFromUse(
 
 	for (const mod of modules ?? []) visit(mod, 0);
 	return out;
-};
+}
 
 const schemasFromOptions = (
 	options?: ToOpenAPIOptions,
@@ -531,9 +525,7 @@ export function toOpenAPI(
 				: {}),
 		},
 		...(options?.servers ? { servers: options.servers } : {}),
-		...(tagSet.size > 0
-			? { tags: [...tagSet].map((name) => ({ name })) }
-			: {}),
+		...(tagSet.size > 0 ? { tags: [...tagSet].map((name) => ({ name })) } : {}),
 		paths,
 		...(schemas ? { components: { schemas } } : {}),
 	};
@@ -561,8 +553,7 @@ export type ScalarOptions = {
 	configuration?: Record<string, unknown>;
 };
 
-const DEFAULT_SCALAR_CDN =
-	"https://cdn.jsdelivr.net/npm/@scalar/api-reference";
+const DEFAULT_SCALAR_CDN = "https://cdn.jsdelivr.net/npm/@scalar/api-reference";
 
 /** Escape a JSON payload for safe embedding inside a `<script>` tag. */
 const jsonForScript = (value: unknown): string =>

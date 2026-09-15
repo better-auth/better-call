@@ -141,13 +141,7 @@ type OutputOf<F> =
 type StringOptions<E extends string, O> = TypeOptions<E, O> &
 	Pick<
 		Rules,
-		| "min"
-		| "max"
-		| "length"
-		| "regex"
-		| "startsWith"
-		| "endsWith"
-		| "check"
+		"min" | "max" | "length" | "regex" | "startsWith" | "endsWith" | "check"
 	> & {
 		enum?: readonly E[];
 		/**

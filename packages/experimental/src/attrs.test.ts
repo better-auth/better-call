@@ -240,9 +240,7 @@ describe("v.noInput / v.noOutput and schema views", () => {
 			id: string;
 			email: string;
 		}>();
-		expect(
-			f({ id: "1", email: "a@b.c" }),
-		).toEqual({ id: "1", email: "a@b.c" });
+		expect(f({ id: "1", email: "a@b.c" })).toEqual({ id: "1", email: "a@b.c" });
 	});
 });
 

@@ -56,7 +56,6 @@ const createProxy = (
 	return target;
 };
 
-
 /** Pull `:param` keys out of `input`, fill the URL, return leftover fields. */
 const applyPathParams = (
 	path: string,
@@ -125,9 +124,7 @@ export function createClient<const O extends CreateClientOptions<any>>(
 
 		const result = await $fetch(path, {
 			method: method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-			...(isGet
-				? { query: rest }
-				: { body: rest }),
+			...(isGet ? { query: rest } : { body: rest }),
 			...fetchOpts,
 			throw: false,
 		} as Parameters<typeof $fetch>[1]);
