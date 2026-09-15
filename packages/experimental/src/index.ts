@@ -193,11 +193,13 @@ export type {
 	WithSeedStored,
 } from "./fn";
 export {
+	type ApplyFnOptions,
 	type ApplyOn,
 	type ApplyOns,
 	collectFns,
 	collectUsable,
 	type ExtendedArgs,
+	type FnOptionsFromPL,
 	type InputVarExtra,
 	type InputVarExtraOut,
 	type Interceptor,

@@ -14,7 +14,14 @@ import { createHandler, handler } from "./handle";
 import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
-import { getRouteMeta, INVALIDATE_HEADER, route, routeVar } from "./route";
+import {
+	$applyFnOptions,
+	$fnOptions,
+	getRouteMeta,
+	INVALIDATE_HEADER,
+	route,
+	routeVar,
+} from "./route";
 import {
 	getScalarHTML,
 	isOpenAPIModule,
@@ -95,6 +102,7 @@ export { fromRequest, req, toHttpRequest } from "./request";
 export type { HttpResponse } from "./response";
 export { res, toResponse } from "./response";
 export type {
+	HttpFnOptions,
 	RouteMeta,
 	RouteMethod,
 	RouteModule,
@@ -102,6 +110,8 @@ export type {
 	RouteState,
 } from "./route";
 export {
+	$applyFnOptions,
+	$fnOptions,
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	isRouteModule,
@@ -152,6 +162,8 @@ export const http = {
 	NOT_FOUND,
 	route,
 	routeVar,
+	$fnOptions,
+	$applyFnOptions,
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	createClient,

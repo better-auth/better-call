@@ -125,6 +125,17 @@ export type Module = Record<string, unknown> & {
 	 * through - its `$on` is the hook-mounting METHOD, not the brand. */
 	$on?: (...args: never[]) => unknown;
 	$fn?: never;
+	/**
+	 * Extra keys this module unlocks on `v.fn` options when mounted via
+	 * `use`. Type carrier only - pair with {@link ApplyFnOptions} at runtime.
+	 */
+	$fnOptions?: unknown;
+	/**
+	 * Mutate the fn options bag before `use` is resolved (e.g. synthesize a
+	 * `route(...)` module from `path`). Called for every mounted module that
+	 * defines it.
+	 */
+	$applyFnOptions?: (options: Record<string, any>) => void;
 };
 
 /** A module member that can NEST other members: a plain record that is
@@ -218,6 +229,36 @@ type FnEntries<M, D extends number = 3> = {
 export type FnsFrom<M> = M extends unknown ? FnEntries<M> : never;
 
 export type ModuleFns<PL> = UnionToIntersection<FnsFrom<Members<PL>>>;
+
+/**
+ * Extra `v.fn` option keys contributed by a single module via `$fnOptions`.
+ * `unknown` / missing carriers contribute nothing.
+ */
+type FnOptionsOf<M> = M extends { $fnOptions: infer O }
+	? unknown extends O
+		? never
+		: O
+	: never;
+
+/**
+ * Intersection of every `$fnOptions` on modules in `PL`. `unknown` when
+ * nothing contributes - so intersecting onto `OptionType` is a no-op.
+ * The `[never]` guard matters: `UnionToIntersection<never>` is `unknown`,
+ * and without the guard a `use` list with no `$fnOptions` would still be
+ * fine, but a mix of contributing and empty modules must not collapse.
+ */
+export type FnOptionsFromPL<PL> = [FnOptionsOf<Members<PL>>] extends [never]
+	? unknown
+	: UnionToIntersection<FnOptionsOf<Members<PL>>>;
+
+/** Runtime hook name modules use to apply contributed fn options. */
+export type ApplyFnOptions = (options: Record<string, any>) => void;
+
+/** Keys that are module meta, not walkable members. */
+export const FN_OPTIONS_META_KEYS = new Set([
+	"$fnOptions",
+	"$applyFnOptions",
+]);
 
 export const isFn = (value: any): value is FnDefination<any, any> =>
 	typeof value === "function" && value?.$fn === true;
@@ -340,6 +381,7 @@ export const collectUsable = (
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
+			if (FN_OPTIONS_META_KEYS.has(name)) continue;
 			if (
 				isFn(value) ||
 				isVar(value) ||

@@ -22,6 +22,7 @@ import {
 	type ApplyOns,
 	collectMergeSeeds,
 	collectUsable,
+	type FnOptionsFromPL,
 	type InputVarExtra,
 	type InputVarExtraOut,
 	isFn,
@@ -268,6 +269,18 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 		}[number]
 	: never;
 
+/**
+ * Default HTTP method when `path` is set without `method`: mirrors
+ * better-auth client inference — POST if `input` is declared, else GET.
+ */
+/** POST when options declare `input`, otherwise GET (better-auth client). */
+/** POST when input is declared, else GET (better-auth client default). */
+type DefaultRouteMethod<I> = [unknown] extends [I]
+	? "GET"
+	: [I] extends [undefined]
+		? "GET"
+		: "POST";
+
 /** Intersect literal `$route` onto a terminating fn when `use` has route(). */
 type StampHttpRoute<F, PL> = [ExtractHttpRoute<PL>] extends [never]
 	? F
@@ -386,6 +399,7 @@ type ChainPL<
 	BasePL extends readonly Module[],
 	PL extends readonly Module[],
 > = readonly [...BasePL, ...PL];
+
 
 /**
  * Used fns / groups as the call site sees them: every usable from this
@@ -745,6 +759,124 @@ export interface Fn<
 	>;
 
 	<
+		const Path extends string,
+		const I,
+		O,
+		R extends InferReturn<O> | Promise<InferReturn<O>>,
+		const PL extends readonly Module[] = [],
+		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		RO extends boolean = false,
+		Er extends Record<string, unknown> = NoErrors,
+		const Method extends string = DefaultRouteMethod<I>,
+		const Inv extends readonly string[] = readonly [],
+	>(
+		options: OptionType<I, O, P, Q, PL, RO, Er> &
+			FnOptionsFromPL<ChainPL<BasePL, PL>> &
+			(FnOptionsFromPL<ChainPL<BasePL, PL>> extends {
+				path?: string;
+			}
+				? {
+						path: Path;
+						method?: Method;
+						invalidate?: Inv;
+						status?: number;
+					}
+				: never),
+		fn: (
+			ctx: Context<
+				I,
+				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
+				WithDerived<PL, BasePL, Q[number]>,
+				UsableInScope<BaseFns, PL, BasePL>,
+				Fn<
+					Base & ResolvedVars<PL>,
+					UsableInScope<BaseFns, PL, BasePL>,
+					ChainPL<BasePL, PL>,
+					Prefix
+				>,
+				RO,
+				Er,
+				ChainPL<BasePL, PL>
+			>,
+		) => R,
+	): TerminatingFn<
+		WidenedArgs<I, ChainPL<BasePL, PL>>,
+		R,
+		Prefix extends "" ? string : Prefix,
+		I,
+		P,
+		Er,
+		O
+	> & {
+		readonly $route: {
+			path: Path;
+			method: Method;
+			invalidate: Inv;
+			status?: number;
+		};
+	};
+	<
+		K extends LiteralString,
+		const Path extends string,
+		const I,
+		O,
+		R extends InferReturn<O> | Promise<InferReturn<O>>,
+		const PL extends readonly Module[] = [],
+		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
+		RO extends boolean = false,
+		Er extends Record<string, unknown> = NoErrors,
+		const Method extends string = DefaultRouteMethod<I>,
+		const Inv extends readonly string[] = readonly [],
+	>(
+		key: K,
+		options: OptionType<I, O, P, Q, PL, RO, Er> &
+			FnOptionsFromPL<ChainPL<BasePL, PL>> &
+			(FnOptionsFromPL<ChainPL<BasePL, PL>> extends {
+				path?: string;
+			}
+				? {
+						path: Path;
+						method?: Method;
+						invalidate?: Inv;
+						status?: number;
+					}
+				: never),
+		fn: (
+			ctx: Context<
+				I,
+				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
+				WithDerived<PL, BasePL, Q[number]>,
+				UsableInScope<BaseFns, PL, BasePL>,
+				Fn<
+					Base & ResolvedVars<PL>,
+					UsableInScope<BaseFns, PL, BasePL>,
+					ChainPL<BasePL, PL>,
+					`${Prefix}${K}`
+				>,
+				RO,
+				Er,
+				ChainPL<BasePL, PL>
+			>,
+		) => R,
+	): TerminatingFn<
+		WidenedArgs<I, ChainPL<BasePL, PL>>,
+		R,
+		`${Prefix}${K}`,
+		I,
+		P,
+		Er,
+		O
+	> & {
+		readonly $route: {
+			path: Path;
+			method: Method;
+			invalidate: Inv;
+			status?: number;
+		};
+	};
+	<
 		const I,
 		O,
 		R extends InferReturn<O> | Promise<InferReturn<O>>,
@@ -754,7 +886,8 @@ export interface Fn<
 		RO extends boolean = false,
 		Er extends Record<string, unknown> = NoErrors,
 	>(
-		options: OptionType<I, O, P, Q, PL, RO, Er>,
+		options: OptionType<I, O, P, Q, PL, RO, Er> &
+			FnOptionsFromPL<ChainPL<BasePL, PL>>,
 		fn: (
 			ctx: Context<
 				I,
@@ -796,7 +929,8 @@ export interface Fn<
 		Er extends Record<string, unknown> = NoErrors,
 	>(
 		key: K,
-		options: OptionType<I, O, P, Q, PL, RO, Er>,
+		options: OptionType<I, O, P, Q, PL, RO, Er> &
+			FnOptionsFromPL<ChainPL<BasePL, PL>>,
 		fn: (
 			ctx: Context<
 				I,
@@ -839,7 +973,7 @@ export interface Fn<
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
-		options: OptionType<I, O, P, Q, PL>,
+		options: OptionType<I, O, P, Q, PL> & FnOptionsFromPL<ChainPL<BasePL, PL>>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -857,7 +991,7 @@ export interface Fn<
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
 		key: K,
-		options: OptionType<I, O, P, Q, PL>,
+		options: OptionType<I, O, P, Q, PL> & FnOptionsFromPL<ChainPL<BasePL, PL>>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -888,6 +1022,16 @@ const defineFn = (
 	options: OptionType<any, any, any, any, any>,
 	declared: (c: any) => any,
 ) => {
+	// Modules in `use` may contribute options (e.g. http `path` → route()).
+	// Apply those hooks before resolving `use`, so synthesized modules are
+	// included in the same pass as explicit ones.
+	const initial = resolveModules((options.use ?? []) as Module[]);
+	for (const mod of initial) {
+		const apply = (mod as Module).$applyFnOptions;
+		if (typeof apply === "function") {
+			apply(options as Record<string, any>);
+		}
+	}
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
 	// Interceptors and var extensions this fn brings, from its modules -

@@ -69,7 +69,9 @@ export type RouteModule<
 };
 
 /**
- * Mount on a fn via `use: [route({ path, method, invalidate? })]`.
+ * Mount on a fn via `use: [route({ path, method, invalidate? })]`, or —
+ * when `http` is already in scope — as fn options:
+ * `{ path, method?, invalidate?, status? }`.
  *
  * Seeds mutable `c.route` for the call (handlers may push to
  * `c.route.invalidate`). Stamped onto the fn as `$route` for the router
@@ -142,4 +144,39 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
 		invalidate: [...(mod.invalidate ?? [])],
 		...(mod.status !== undefined ? { status: mod.status } : {}),
 	};
+}
+
+/**
+ * Extra `v.fn` option keys unlocked when `http` (or this marker) is in `use`.
+ * Prefer `{ path }` over `use: [route({ path, method })]` for new code.
+ */
+export type HttpFnOptions = {
+	path?: string;
+	method?: RouteMethod;
+	invalidate?: readonly string[];
+	status?: number;
+};
+
+/** Type carrier mounted on the `http` module (and as a named export). */
+export const $fnOptions = {} as HttpFnOptions;
+
+/**
+ * When `path` is set, synthesize a {@link route} module into `use`.
+ * Method defaults like better-auth's client: POST if `input` is declared,
+ * otherwise GET.
+ */
+export function $applyFnOptions(options: Record<string, any>): void {
+	if (typeof options.path !== "string") return;
+	const method =
+		(options.method as RouteMethod | undefined) ??
+		(options.input !== undefined ? "POST" : "GET");
+	options.use = [
+		...((options.use ?? []) as Module[]),
+		route({
+			path: options.path,
+			method,
+			invalidate: options.invalidate,
+			status: options.status,
+		}),
+	];
 }
