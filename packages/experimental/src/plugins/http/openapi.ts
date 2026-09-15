@@ -4,8 +4,10 @@ import {
 	asType,
 	isNoInput,
 	isNoOutput,
+	isVar,
 	type TypeDefination,
 } from "../../schema";
+import { isStorage } from "../../storage";
 import { statusOf } from "./error";
 import {
 	collectRoutes,
@@ -86,6 +88,10 @@ export type OpenAPIDocument = {
 	servers?: { url: string; description?: string }[];
 	tags?: { name: string; description?: string }[];
 	paths: Record<string, OpenAPIPathItem>;
+	/** DB / shared models — usually inferred from storage in `use`. */
+	components?: {
+		schemas?: Record<string, OpenAPISchemaObject>;
+	};
 };
 
 export type ToOpenAPIOptions = {
@@ -97,6 +103,16 @@ export type ToOpenAPIOptions = {
 	servers?: { url: string; description?: string }[];
 	/** Prepended to every path (e.g. router `basePath`). */
 	basePath?: string;
+	/**
+	 * Modules from `createRouter({ use })` (or any bag of storages / model
+	 * vars). Storages contribute `$models`; bare model vars are included too.
+	 */
+	use?: readonly unknown[];
+	/**
+	 * Extra / override schemas merged into `components.schemas` after
+	 * models inferred from {@link ToOpenAPIOptions.use}.
+	 */
+	schemas?: Record<string, unknown>;
 };
 
 const PATH_PARAM = /:([A-Za-z0-9_]+)/g;
@@ -310,6 +326,83 @@ const resolveRoutes = (
 	};
 };
 
+/** A storage model entry: bare var or `{ schema: var, … }`. */
+const modelVarOf = (
+	entry: unknown,
+): { name: string; schema?: unknown } | undefined => {
+	if (isVar(entry)) {
+		return entry as { name: string; schema?: unknown };
+	}
+	if (
+		entry &&
+		typeof entry === "object" &&
+		isVar((entry as { schema?: unknown }).schema)
+	) {
+		return (entry as { schema: { name: string; schema?: unknown } }).schema;
+	}
+	return undefined;
+};
+
+/**
+ * Walk router `use` modules for DB models.
+ * Prefers `v.storage(...).$models`; also picks up bare `schema(...)` vars.
+ */
+export function collectModelsFromUse(
+	modules: readonly unknown[] | undefined,
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+
+	const take = (entry: unknown) => {
+		const model = modelVarOf(entry);
+		if (!model || model.schema === undefined) return;
+		if (!(model.name in out)) out[model.name] = model.schema;
+	};
+
+	const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+		if (value == null || typeof value !== "object" || Array.isArray(value)) {
+			return false;
+		}
+		const proto = Object.getPrototypeOf(value);
+		return proto === Object.prototype || proto === null;
+	};
+
+	const visit = (value: unknown, depth: number) => {
+		if (value == null || depth > 8) return;
+		if (isOpenAPIModule(value)) return;
+		if (isStorage(value)) {
+			for (const entry of Object.values(value.$models)) take(entry);
+			return;
+		}
+		if (isVar(value)) {
+			take(value);
+			return;
+		}
+		// Storage-only modules (`{ db }`) are not namespaces — still walk them.
+		if (isPlainRecord(value)) {
+			for (const child of Object.values(value)) visit(child, depth + 1);
+		}
+	};
+
+	for (const mod of modules ?? []) visit(mod, 0);
+	return out;
+};
+
+const schemasFromOptions = (
+	options?: ToOpenAPIOptions,
+): Record<string, OpenAPISchemaObject> | undefined => {
+	const fromUse = collectModelsFromUse(options?.use);
+	const merged: Record<string, unknown> = {
+		...fromUse,
+		...(options?.schemas ?? {}),
+	};
+	const schemas: Record<string, OpenAPISchemaObject> = {};
+	for (const [name, shape] of Object.entries(merged)) {
+		const converted = schemaToOpenAPI(shape);
+		if (converted) schemas[name] = converted;
+	}
+	return Object.keys(schemas).length > 0 ? schemas : undefined;
+};
+
 /**
  * Build an OpenAPI 3.1 document from routed fns.
  *
@@ -426,6 +519,8 @@ export function toOpenAPI(
 		paths[openapiPath] = item;
 	}
 
+	const schemas = schemasFromOptions(options);
+
 	return {
 		openapi: "3.1.0",
 		info: {
@@ -440,6 +535,7 @@ export function toOpenAPI(
 			? { tags: [...tagSet].map((name) => ({ name })) }
 			: {}),
 		paths,
+		...(schemas ? { components: { schemas } } : {}),
 	};
 }
 
@@ -559,12 +655,17 @@ export type OpenAPIModuleOptions = ToOpenAPIOptions & {
 type OpenAPIBindState = {
 	routes: CollectedRoute[];
 	basePath: string;
+	use: readonly unknown[];
 };
 
 export type OpenAPIModule = Module & {
 	readonly $openapi: true;
-	/** @internal Wired by `createRouter` with the collected route table. */
-	$openapiBind: (routes: CollectedRoute[], basePath: string) => void;
+	/** @internal Wired by `createRouter` with routes + the router `use` list. */
+	$openapiBind: (
+		routes: CollectedRoute[],
+		basePath: string,
+		use?: readonly unknown[],
+	) => void;
 };
 
 export const isOpenAPIModule = (value: unknown): value is OpenAPIModule =>
@@ -590,7 +691,7 @@ export const isOpenAPIModule = (value: unknown): value is OpenAPIModule =>
  * `basePath` enforcement), so docs paths are absolute request paths.
  */
 export function openapi(options?: OpenAPIModuleOptions): OpenAPIModule {
-	const state: OpenAPIBindState = { routes: [], basePath: "" };
+	const state: OpenAPIBindState = { routes: [], basePath: "", use: [] };
 	const refPath = options?.path ?? "/api/reference";
 	const jsonPath =
 		options?.jsonPath ?? `${refPath.replace(/\/$/, "")}/openapi.json`;
@@ -604,9 +705,10 @@ export function openapi(options?: OpenAPIModuleOptions): OpenAPIModule {
 
 	return {
 		$openapi: true,
-		$openapiBind(routes, basePath) {
+		$openapiBind(routes, basePath, use) {
 			state.routes = routes;
 			state.basePath = basePath;
+			state.use = use ?? [];
 		},
 		$openapiGate: v.on("http.router.dispatch", async (c, next) => {
 			const request = c.req;
@@ -619,8 +721,9 @@ export function openapi(options?: OpenAPIModuleOptions): OpenAPIModule {
 			}
 
 			const doc = toOpenAPI(state.routes, {
-				basePath: docOptions.basePath ?? state.basePath,
 				...docOptions,
+				basePath: docOptions.basePath ?? state.basePath,
+				use: docOptions.use ?? state.use,
 			});
 
 			if (rawPath === jsonPath) {

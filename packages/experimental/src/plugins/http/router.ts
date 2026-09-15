@@ -153,7 +153,7 @@ export function createRouter<
 
 	for (const mod of options?.use ?? []) {
 		if (isOpenAPIModule(mod)) {
-			mod.$openapiBind(table, basePath);
+			mod.$openapiBind(table, basePath, options?.use);
 		}
 	}
 
@@ -263,8 +263,9 @@ export function createRouter<
 
 	const buildOpenAPI = (docOptions?: ToOpenAPIOptions) =>
 		toOpenAPI(table, {
-			basePath: docOptions?.basePath ?? basePath,
 			...docOptions,
+			basePath: docOptions?.basePath ?? basePath,
+			use: docOptions?.use ?? options?.use,
 		});
 
 	return Object.assign(handle, {

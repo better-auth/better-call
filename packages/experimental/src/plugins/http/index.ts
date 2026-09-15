@@ -21,6 +21,7 @@ import {
 	openapi,
 	scalarHTML,
 	schemaToOpenAPI,
+	collectModelsFromUse,
 	toOpenAPI,
 } from "./openapi";
 import { collectRoutes, createRouter, NOT_FOUND } from "./router";
@@ -134,6 +135,7 @@ export {
 	pathParamNames,
 	scalarHTML,
 	schemaToOpenAPI,
+	collectModelsFromUse,
 	toOpenAPI,
 	toOpenAPIPath,
 } from "./openapi";
@@ -173,6 +175,7 @@ export const http = {
 	stripReturned,
 	wireInput,
 	fromJsonBody,
+	collectModelsFromUse,
 	toOpenAPI,
 	schemaToOpenAPI,
 	getScalarHTML,

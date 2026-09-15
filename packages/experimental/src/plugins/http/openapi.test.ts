@@ -1,8 +1,9 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { v } from "../../index";
+import { memoryAdapter, v } from "../../index";
 import { createClient } from "./client";
 import { err } from "./error";
 import {
+	collectModelsFromUse,
 	getScalarHTML,
 	openapi,
 	scalarHTML,
@@ -12,6 +13,7 @@ import {
 } from "./openapi";
 import { route } from "./route";
 import { createRouter } from "./router";
+import { id, schema } from "../db";
 
 describe("toOpenAPIPath", () => {
 	it("converts :param segments to {param}", () => {
@@ -304,5 +306,85 @@ describe("Scalar", () => {
 		expect(seen).toEqual(["/docs"]);
 		const page = await res.text();
 		expect(page).toContain("Scalar.createApiReference");
+	});
+});
+
+describe("OpenAPI components.schemas from DB models", () => {
+	const user = schema("user", {
+		id: id(v.string()),
+		email: v.string({ format: "email" }),
+		name: v.string(),
+	});
+	const session = schema("session", {
+		id: id(v.string()),
+		userId: v.string(),
+	});
+	const db = v.storage(memoryAdapter(), { user, session });
+
+	it("collectModelsFromUse reads storage.$models (and nested { db })", () => {
+		expect(Object.keys(collectModelsFromUse([db])).sort()).toEqual([
+			"session",
+			"user",
+		]);
+		expect(Object.keys(collectModelsFromUse([{ db }])).sort()).toEqual([
+			"session",
+			"user",
+		]);
+		expect(Object.keys(collectModelsFromUse([{ user }]))).toEqual(["user"]);
+	});
+
+	it("toOpenAPI emits components.schemas from use", () => {
+		const doc = toOpenAPI(routes, {
+			info: { title: "Users", version: "1" },
+			use: [{ db }],
+		});
+		expect(doc.components?.schemas?.user).toEqual({
+			type: "object",
+			properties: {
+				id: { type: "string", readOnly: true },
+				email: { type: "string", format: "email" },
+				name: { type: "string" },
+			},
+			required: ["email", "name"],
+		});
+		expect(doc.components?.schemas?.session?.properties).toMatchObject({
+			id: { type: "string", readOnly: true },
+			userId: { type: "string" },
+		});
+	});
+
+	it("openapi() module includes models from sibling use modules", async () => {
+		const router = createRouter(routes, {
+			use: [
+				{ db },
+				openapi({
+					path: "/docs",
+					info: { title: "Demo", version: "1" },
+				}),
+			],
+		});
+		const res = await router(new Request("http://localhost/docs/openapi.json"));
+		expect(res.status).toBe(200);
+		const doc = await res.json();
+		expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+			"session",
+			"user",
+		]);
+		expect(router.openapi().components?.schemas?.user).toBeTruthy();
+	});
+
+	it("explicit schemas override inferred models", () => {
+		const doc = toOpenAPI(routes, {
+			use: [{ db }],
+			schemas: {
+				user: v.object({ id: v.string() }),
+			},
+		});
+		expect(doc.components?.schemas?.user).toEqual({
+			type: "object",
+			properties: { id: { type: "string" } },
+			required: ["id"],
+		});
+		expect(doc.components?.schemas?.session).toBeTruthy();
 	});
 });
