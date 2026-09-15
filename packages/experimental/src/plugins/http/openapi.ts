@@ -1,6 +1,11 @@
 import { v } from "../../index";
 import type { Module } from "../../module";
-import { asType, type TypeDefination } from "../../schema";
+import {
+	asType,
+	isNoInput,
+	isNoOutput,
+	type TypeDefination,
+} from "../../schema";
 import { statusOf } from "./error";
 import {
 	collectRoutes,
@@ -26,6 +31,13 @@ export type OpenAPISchemaObject = {
 	anyOf?: OpenAPISchemaObject[];
 	additionalProperties?: boolean | OpenAPISchemaObject;
 	description?: string;
+	title?: string;
+	example?: unknown;
+	examples?: unknown[];
+	deprecated?: boolean;
+	readOnly?: boolean;
+	writeOnly?: boolean;
+	default?: unknown;
 };
 
 export type OpenAPIParameter = {
@@ -101,13 +113,17 @@ type RulesLike = {
 	max?: number;
 	length?: number;
 	regex?: RegExp;
-	email?: boolean;
-	url?: boolean;
 	int?: boolean;
 	enum?: readonly unknown[];
 	optional?: boolean;
 	default?: unknown;
 	shape?: unknown;
+	description?: string;
+	title?: string;
+	example?: unknown;
+	examples?: readonly unknown[];
+	deprecated?: boolean;
+	format?: string;
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -118,19 +134,22 @@ export function schemaToOpenAPI(
 	schema: unknown,
 ): OpenAPISchemaObject | undefined {
 	if (schema === undefined || schema === null) return undefined;
-	return typeDefToOpenAPI(asType(schema) as TypeDefination<any, any> & RulesLike);
+	return typeDefToOpenAPI(
+		asType(schema) as TypeDefination<any, any> & RulesLike,
+		schema,
+	);
 }
 
 function typeDefToOpenAPI(
 	def: TypeDefination<any, any> & RulesLike,
+	/** Original field value — used for `noInput` / `noOutput` attrs. */
+	source: unknown = def,
 ): OpenAPISchemaObject {
 	const out: OpenAPISchemaObject = {};
 
 	switch (def.name) {
 		case "string":
 			out.type = "string";
-			if (def.email) out.format = "email";
-			if (def.url) out.format = "uri";
 			if (def.min !== undefined) out.minLength = def.min;
 			if (def.max !== undefined) out.maxLength = def.max;
 			if (def.length !== undefined) {
@@ -194,16 +213,35 @@ function typeDefToOpenAPI(
 		}
 		default: {
 			if (isPlainObject(def.shape)) {
-				return typeDefToOpenAPI({
-					...def,
-					name: "object",
-					shape: def.shape,
-				} as TypeDefination<any, any> & RulesLike);
+				return typeDefToOpenAPI(
+					{
+						...def,
+						name: "object",
+						shape: def.shape,
+					} as TypeDefination<any, any> & RulesLike,
+					source,
+				);
 			}
 		}
 	}
 
 	if (def.enum) out.enum = [...def.enum];
+
+	if (def.format !== undefined) out.format = def.format;
+	if (def.description !== undefined) out.description = def.description;
+	if (def.title !== undefined) out.title = def.title;
+	if (def.example !== undefined) out.example = def.example;
+	if (def.examples !== undefined) out.examples = [...def.examples];
+	if (def.deprecated === true) out.deprecated = true;
+	if (
+		def.default !== undefined &&
+		typeof def.default !== "function"
+	) {
+		out.default = def.default;
+	}
+	if (isNoInput(source)) out.readOnly = true;
+	if (isNoOutput(source)) out.writeOnly = true;
+
 	return out;
 }
 

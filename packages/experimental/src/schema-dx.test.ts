@@ -234,12 +234,12 @@ describe("factory defaults", () => {
 
 describe("email normalization", () => {
 	it("trims and lowercases before validating", () => {
-		const field = v.string({ email: true });
+		const field = v.string({ format: "email" });
 		expect(validate(field, "  Foo@Bar.COM  ", "email")).toBe("foo@bar.com");
 	});
 
 	it("still rejects malformed addresses after normalize", () => {
-		const field = v.string({ email: true });
+		const field = v.string({ format: "email" });
 		try {
 			validate(field, "  not-an-email  ", "email");
 			expect.unreachable();
@@ -253,10 +253,41 @@ describe("email normalization", () => {
 
 	it("user transform receives the normalized value", () => {
 		const field = v.string({
-			email: true,
+			format: "email",
 			transform: (s) => `user:${s}`,
 		});
 		expect(validate(field, " A@B.CO ", "email")).toBe("user:a@b.co");
+	});
+});
+
+describe("validator metadata", () => {
+	it("accepts docs fields without changing validation", () => {
+		const field = v.string({
+			description: "Stable id",
+			title: "Id",
+			example: "550e8400-e29b-41d4-a716-446655440000",
+			examples: ["550e8400-e29b-41d4-a716-446655440000"],
+			deprecated: true,
+			format: "uuid",
+			min: 3,
+		});
+		expect(field.description).toBe("Stable id");
+		expect(field.title).toBe("Id");
+		expect(field.example).toBe("550e8400-e29b-41d4-a716-446655440000");
+		expect(field.format).toBe("uuid");
+		expect(field.deprecated).toBe(true);
+		expect(validate(field, "hi!", "x")).toBe("hi!");
+		expect(() => validate(field, "ab", "x")).toThrow(/at least 3/);
+	});
+});
+
+describe("format: url", () => {
+	it("accepts absolute URLs", () => {
+		const field = v.string({ format: "url" });
+		expect(validate(field, "https://example.com/x", "u")).toBe(
+			"https://example.com/x",
+		);
+		expect(() => validate(field, "not a url", "u")).toThrow(/expected a URL/);
 	});
 });
 

@@ -38,7 +38,7 @@ describe("schema $attrs", () => {
 	});
 
 	it("validate ignores $attrs", () => {
-		const email = withAttrs(v.string({ email: true }), "db", {
+		const email = withAttrs(v.string({ format: "email" }), "db", {
 			unique: true,
 		});
 		expect(validate(email, "a@b.co", "email")).toBe("a@b.co");

@@ -1185,7 +1185,7 @@ describe("multi-issue validation", () => {
 	it("stack points at the call site, not schema internals", () => {
 		const f = v.fn(
 			"fnt.stack",
-			{ input: { email: v.string({ email: true }) } },
+			{ input: { email: v.string({ format: "email" }) } },
 			(c) => c.input,
 		);
 		try {

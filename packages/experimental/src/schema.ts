@@ -9,9 +9,6 @@ export type Rules = {
 	/** Strings only: exact length. */
 	length?: number;
 	regex?: RegExp;
-	/** Strings only. Trims and lowercases before the format check. */
-	email?: boolean;
-	url?: boolean;
 	startsWith?: string;
 	endsWith?: string;
 	/** Numbers only. */
@@ -25,6 +22,29 @@ export type Rules = {
 /** Field metadata. Outer key is a namespace (`"v"`, `"http"`, `"db"`, …).
  * Core interprets `"v"` (`noInput` / `noOutput`); plugins own the rest. */
 export type AttrBag = Record<string, Record<string, unknown>>;
+
+/**
+ * Docs / OpenAPI annotations on a field. Most are ignored by
+ * {@link validate}. `format: "email" | "url"` also validates
+ * (and `"email"` normalizes trim + lowercase).
+ */
+export type MetaOptions = {
+	/** Human description — OpenAPI / JSON Schema `description`. */
+	description?: string;
+	/** Short label — OpenAPI / JSON Schema `title`. */
+	title?: string;
+	/** Single example value — OpenAPI / JSON Schema `example`. */
+	example?: unknown;
+	/** Multiple examples — OpenAPI / JSON Schema `examples`. */
+	examples?: readonly unknown[];
+	/** Marked retired — OpenAPI `deprecated`. */
+	deprecated?: boolean;
+	/**
+	 * OpenAPI / JSON Schema `format`. `"email"` and `"url"` are
+	 * validated; other values are docs-only.
+	 */
+	format?: string;
+};
 
 export interface TypeDefination<T, O, D = never> extends Rules {
 	name: LiteralString;
@@ -43,13 +63,19 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	transform?: (value: any) => O;
 	/** Opaque attributes - ignored by validate / Infer* on the full schema. */
 	$attrs?: AttrBag;
+	description?: string;
+	title?: string;
+	example?: unknown;
+	examples?: readonly unknown[];
+	deprecated?: boolean;
+	format?: string;
 }
 
 export type TypeOptions<T, O> = {
 	transform?: (value: T) => O;
 	/** Accepted on every helper; overloads refine the output when `true`. */
 	optional?: boolean;
-};
+} & MetaOptions;
 
 /**
  * `optional` widens the output with `| undefined | null`; `default` keeps
@@ -92,8 +118,6 @@ type StringOptions<E extends string, O> = TypeOptions<E, O> &
 		| "max"
 		| "length"
 		| "regex"
-		| "email"
-		| "url"
 		| "startsWith"
 		| "endsWith"
 		| "check"
@@ -1055,7 +1079,11 @@ const typeError = (
 };
 
 /** Constraint checks, run after the value's type is known to be right. */
-const applyRules = (def: Rules, value: any, path: string) => {
+const applyRules = (
+	def: Rules & { format?: string },
+	value: any,
+	path: string,
+) => {
 	if (def.enum && !def.enum.includes(value)) {
 		fail(
 			path,
@@ -1092,14 +1120,14 @@ const applyRules = (def: Rules, value: any, path: string) => {
 				value,
 			);
 		}
-		if (def.email && !EMAIL.test(value)) {
+		if (def.format === "email" && !EMAIL.test(value)) {
 			fail(
 				path,
 				`expected an email address, received ${preview(value)}`,
 				value,
 			);
 		}
-		if (def.url) {
+		if (def.format === "url") {
 			try {
 				new URL(value);
 			} catch {
@@ -1402,7 +1430,7 @@ export const validate = (
 	}
 	// Canonicalize before rules so padded / mixed-case addresses pass the
 	// email regex and handlers always see the normalized form.
-	if (def.email && typeof value === "string") {
+	if (def.format === "email" && typeof value === "string") {
 		value = value.trim().toLowerCase();
 	}
 	applyRules(def, value, path);

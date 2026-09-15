@@ -25,7 +25,7 @@ describe("schemaToOpenAPI", () => {
 	it("walks objects, optionals, and nested arrays", () => {
 		expect(
 			schemaToOpenAPI({
-				email: v.string({ email: true }),
+				email: v.string({ format: "email" }),
 				age: v.number({ optional: true, int: true }),
 				tags: v.array(v.string()),
 			}),
@@ -37,6 +37,70 @@ describe("schemaToOpenAPI", () => {
 				tags: { type: "array", items: { type: "string" } },
 			},
 			required: ["email", "tags"],
+		});
+	});
+
+	it("emits validator metadata into the schema object", () => {
+		expect(
+			schemaToOpenAPI({
+				email: v.string({
+					format: "email",
+					description: "Login email",
+					title: "Email",
+					example: "a@b.c",
+					examples: ["a@b.c", "x@y.z"],
+				}),
+				role: v.string({
+					enum: ["admin", "user"],
+					deprecated: true,
+					default: "user",
+				}),
+				id: v.string({ format: "uuid", description: "Stable id" }),
+				secret: v.noOutput(v.string({ description: "Never returned" })),
+				createdAt: v.noInput(v.date({ description: "Set by server" })),
+			}),
+		).toEqual({
+			type: "object",
+			properties: {
+				email: {
+					type: "string",
+					format: "email",
+					description: "Login email",
+					title: "Email",
+					example: "a@b.c",
+					examples: ["a@b.c", "x@y.z"],
+				},
+				role: {
+					type: "string",
+					enum: ["admin", "user"],
+					deprecated: true,
+					default: "user",
+				},
+				id: {
+					type: "string",
+					format: "uuid",
+					description: "Stable id",
+				},
+				secret: {
+					type: "string",
+					description: "Never returned",
+					writeOnly: true,
+				},
+				createdAt: {
+					type: "string",
+					format: "date-time",
+					description: "Set by server",
+					readOnly: true,
+				},
+			},
+			required: ["email", "id", "secret", "createdAt"],
+		});
+	});
+
+	it('emits format: "url" as-is', () => {
+		expect(schemaToOpenAPI(v.string({ format: "url" }))).toEqual({
+			type: "string",
+			format: "url",
 		});
 	});
 });
@@ -70,7 +134,7 @@ const createUser = v.fn(
 		tags: ["users"],
 		deprecated: true,
 		input: {
-			email: v.string({ email: true }),
+			email: v.string({ format: "email" }),
 			password: v.string({ min: 8 }),
 		},
 		output: { id: v.string() },
