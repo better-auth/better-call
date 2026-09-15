@@ -17,6 +17,8 @@ import { res, toResponse } from "./response";
 import { getRouteMeta, INVALIDATE_HEADER, route, routeVar } from "./route";
 import {
 	getScalarHTML,
+	isOpenAPIModule,
+	openapi,
 	scalarHTML,
 	schemaToOpenAPI,
 	toOpenAPI,
@@ -109,12 +111,13 @@ export type {
 	CollectedRoute,
 	CreateRouterOptions,
 	Router,
-	RouterOpenAPIOptions,
 } from "./router";
 export { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
 export type {
 	OpenAPIDocument,
+	OpenAPIModule,
+	OpenAPIModuleOptions,
 	OpenAPIOperation,
 	OpenAPIParameter,
 	OpenAPIPathItem,
@@ -126,6 +129,8 @@ export type {
 } from "./openapi";
 export {
 	getScalarHTML,
+	isOpenAPIModule,
+	openapi,
 	pathParamNames,
 	scalarHTML,
 	schemaToOpenAPI,
@@ -172,4 +177,6 @@ export const http = {
 	schemaToOpenAPI,
 	getScalarHTML,
 	scalarHTML,
+	openapi,
+	isOpenAPIModule,
 };

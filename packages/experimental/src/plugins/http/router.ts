@@ -6,7 +6,11 @@ import { type CreateHandlerOptions, createHandler } from "./handle";
 import { buildServerApi, type InferServerAPI } from "./path-api";
 import { req } from "./request";
 import { res } from "./response";
-import { getScalarHTML, toOpenAPI, type ToOpenAPIOptions } from "./openapi";
+import {
+	isOpenAPIModule,
+	toOpenAPI,
+	type ToOpenAPIOptions,
+} from "./openapi";
 import { getRouteMeta, INVALIDATE_HEADER, type RouteMeta } from "./route";
 
 export type CollectedRoute = RouteMeta & {
@@ -86,36 +90,11 @@ const jsonResponse = (
 	return Response.json(body, { status: code, headers });
 };
 
-export type RouterOpenAPIOptions = ToOpenAPIOptions & {
-	/**
-	 * Disable the Scalar / OpenAPI routes.
-	 * @default false
-	 */
-	disabled?: boolean;
-	/**
-	 * Path for the Scalar HTML reference.
-	 * @default "/api/reference"
-	 */
-	path?: string;
-	/**
-	 * Path for the raw OpenAPI JSON document.
-	 * @default "`${path}/openapi.json`"
-	 */
-	jsonPath?: string;
-	/** Scalar UI options (theme, title, CDN, …). */
-	scalar?: import("./openapi").ScalarOptions;
-};
-
 export type CreateRouterOptions<PL extends readonly Module[] = readonly []> =
 	CreateHandlerOptions<PL> & {
 		/** Base path routes must live under (e.g. `/api/auth`). Strict: paths
 		 * outside the prefix are `not_found`, same as Better Auth v2. */
 		basePath?: string;
-		/**
-		 * Mount Scalar API Reference + OpenAPI JSON routes. Absolute request
-		 * paths (checked before `basePath`). Set `disabled: true` to skip.
-		 */
-		openapi?: RouterOpenAPIOptions | false;
 	};
 
 /** Fetch handler plus in-process server API keyed by export names. */
@@ -172,6 +151,12 @@ export function createRouter<
 	const basePath = options?.basePath?.replace(/\/$/, "") ?? "";
 	const api = buildServerApi(routes) as InferServerAPI<R>;
 
+	for (const mod of options?.use ?? []) {
+		if (isOpenAPIModule(mod)) {
+			mod.$openapiBind(table, basePath);
+		}
+	}
+
 	const dispatch = v
 		.fn({ use: [{ req, res }] })
 		.fn("http.router.dispatch", async (c) => {
@@ -184,46 +169,6 @@ export function createRouter<
 
 			const rawPath = request.path;
 
-			// Scalar / OpenAPI routes are absolute and checked before basePath.
-			const openapiOpt =
-				options?.openapi === false ? undefined : options?.openapi;
-			if (
-				openapiOpt &&
-				openapiOpt.disabled !== true &&
-				request.method.toUpperCase() === "GET"
-			) {
-				const refPath = openapiOpt.path ?? "/api/reference";
-				const jsonPath =
-					openapiOpt.jsonPath ??
-					`${refPath.replace(/\/$/, "")}/openapi.json`;
-				if (rawPath === refPath || rawPath === jsonPath) {
-					const {
-						scalar,
-						disabled: _disabled,
-						path: _path,
-						jsonPath: _jsonPath,
-						...docOptions
-					} = openapiOpt;
-					const doc = toOpenAPI(table, {
-						basePath: docOptions.basePath ?? basePath,
-						...docOptions,
-					});
-					if (rawPath === jsonPath) {
-						return Response.json(doc);
-					}
-					const html = getScalarHTML(doc, {
-						...scalar,
-						// Prefer fetching the sibling JSON URL when mounted together.
-						url: scalar?.url ?? jsonPath,
-						configuration: {
-							...(scalar?.configuration ?? {}),
-						},
-					});
-					return new Response(html, {
-						headers: { "content-type": "text/html; charset=utf-8" },
-					});
-				}
-			}
 
 			// Strict basePath: outside the mount prefix is not_found.
 			if (basePath && !rawPath.startsWith(basePath)) {

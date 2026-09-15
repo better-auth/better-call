@@ -1,3 +1,5 @@
+import { v } from "../../index";
+import type { Module } from "../../module";
 import { asType, type TypeDefination } from "../../schema";
 import { statusOf } from "./error";
 import {
@@ -418,7 +420,7 @@ export type ScalarOptions = {
 	cdn?: string;
 	/**
 	 * Serve the OpenAPI document from this URL instead of inlining it.
-	 * Useful when the JSON is already mounted (see router `openapi.jsonPath`).
+	 * Useful when the JSON is already mounted (see `openapi({ jsonPath })`).
 	 */
 	url?: string;
 	/** Extra Scalar `createApiReference` options (merged in). */
@@ -497,4 +499,106 @@ export function scalarHTML(
 ): string {
 	const { scalar, ...openAPIOptions } = options ?? {};
 	return getScalarHTML(toOpenAPI(source, openAPIOptions), scalar);
+}
+
+/* ---------------------------- openapi() module ---------------------------- */
+
+export type OpenAPIModuleOptions = ToOpenAPIOptions & {
+	/**
+	 * Path for the Scalar HTML reference.
+	 * @default "/api/reference"
+	 */
+	path?: string;
+	/**
+	 * Path for the raw OpenAPI JSON document.
+	 * @default "`${path}/openapi.json`"
+	 */
+	jsonPath?: string;
+	/** Scalar UI options (theme, title, CDN, …). */
+	scalar?: ScalarOptions;
+};
+
+type OpenAPIBindState = {
+	routes: CollectedRoute[];
+	basePath: string;
+};
+
+export type OpenAPIModule = Module & {
+	readonly $openapi: true;
+	/** @internal Wired by `createRouter` with the collected route table. */
+	$openapiBind: (routes: CollectedRoute[], basePath: string) => void;
+};
+
+export const isOpenAPIModule = (value: unknown): value is OpenAPIModule =>
+	typeof value === "object" &&
+	value !== null &&
+	(value as { $openapi?: unknown }).$openapi === true &&
+	typeof (value as { $openapiBind?: unknown }).$openapiBind === "function";
+
+/**
+ * Router `use` module that serves Scalar + OpenAPI JSON.
+ *
+ * ```ts
+ * createRouter(routes, {
+ *   use: [openapi({ path: "/docs", info: { title: "API", version: "1" } })],
+ * })
+ * ```
+ *
+ * Mounts:
+ * - `GET ${path}` → Scalar HTML
+ * - `GET ${jsonPath}` → OpenAPI JSON (`${path}/openapi.json` by default)
+ *
+ * Intercepts `http.router.dispatch` before route matching (and before
+ * `basePath` enforcement), so docs paths are absolute request paths.
+ */
+export function openapi(options?: OpenAPIModuleOptions): OpenAPIModule {
+	const state: OpenAPIBindState = { routes: [], basePath: "" };
+	const refPath = options?.path ?? "/api/reference";
+	const jsonPath =
+		options?.jsonPath ?? `${refPath.replace(/\/$/, "")}/openapi.json`;
+
+	const {
+		path: _path,
+		jsonPath: _jsonPath,
+		scalar,
+		...docOptions
+	} = options ?? {};
+
+	return {
+		$openapi: true,
+		$openapiBind(routes, basePath) {
+			state.routes = routes;
+			state.basePath = basePath;
+		},
+		$openapiGate: v.on("http.router.dispatch", async (c, next) => {
+			const request = c.req;
+			if (!request || request.method.toUpperCase() !== "GET") {
+				return next();
+			}
+			const rawPath = request.path;
+			if (rawPath !== refPath && rawPath !== jsonPath) {
+				return next();
+			}
+
+			const doc = toOpenAPI(state.routes, {
+				basePath: docOptions.basePath ?? state.basePath,
+				...docOptions,
+			});
+
+			if (rawPath === jsonPath) {
+				return Response.json(doc);
+			}
+
+			const html = getScalarHTML(doc, {
+				...scalar,
+				url: scalar?.url ?? jsonPath,
+				configuration: {
+					...(scalar?.configuration ?? {}),
+				},
+			});
+			return new Response(html, {
+				headers: { "content-type": "text/html; charset=utf-8" },
+			});
+		}),
+	};
 }

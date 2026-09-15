@@ -4,6 +4,7 @@ import { createClient } from "./client";
 import { err } from "./error";
 import {
 	getScalarHTML,
+	openapi,
 	scalarHTML,
 	schemaToOpenAPI,
 	toOpenAPI,
@@ -180,13 +181,15 @@ describe("Scalar", () => {
 		expect(html).toContain("saturn");
 	});
 
-	it("createRouter mounts Scalar HTML and OpenAPI JSON when configured", async () => {
+	it("openapi() module mounts Scalar HTML and OpenAPI JSON via use", async () => {
 		const router = createRouter(routes, {
-			openapi: {
-				path: "/docs",
-				info: { title: "Demo", version: "1.2.3" },
-				scalar: { theme: "kepler" },
-			},
+			use: [
+				openapi({
+					path: "/docs",
+					info: { title: "Demo", version: "1.2.3" },
+					scalar: { theme: "kepler" },
+				}),
+			],
 		});
 
 		const jsonRes = await router(
@@ -211,9 +214,31 @@ describe("Scalar", () => {
 		expect(built.info.title).toBe("FromHelper");
 	});
 
-	it("createRouter leaves Scalar unmounted unless openapi is set", async () => {
+	it("createRouter leaves Scalar unmounted without openapi() in use", async () => {
 		const router = createRouter(routes);
 		const res = await router(new Request("http://localhost/api/reference"));
 		expect(res.status).toBe(404);
+	});
+
+	it("openapi() can sit beside other dispatch hooks in use", async () => {
+		const seen: string[] = [];
+		const gate = v.on("http.router.dispatch", async (c, next) => {
+			seen.push(c.req?.path ?? "");
+			return next();
+		});
+		const router = createRouter(routes, {
+			use: [
+				gate,
+				openapi({
+					path: "/docs",
+					info: { title: "Demo", version: "1" },
+				}),
+			],
+		});
+		const res = await router(new Request("http://localhost/docs"));
+		expect(res.status).toBe(200);
+		expect(seen).toEqual(["/docs"]);
+		const page = await res.text();
+		expect(page).toContain("Scalar.createApiReference");
 	});
 });
