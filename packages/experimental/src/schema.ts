@@ -24,6 +24,33 @@ export type Rules = {
 export type AttrBag = Record<string, Record<string, unknown>>;
 
 /**
+ * Built-in OpenAPI / JSON Schema `format` values offered for autocomplete.
+ * `"email"` and `"url"` are validated; the rest are docs-only.
+ * Arbitrary strings still type-check via {@link Format}.
+ */
+export type KnownFormat =
+	| "email"
+	| "url"
+	| "uuid"
+	| "date"
+	| "date-time"
+	| "time"
+	| "duration"
+	| "password"
+	| "byte"
+	| "binary"
+	| "hostname"
+	| "ipv4"
+	| "ipv6"
+	| "int32"
+	| "int64"
+	| "float"
+	| "double";
+
+/** `format` option: known values autocomplete; any other string is allowed. */
+export type Format = KnownFormat | (string & {});
+
+/**
  * Docs / OpenAPI annotations on a field. Most are ignored by
  * {@link validate}. `format: "email" | "url"` also validates
  * (and `"email"` normalizes trim + lowercase).
@@ -43,7 +70,7 @@ export type MetaOptions = {
 	 * OpenAPI / JSON Schema `format`. `"email"` and `"url"` are
 	 * validated; other values are docs-only.
 	 */
-	format?: string;
+	format?: Format;
 };
 
 export interface TypeDefination<T, O, D = never> extends Rules {
@@ -68,7 +95,7 @@ export interface TypeDefination<T, O, D = never> extends Rules {
 	example?: unknown;
 	examples?: readonly unknown[];
 	deprecated?: boolean;
-	format?: string;
+	format?: Format;
 }
 
 export type TypeOptions<T, O> = {

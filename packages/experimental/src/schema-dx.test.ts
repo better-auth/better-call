@@ -1,6 +1,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { ValidationError, v } from "./index";
-import type { InferArgs, InferOutput, InferType } from "./schema";
+import type {
+	Format,
+	InferArgs,
+	InferOutput,
+	InferType,
+	KnownFormat,
+} from "./schema";
 import { preview, validate } from "./schema";
 
 describe("v.string type-arg + optional DX", () => {
@@ -288,6 +294,20 @@ describe("format: url", () => {
 			"https://example.com/x",
 		);
 		expect(() => validate(field, "not a url", "u")).toThrow(/expected a URL/);
+	});
+});
+
+describe("format autocomplete", () => {
+	it("KnownFormat values and custom strings are assignable", () => {
+		v.string({ format: "email" });
+		v.string({ format: "url" });
+		v.string({ format: "uuid" });
+		v.string({ format: "date-time" });
+		v.string({ format: "password" });
+		v.string({ format: "my-custom-format" });
+		expectTypeOf<KnownFormat>().toMatchTypeOf<Format>();
+		expectTypeOf<"email">().toMatchTypeOf<Format>();
+		expectTypeOf<"my-custom-format">().toMatchTypeOf<Format>();
 	});
 });
 
