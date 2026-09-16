@@ -13,12 +13,12 @@ const thenMaybe = <T, R>(
 		: next(value as T);
 
 const resolveString = (
-	value: string | ((c: any) => string | Promise<string>),
+	value: CachePolicy["key"],
 	c: any,
 ): string | Promise<string> => (typeof value === "function" ? value(c) : value);
 
 const resolveTags = (
-	tags: (string | ((c: any) => string | Promise<string>))[] | undefined,
+	tags: NonNullable<CachePolicy["tags"]> | InvalidateTags | null | undefined,
 	c: any,
 ): string[] | Promise<string[]> => {
 	if (!tags || tags.length === 0) return [];
@@ -87,11 +87,16 @@ export function createCacheApi(store: CacheStore): CacheApi {
 				return thenMaybe(resolveString(policy.key, ctx), (key) =>
 					thenMaybe(resolveTags(policy.tags, ctx), (tags) => {
 						const payload = JSON.stringify(value);
-						return thenMaybe(store.set(key, payload, policy.ttl), () => {
-							const tagged =
-								tags.length > 0 && store.tag ? store.tag(key, tags) : undefined;
-							return thenMaybe(tagged, bust);
-						});
+						return thenMaybe(
+							store.set(key, payload, policy.ttl ?? undefined),
+							() => {
+								const tagged =
+									tags.length > 0 && store.tag
+										? store.tag(key, tags)
+										: undefined;
+								return thenMaybe(tagged, bust);
+							},
+						);
 					}),
 				);
 			};

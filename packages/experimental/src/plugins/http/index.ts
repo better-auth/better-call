@@ -85,6 +85,7 @@ export {
 export type {
 	CookieCacheApi,
 	CookieCacheCodec,
+	CookieCacheFnOption,
 	CookieCachePolicy,
 	CookieCacheSigner,
 	CookieCacheStrategy,
@@ -105,6 +106,7 @@ export {
 	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
+	cookieCacheOptionSchema,
 } from "./cookie-cache";
 export type {
 	EncodedError,

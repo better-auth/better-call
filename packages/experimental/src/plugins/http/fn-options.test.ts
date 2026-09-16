@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { v } from "../../index";
 import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
+import type { CookieCacheFnOption } from "./cookie-cache/options";
 
 describe("httpOptions — path on fn options", () => {
 	it("unlocks path when http is in parent use", () => {
@@ -145,5 +146,41 @@ describe("httpOptions — path on fn options", () => {
 		);
 		expect(echo.$schema?.input).toBeDefined();
 		expectTypeOf(echo).toBeFunction();
+	});
+
+	it("cookieCache option infers sub-keys", () => {
+		const e = v.fn({ use: [http] });
+		const get = e.fn(
+			"session.get",
+			{
+				cookieCache: {
+					name: "session_data",
+					maxAge: 300,
+					strategy: "jwe",
+					secret: "x",
+					version: "1",
+					refreshCache: { updateAge: 60 },
+					jwe: { salt: "s", info: "i" },
+					validate: (payload) => payload != null,
+					disableWhen: () => false,
+					prepare: (value) => value,
+				},
+			},
+			async () => null,
+		);
+		expect(get.$cookieCache).toMatchObject({
+			name: "session_data",
+			strategy: "jwe",
+		});
+		// Empty object stays assignable so `{ | }` keeps contextual IntelliSense.
+		e.fn("scratch", { cookieCache: {} }, async () => null);
+
+		expectTypeOf<CookieCacheFnOption>().toMatchTypeOf<{
+			name?: string | null;
+			strategy?: "compact" | "jwt" | "jwe" | null;
+			validate?:
+				| ((...args: any[]) => boolean | Promise<boolean>)
+				| null;
+		}>();
 	});
 });

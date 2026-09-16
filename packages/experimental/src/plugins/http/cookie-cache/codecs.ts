@@ -12,11 +12,18 @@ import {
 export type CookieCacheStrategy = "compact" | "jwt" | "jwe";
 
 export type CookieCacheSigner = {
-	sign: (payload: unknown, expiresIn: number, c: any) => Promise<string>;
+	sign: (
+		payload: unknown,
+		expiresIn: number,
+		c: any,
+	) => string | Promise<string>;
 	verify: (
 		token: string,
 		c: any,
-	) => Promise<{ payload: unknown; expiresAt: number } | null>;
+	) =>
+		| { payload: unknown; expiresAt: number }
+		| null
+		| Promise<{ payload: unknown; expiresAt: number } | null>;
 };
 
 export type DecodeResult = {
@@ -301,9 +308,9 @@ export function jweCodec(
 export function codecFor(
 	strategy: CookieCacheStrategy,
 	opts: {
-		secret?: string | readonly string[];
-		jwe?: { salt: string; info: string };
-		signer?: CookieCacheSigner;
+		secret?: string | readonly string[] | null;
+		jwe?: { salt: string; info: string } | null;
+		signer?: CookieCacheSigner | null;
 		c?: any;
 	},
 ): CookieCacheCodec {
@@ -311,7 +318,7 @@ export function codecFor(
 		const signer = opts.signer;
 		const c = opts.c;
 		return {
-			encode: (payload, maxAge) => signer.sign(payload, maxAge, c),
+			encode: async (payload, maxAge) => signer.sign(payload, maxAge, c),
 			decode: async (value) => {
 				const verified = await signer.verify(value, c);
 				if (!verified) return null;
@@ -323,7 +330,7 @@ export function codecFor(
 		};
 	}
 
-	const secret = opts.secret;
+	const secret = opts.secret ?? undefined;
 	if (secret === undefined) {
 		throw new Error(
 			`cookieCache strategy "${strategy}" requires a secret (or signer for jwt)`,

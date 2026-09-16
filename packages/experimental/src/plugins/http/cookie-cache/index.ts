@@ -1,5 +1,4 @@
 import { cookieCacheApi } from "./api";
-import type { CookieCachePolicy } from "./api";
 import {
 	compactCodec,
 	jwtCodec,
@@ -19,9 +18,15 @@ import {
 	type ChunkedCookieStore,
 } from "./chunk";
 import { getCookieCache, type GetCookieCacheConfig } from "./get";
+import {
+	cookieCacheOptionSchema,
+	type CookieCacheFnOption,
+	type CookieCachePolicy,
+} from "./options";
 
 export type {
 	CookieCachePolicy,
+	CookieCacheFnOption,
 	CookieCacheCodec,
 	CookieCacheSigner,
 	CookieCacheStrategy,
@@ -33,6 +38,7 @@ export type {
 
 export {
 	cookieCacheApi,
+	cookieCacheOptionSchema,
 	compactCodec,
 	jwtCodec,
 	jweCodec,

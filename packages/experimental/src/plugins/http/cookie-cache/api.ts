@@ -4,27 +4,34 @@ import {
 	createChunkedCookieStore,
 	getChunkedCookie,
 } from "./chunk";
-import type {
-	CookieCacheSigner,
-	CookieCacheStrategy,
-	DecodeResult,
-} from "./codecs";
+import type { DecodeResult } from "./codecs";
 import { codecFor } from "./codecs";
+import { ValidationError } from "../../../error";
+import type { CookieCacheFnOption, CookieCachePolicy } from "./options";
 
-export type CookieCachePolicy = {
-	name: string;
-	strategy?: CookieCacheStrategy;
-	maxAge: number;
-	version?: string | ((payload: unknown, c: any) => string | Promise<string>);
-	secret?: string | readonly string[];
-	jwe?: { salt: string; info: string };
-	signer?: CookieCacheSigner;
-	refreshCache?: boolean | { updateAge: number };
-	cookie?: CookieOptions;
-	disableWhen?: (c: any) => boolean | Promise<boolean>;
-	validate?: (payload: unknown, c: any) => boolean | Promise<boolean>;
-	prepare?: (value: unknown, c: any) => unknown | Promise<unknown>;
-};
+export type { CookieCachePolicy };
+
+/** Narrow a fn-option bag to a complete policy (name + maxAge required). */
+function requirePolicy(
+	policy: CookieCacheFnOption | CookieCachePolicy,
+	fnKey: string,
+): CookieCachePolicy {
+	const name = policy.name;
+	const maxAge = policy.maxAge;
+	if (typeof name !== "string" || name.length === 0) {
+		throw new ValidationError(
+			`${fnKey}.cookieCache.name`,
+			"cookieCache requires a non-empty name",
+		);
+	}
+	if (typeof maxAge !== "number") {
+		throw new ValidationError(
+			`${fnKey}.cookieCache.maxAge`,
+			"cookieCache requires maxAge (seconds)",
+		);
+	}
+	return { ...policy, name, maxAge };
+}
 
 const thenMaybe = <T, R>(
 	value: T | Promise<T>,
@@ -39,7 +46,7 @@ const thenMaybe = <T, R>(
 
 function refreshUpdateAge(
 	maxAge: number,
-	refreshCache: boolean | { updateAge: number } | undefined,
+	refreshCache: boolean | { updateAge: number } | null | undefined,
 ): number | null {
 	if (!refreshCache) return null;
 	if (refreshCache === true) return Math.floor(maxAge * 0.2);
@@ -51,7 +58,7 @@ async function resolveVersion(
 	payload: unknown,
 	c: any,
 ): Promise<string> {
-	if (version === undefined) return "1";
+	if (version == null) return "1";
 	if (typeof version === "string") return version;
 	return version(payload, c);
 }
@@ -147,7 +154,11 @@ export type CookieCacheApi = {
 		opts?: { session?: boolean },
 	) => Promise<void>;
 	clear: (c: any, policy: CookieCachePolicy) => Promise<void>;
-	run: (c: any, policy: CookieCachePolicy, next: () => any) => any;
+	run: (
+		c: any,
+		policy: CookieCacheFnOption | CookieCachePolicy,
+		next: () => any,
+	) => any;
 };
 
 export function createCookieCacheApi(): CookieCacheApi {
@@ -190,7 +201,7 @@ export function createCookieCacheApi(): CookieCacheApi {
 			});
 			const session = opts?.session === true;
 			const encoded = await codec.encode(prepared, policy.maxAge);
-			const attrs: CookieOptions = { ...policy.cookie };
+			const attrs: CookieOptions = { ...(policy.cookie ?? {}) };
 			if (!session) attrs.maxAge = policy.maxAge;
 			else delete attrs.maxAge;
 			const store = createChunkedCookieStore(policy.name, attrs, {
@@ -205,7 +216,7 @@ export function createCookieCacheApi(): CookieCacheApi {
 		},
 
 		clear: async (c, policy) => {
-			const attrs: CookieOptions = { ...policy.cookie, maxAge: 0 };
+			const attrs: CookieOptions = { ...(policy.cookie ?? {}), maxAge: 0 };
 			const store = createChunkedCookieStore(policy.name, attrs, {
 				cookies: c.req?.cookies ?? {},
 				serialize: serializeCookie,
@@ -222,59 +233,60 @@ export function createCookieCacheApi(): CookieCacheApi {
 		},
 
 		run: (c, policy, next) => {
+			const full = requirePolicy(policy, String(c.fn?.key ?? c.fn ?? "fn"));
 			const disabled =
 				c.input?.disableCookieCache === true
 					? true
-					: policy.disableWhen
-						? policy.disableWhen(c)
+					: full.disableWhen
+						? full.disableWhen(c)
 						: false;
 
 			const writeBack = (value: unknown) =>
-				thenMaybe(api.set(c, policy, value), () => value);
+				thenMaybe(api.set(c, full, value), () => value);
 
 			const fallThrough = () => thenMaybe(next(), writeBack);
 
 			return thenMaybe(disabled, (skip) => {
 				if (skip) return fallThrough();
 
-				return thenMaybe(api.get(c, policy), (decoded) => {
+				return thenMaybe(api.get(c, full), (decoded) => {
 					if (!decoded) {
-						const had = getChunkedCookie(c.req?.cookies ?? {}, policy.name);
+						const had = getChunkedCookie(c.req?.cookies ?? {}, full.name);
 						if (had) {
-							return thenMaybe(api.clear(c, policy), fallThrough);
+							return thenMaybe(api.clear(c, full), fallThrough);
 						}
 						return fallThrough();
 					}
 
 					if (decoded.expiresAt < Date.now()) {
-						return thenMaybe(api.clear(c, policy), fallThrough);
+						return thenMaybe(api.clear(c, full), fallThrough);
 					}
 
 					return thenMaybe(
-						resolveVersion(policy.version, decoded.payload, c),
+						resolveVersion(full.version, decoded.payload, c),
 						(expected) => {
 							if (payloadVersion(decoded.payload) !== expected) {
-								return thenMaybe(api.clear(c, policy), fallThrough);
+								return thenMaybe(api.clear(c, full), fallThrough);
 							}
 
-							const check = policy.validate
-								? policy.validate(decoded.payload, c)
+							const check = full.validate
+								? full.validate(decoded.payload, c)
 								: true;
 
 							return thenMaybe(check, (ok) => {
 								if (!ok) {
-									return thenMaybe(api.clear(c, policy), fallThrough);
+									return thenMaybe(api.clear(c, full), fallThrough);
 								}
 
 								const updateAge = refreshUpdateAge(
-									policy.maxAge,
-									policy.refreshCache,
+									full.maxAge,
+									full.refreshCache,
 								);
 								if (updateAge !== null) {
 									const remaining = decoded.expiresAt - Date.now();
 									if (remaining <= updateAge * 1000) {
 										return thenMaybe(
-											api.set(c, policy, decoded.payload),
+											api.set(c, full, decoded.payload),
 											() => decoded.payload,
 										);
 									}

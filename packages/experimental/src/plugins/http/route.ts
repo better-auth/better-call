@@ -2,6 +2,8 @@ import { fnOptions } from "../../fn-options";
 import { v } from "../../index";
 import { isFn, type Module } from "../../module";
 import type { LiteralString } from "../../types";
+import type { CookieCacheFnOption } from "./cookie-cache/options";
+import { cookieCacheOptionSchema } from "./cookie-cache/options";
 
 /** HTTP methods the router / client understand. */
 export type RouteMethod =
@@ -161,7 +163,7 @@ export type HttpOptions = {
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
-	cookieCache?: unknown;
+	cookieCache?: CookieCacheFnOption;
 };
 
 /**
@@ -179,5 +181,5 @@ export const httpOptions = v.extend(fnOptions, {
 	}),
 	invalidate: v.array(v.string(), { optional: true }),
 	status: v.number({ optional: true }),
-	cookieCache: v.any({ optional: true }),
+	cookieCache: cookieCacheOptionSchema,
 });
