@@ -87,7 +87,7 @@ describe("fn.with", () => {
 describe("Instance.with", () => {
 	it("seeds with precise builder-scoped checking", () => {
 		expect(s.with(label, { user: { id: "ada" } })()).toBe("user:ada");
-		expect(s.with(flow, { send: () => "mock" })()).toBe("mock");
+		expect(s.with(flow, { user: { id: "ada" } })()).toBe("real:ada");
 	});
 
 	it("only the chain's vars and fns type-check", () => {

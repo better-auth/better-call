@@ -8,6 +8,7 @@ import type {
 	ClientResult,
 	CreateClientOptions,
 	InferClientAPI,
+	InferThrowDefault,
 	InferThrowFromOptions,
 	ResolvedResource,
 } from "./types";

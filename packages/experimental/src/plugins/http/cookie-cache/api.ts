@@ -35,8 +35,8 @@ const thenMaybe = <T, R>(
 	value instanceof Promise ||
 	(typeof value === "object" &&
 		value !== null &&
-		typeof (value as Promise<T>).then === "function")
-		? Promise.resolve(value).then(next)
+		typeof (value as { then?: unknown }).then === "function")
+		? Promise.resolve(value as T).then(next)
 		: next(value as T);
 
 function refreshUpdateAge(

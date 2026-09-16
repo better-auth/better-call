@@ -1,5 +1,5 @@
-import type { CacheStore } from "./store";
 import type { CachePolicy, InvalidateTags } from "./options";
+import type { CacheStore } from "./store";
 
 const thenMaybe = <T, R>(
 	value: T | Promise<T>,
@@ -8,15 +8,14 @@ const thenMaybe = <T, R>(
 	value instanceof Promise ||
 	(typeof value === "object" &&
 		value !== null &&
-		typeof (value as Promise<T>).then === "function")
-		? Promise.resolve(value).then(next)
+		typeof (value as { then?: unknown }).then === "function")
+		? Promise.resolve(value as T).then(next)
 		: next(value as T);
 
 const resolveString = (
 	value: string | ((c: any) => string | Promise<string>),
 	c: any,
-): string | Promise<string> =>
-	typeof value === "function" ? value(c) : value;
+): string | Promise<string> => (typeof value === "function" ? value(c) : value);
 
 const resolveTags = (
 	tags: (string | ((c: any) => string | Promise<string>))[] | undefined,
@@ -88,16 +87,11 @@ export function createCacheApi(store: CacheStore): CacheApi {
 				return thenMaybe(resolveString(policy.key, ctx), (key) =>
 					thenMaybe(resolveTags(policy.tags, ctx), (tags) => {
 						const payload = JSON.stringify(value);
-						return thenMaybe(
-							store.set(key, payload, policy.ttl),
-							() => {
-								const tagged =
-									tags.length > 0 && store.tag
-										? store.tag(key, tags)
-										: undefined;
-								return thenMaybe(tagged, bust);
-							},
-						);
+						return thenMaybe(store.set(key, payload, policy.ttl), () => {
+							const tagged =
+								tags.length > 0 && store.tag ? store.tag(key, tags) : undefined;
+							return thenMaybe(tagged, bust);
+						});
 					}),
 				);
 			};

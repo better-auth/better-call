@@ -365,6 +365,20 @@ export interface FnDefination<
 		/** Declared success status when not the default 200. */
 		status?: number;
 	};
+	/**
+	 * Store-cache policy when `cache` was set on options (requires the
+	 * cache plugin in `use`). Stamped at definition for introspection.
+	 */
+	readonly $cache?: unknown;
+	/**
+	 * Tag list to bust when `invalidateTags` was set on options.
+	 */
+	readonly $invalidateTags?: unknown;
+	/**
+	 * Cookie-cache policy when `cookieCache` was set on options (requires
+	 * http / cookie-cache in `use`).
+	 */
+	readonly $cookieCache?: unknown;
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
 	readonly provides: P;
@@ -699,6 +713,7 @@ export interface Fn<
 		Er extends Record<string, unknown> = NoErrors,
 		const Method extends string = DefaultRouteMethod<I>,
 		const Inv extends readonly string[] = readonly [],
+		const Status extends number = number,
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
 			FnOptsExt<ChainPL<BasePL, PL>> &
@@ -709,7 +724,7 @@ export interface Fn<
 						path: Path;
 						method?: Method;
 						invalidate?: Inv;
-						status?: number;
+						status?: Status;
 					}
 				: never),
 		fn: (
@@ -742,7 +757,7 @@ export interface Fn<
 			path: Path;
 			method: Method;
 			invalidate: Inv;
-			status?: number;
+			status?: Status;
 		};
 	};
 	<
@@ -758,6 +773,7 @@ export interface Fn<
 		Er extends Record<string, unknown> = NoErrors,
 		const Method extends string = DefaultRouteMethod<I>,
 		const Inv extends readonly string[] = readonly [],
+		const Status extends number = number,
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
@@ -769,7 +785,7 @@ export interface Fn<
 						path: Path;
 						method?: Method;
 						invalidate?: Inv;
-						status?: number;
+						status?: Status;
 					}
 				: never),
 		fn: (
@@ -802,7 +818,7 @@ export interface Fn<
 			path: Path;
 			method: Method;
 			invalidate: Inv;
-			status?: number;
+			status?: Status;
 		};
 	};
 	<

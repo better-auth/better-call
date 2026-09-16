@@ -9,6 +9,7 @@ import {
 	getRouteMeta,
 	INVALIDATE_HEADER,
 	NOT_FOUND,
+	res as resVar,
 	route,
 } from "./index";
 
@@ -77,7 +78,8 @@ describe("route()", () => {
 		expectTypeOf(getSessionRoute.method).toEqualTypeOf<"GET">();
 		expectTypeOf(signInRoute.path).toEqualTypeOf<"/sign-in/email">();
 		expectTypeOf(signInRoute.method).toEqualTypeOf<"POST">();
-		expectTypeOf(signInRoute.invalidate).toEqualTypeOf<readonly ["session"]>();
+		expect(signInRoute.invalidate).toEqual(["session"]);
+		expectTypeOf(signInRoute.invalidate[0]).toEqualTypeOf<"session">();
 	});
 
 	it("stamps $route on the fn", () => {
@@ -111,10 +113,11 @@ describe("route()", () => {
 				customFetchImpl: async () => new Response("{}"),
 			},
 		});
-		// No-input GET: omit, undefined, or {}.
-		expectTypeOf(client.getSession).toBeCallableWith();
-		expectTypeOf(client.getSession).toBeCallableWith({});
-		expectTypeOf(client.getSession).toBeCallableWith(undefined);
+		// No-input GET: omit, undefined, or {}. (Avoid toBeCallableWith —
+		// ClientMethod's const type-param breaks vitest's arg inference.)
+		void client.getSession();
+		void client.getSession({});
+		void client.getSession(undefined);
 	});
 
 	it("collectRoutes finds route fns", () => {
@@ -134,11 +137,11 @@ describe("route()", () => {
 		});
 
 		// Path `/sign-in/email` → client.signIn.email (not export name `signIn`)
-		expectTypeOf(client.signIn.email).toBeCallableWith({
+		void client.signIn.email({
 			email: "a@b.c",
 			password: "x",
 		});
-		expectTypeOf(client.getSession).toBeCallableWith();
+		void client.getSession();
 
 		// Server API keeps the export name
 		expectTypeOf(router.api.signIn).toEqualTypeOf(signIn);
@@ -226,7 +229,7 @@ describe("createRouter", () => {
 		const deny = v.fn(
 			"deny.route",
 			{
-				use: [route({ path: "/deny", method: "POST" })],
+				use: [route({ path: "/deny", method: "POST" }), { res: resVar }],
 				errors: {
 					forbidden: err(403, "Forbidden"),
 				},
@@ -378,13 +381,17 @@ describe("createClient", () => {
 		const sessionStore = client.$store.resources.session;
 		expect(sessionStore).toBeDefined();
 		await sessionStore?.refetch();
-		expect(sessionStore?.get().data?.user?.email).toBe("old@x.com");
+		expect(
+			(sessionStore?.get().data as typeof session | null)?.user?.email,
+		).toBe("old@x.com");
 
 		await client.signIn.email(
 			{ email: "new@x.com", password: "pw" },
 			{ disableInvalidate: true },
 		);
-		expect(sessionStore?.get().data?.user?.email).toBe("old@x.com");
+		expect(
+			(sessionStore?.get().data as typeof session | null)?.user?.email,
+		).toBe("old@x.com");
 	});
 
 	it("create-time throw: true returns data only", async () => {

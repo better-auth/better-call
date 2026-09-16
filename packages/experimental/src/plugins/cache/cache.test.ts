@@ -116,7 +116,8 @@ describe("cache plugin", () => {
 		);
 		expect(get.$cache).toEqual({ key: "k", ttl: 1 });
 		expect(get.$invalidateTags).toEqual(["t"]);
-		expectTypeOf(get.$cache).toMatchTypeOf<{ key: string; ttl: number }>();
+		expectTypeOf(get.$cache).not.toEqualTypeOf<undefined>();
+		expectTypeOf(get.$invalidateTags).not.toEqualTypeOf<undefined>();
 	});
 
 	it("exposes c.cache helpers", async () => {

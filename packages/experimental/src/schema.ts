@@ -587,10 +587,17 @@ type ObjectView<In, S, O, D> = TypeDefination<In, O, D> & {
 	$view: true;
 };
 
-/** Object type def that keeps the field map so {@link SchemaInputOf} /
- * {@link SchemaOutputOf} can see `noInput` / `noOutput` brands.
- * `.input` / `.output` are terminal — they do not chain. */
-type ObjectDef<S, O, D> = ObjectView<ArgsShape<S>, S, O, D> & {
+/**
+ * Source object type def (not a projection). Keeps the field map so
+ * {@link SchemaInputOf} / {@link SchemaOutputOf} can see `noInput` /
+ * `noOutput` brands. Must NOT carry `$view` — that brand is only for
+ * projected `.input` / `.output` views (otherwise SchemaInputOf would
+ * short-circuit and leave gated fields in place).
+ * `.input` / `.output` are terminal — they do not chain.
+ */
+type ObjectDef<S, O, D> = TypeDefination<ArgsShape<S>, O, D> & {
+	name: "object";
+	shape: S;
 	/**
 	 * Fields without {@link noInput}. Lazy projection; same kind of value
 	 * as this schema, without further `.input` / `.output`.

@@ -86,12 +86,18 @@ const jsonResponse = (
 	return Response.json(body, { status: code, headers });
 };
 
-export type CreateRouterOptions<PL extends readonly Module[] = readonly []> =
-	CreateHandlerOptions<PL> & {
-		/** Base path routes must live under (e.g. `/api/auth`). Strict: paths
-		 * outside the prefix are `not_found`, same as Better Auth v2. */
-		basePath?: string;
-	};
+export type CreateRouterOptions<
+	PL extends readonly Module[] = readonly [],
+> = Omit<CreateHandlerOptions<PL>, "use"> & {
+	/** Base path routes must live under (e.g. `/api/auth`). Strict: paths
+	 * outside the prefix are `not_found`, same as Better Auth v2. */
+	basePath?: string;
+	/**
+	 * Modules and bare `v.on(...)` entries (auto-wrapped at runtime by
+	 * {@link normalizeUse}).
+	 */
+	use?: readonly (Module | { readonly $on: true })[];
+};
 
 /** Fetch handler plus in-process server API keyed by export names. */
 export type Router<

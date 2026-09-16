@@ -17,6 +17,7 @@ export type RouteOptions<
 	P extends string = string,
 	M extends RouteMethod = RouteMethod,
 	I extends readonly string[] = readonly string[],
+	S extends number = number,
 > = {
 	path: P;
 	method: M;
@@ -27,7 +28,7 @@ export type RouteOptions<
 	 * router when the handler does not set `c.res.status`, and by OpenAPI
 	 * as the primary success response code.
 	 */
-	status?: number;
+	status?: S;
 };
 
 /** Mutable per-call route state seeded by {@link route} into `c.route`. */
@@ -42,12 +43,13 @@ export type RouteMeta<
 	P extends string = string,
 	M extends string = string,
 	I extends readonly string[] = readonly string[],
+	S extends number = number,
 > = {
 	path: P;
 	method: M;
 	invalidate: I;
 	/** Declared success status when set on {@link route}. */
-	status?: number;
+	status?: S;
 };
 
 /** Header carrying the final invalidate list on successful responses. */
@@ -61,12 +63,13 @@ export type RouteModule<
 	P extends string = string,
 	M extends RouteMethod = RouteMethod,
 	I extends readonly string[] = readonly string[],
+	S extends number = number,
 > = Module & {
 	readonly $route: true;
 	readonly path: P;
 	readonly method: M;
 	readonly invalidate: I;
-	readonly status?: number;
+	readonly status?: S;
 	readonly route: typeof routeVar;
 };
 
@@ -83,7 +86,8 @@ export function route<
 	const P extends string,
 	const M extends RouteMethod,
 	const I extends readonly string[] = readonly [],
->(options: RouteOptions<P, M, I>): RouteModule<P, M, I> {
+	const S extends number = number,
+>(options: RouteOptions<P, M, I, S>): RouteModule<P, M, I, S> {
 	const invalidate = (options.invalidate ?? []) as I;
 	const method = options.method.toUpperCase() as M;
 	const path = options.path;
@@ -104,7 +108,7 @@ export function route<
 			};
 			return next();
 		}),
-	} as RouteModule<P, M, I>;
+	} as RouteModule<P, M, I, S>;
 }
 
 export const isRouteModule = (value: unknown): value is RouteModule =>

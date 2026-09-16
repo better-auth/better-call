@@ -1,6 +1,7 @@
 import {
 	base64url,
 	calculateJwkThumbprint,
+	type CompactJWEHeaderParameters,
 	decodeProtectedHeader,
 	EncryptJWT,
 	jwtDecrypt,
@@ -245,7 +246,7 @@ export function jweCodec(
 			try {
 				const { payload } = await jwtDecrypt(
 					value,
-					async (header) => {
+					async (header: CompactJWEHeaderParameters) => {
 						const kid = header.kid;
 						if (kid !== undefined) {
 							for (const s of secrets) {
