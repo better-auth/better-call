@@ -104,6 +104,33 @@ describe("schemaToOpenAPI", () => {
 			format: "url",
 		});
 	});
+
+	it("keeps literal null arms in unions", () => {
+		expect(schemaToOpenAPI(v.union([v.string(), null]))).toEqual({
+			anyOf: [{ type: "string" }, { type: "null" }],
+		});
+	});
+
+	it("merges v.extend base + added fields", () => {
+		const user = v.var("user", {
+			schema: {
+				id: v.string(),
+				name: v.string({ optional: true }),
+			},
+		});
+		const withEmail = v.extend(user, {
+			email: v.string({ format: "email" }),
+		});
+		expect(schemaToOpenAPI(withEmail)).toEqual({
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				name: { type: "string" },
+				email: { type: "string", format: "email" },
+			},
+			required: ["id", "email"],
+		});
+	});
 });
 
 const getUser = v.fn(
@@ -202,6 +229,34 @@ describe("toOpenAPI", () => {
 		);
 		expect(postOp?.responses["201"]).toBeDefined();
 		expect(postOp?.responses["409"]?.description).toBe("email_taken");
+	});
+
+	it("documents outputContract.def, not the { def, validation } wrapper", () => {
+		const demo = v.fn(
+			"demo.out",
+			{
+				input: { x: v.string() },
+				output: {
+					def: { id: v.string(), token: v.union([v.string(), null]) },
+					validation: v.any(),
+				},
+				use: [route({ path: "/demo", method: "POST" })],
+			},
+			() => ({ id: "1", token: null }),
+		);
+		const doc = toOpenAPI({ demo });
+		expect(
+			doc.paths["/demo"]?.post?.responses["200"]?.content?.[
+				"application/json"
+			]?.schema,
+		).toEqual({
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				token: { anyOf: [{ type: "string" }, { type: "null" }] },
+			},
+			required: ["id", "token"],
+		});
 	});
 
 	it("reads routes from a createRouter instance and basePath", () => {

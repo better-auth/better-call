@@ -178,9 +178,7 @@ describe("httpOptions — path on fn options", () => {
 		expectTypeOf<CookieCacheFnOption>().toMatchTypeOf<{
 			name?: string | null;
 			strategy?: "compact" | "jwt" | "jwe" | null;
-			validate?:
-				| ((...args: any[]) => boolean | Promise<boolean>)
-				| null;
+			validate?: ((...args: any[]) => boolean | Promise<boolean>) | null;
 		}>();
 	});
 });

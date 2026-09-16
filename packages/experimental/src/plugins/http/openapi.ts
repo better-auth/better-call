@@ -1,10 +1,12 @@
 import { v } from "../../index";
 import type { Module } from "../../module";
+import { isVarExtension } from "../../module";
 import {
 	asType,
 	isNoInput,
 	isNoOutput,
 	isVar,
+	outputContract,
 	type TypeDefination,
 } from "../../schema";
 import { isStorage } from "../../storage";
@@ -147,7 +149,37 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 export function schemaToOpenAPI(
 	schema: unknown,
 ): OpenAPISchemaObject | undefined {
-	if (schema === undefined || schema === null) return undefined;
+	if (schema === undefined) return undefined;
+	// Literal `null` is a valid union member (`v.union([v.string(), null])`).
+	// Must not early-return before `asType` — that would drop null arms.
+	if (schema === null) return { type: "null" };
+	// `v.extend(user, { email })` is a mountable extension, not a type named
+	// "user". Merge base + added fields so docs don't collapse to `{}`.
+	if (isVarExtension(schema)) {
+		const base = schema.base ? schemaToOpenAPI(schema.base) : undefined;
+		const added = schemaToOpenAPI(
+			asType({ name: "object", shape: schema.schema ?? {} }),
+		);
+		if (!base && !added) return undefined;
+		return {
+			type: "object",
+			properties: {
+				...(base?.properties ?? {}),
+				...(added?.properties ?? {}),
+			},
+			...((base?.required?.length ?? 0) > 0 ||
+			(added?.required?.length ?? 0) > 0
+				? {
+						required: [
+							...new Set([
+								...(base?.required ?? []),
+								...(added?.required ?? []),
+							]),
+						],
+					}
+				: {}),
+		};
+	}
 	return typeDefToOpenAPI(
 		asType(schema) as TypeDefination<any, any> & RulesLike,
 		schema,
@@ -456,14 +488,21 @@ export function toOpenAPI(
 		}
 
 		const successStatus = String(entry.status ?? 200);
+		// Document the promised shape (`def`), not the exit check
+		// (`validation`). A `{ def, validation }` wrapper must not be
+		// serialized as an object with those two keys.
+		const outputDef =
+			schema?.output !== undefined
+				? outputContract(schema.output).def
+				: undefined;
 		const responses: Record<string, OpenAPIResponse> = {
 			[successStatus]: {
 				description: "Success",
-				...(schema?.output !== undefined
+				...(outputDef !== undefined
 					? {
 							content: {
 								"application/json": {
-									schema: schemaToOpenAPI(schema.output) ?? {},
+									schema: schemaToOpenAPI(outputDef) ?? {},
 								},
 							},
 						}

@@ -1,3 +1,4 @@
+import { v } from "../../index";
 import {
 	clientSchema,
 	fromJsonBody,
@@ -16,41 +17,39 @@ import {
 	setCookie,
 } from "./cookie";
 import {
+	codecFor,
+	compactCodec,
 	cookieCacheApi,
 	createChunkedCookieStore,
-	createCookieCacheApi,
 	getChunkedCookie,
 	getCookieCache,
-	compactCodec,
-	jwtCodec,
 	jweCodec,
-	codecFor,
+	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
 } from "./cookie-cache";
 import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
-import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
-import { fromRequest, req } from "./request";
-import { res, toResponse } from "./response";
 import {
-	httpOptions,
-	getRouteMeta,
-	INVALIDATE_HEADER,
-	route,
-	routeVar,
-} from "./route";
-import {
+	collectModelsFromUse,
 	getScalarHTML,
 	isOpenAPIModule,
 	openapi,
 	scalarHTML,
 	schemaToOpenAPI,
-	collectModelsFromUse,
 	toOpenAPI,
 } from "./openapi";
+import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
+import { fromRequest, req } from "./request";
+import { res, toResponse } from "./response";
+import {
+	getRouteMeta,
+	httpOptions,
+	INVALIDATE_HEADER,
+	route,
+	routeVar,
+} from "./route";
 import { collectRoutes, createRouter, NOT_FOUND } from "./router";
-import { v } from "../../index";
 
 export {
 	clientSchema,
@@ -125,6 +124,30 @@ export {
 export type { CreateHandlerContext, CreateHandlerOptions } from "./handle";
 export { createHandler, handler } from "./handle";
 export type {
+	OpenAPIDocument,
+	OpenAPIModule,
+	OpenAPIModuleOptions,
+	OpenAPIOperation,
+	OpenAPIParameter,
+	OpenAPIPathItem,
+	OpenAPIRequestBody,
+	OpenAPIResponse,
+	OpenAPISchemaObject,
+	ScalarOptions,
+	ToOpenAPIOptions,
+} from "./openapi";
+export {
+	collectModelsFromUse,
+	getScalarHTML,
+	isOpenAPIModule,
+	openapi,
+	pathParamNames,
+	scalarHTML,
+	schemaToOpenAPI,
+	toOpenAPI,
+	toOpenAPIPath,
+} from "./openapi";
+export type {
 	InferServerAPI,
 	NestPathEndpoint,
 	PathRouteLeaf,
@@ -156,8 +179,8 @@ export type {
 	RouteState,
 } from "./route";
 export {
-	httpOptions,
 	getRouteMeta,
+	httpOptions,
 	INVALIDATE_HEADER,
 	isRouteModule,
 	route,
@@ -169,31 +192,6 @@ export type {
 	Router,
 } from "./router";
 export { collectRoutes, createRouter, NOT_FOUND } from "./router";
-
-export type {
-	OpenAPIDocument,
-	OpenAPIModule,
-	OpenAPIModuleOptions,
-	OpenAPIOperation,
-	OpenAPIParameter,
-	OpenAPIPathItem,
-	OpenAPIRequestBody,
-	OpenAPIResponse,
-	OpenAPISchemaObject,
-	ScalarOptions,
-	ToOpenAPIOptions,
-} from "./openapi";
-export {
-	getScalarHTML,
-	isOpenAPIModule,
-	openapi,
-	pathParamNames,
-	scalarHTML,
-	schemaToOpenAPI,
-	collectModelsFromUse,
-	toOpenAPI,
-	toOpenAPIPath,
-} from "./openapi";
 
 /** `c.cookieCache` — set/get/run/clear for the cookie-cache layer. */
 export const cookieCache = v.var("cookieCache", {
