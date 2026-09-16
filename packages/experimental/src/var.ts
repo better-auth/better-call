@@ -1,7 +1,7 @@
 import { ValidationError } from "./error";
-// Cycle with fn.ts (it imports our cells): fine, `fnImpl` is only touched
-// inside the lazy `customize` closure, never during module evaluation.
-import { type Fn, fnImpl } from "./fn";
+// Cycle with fn.ts (fn → fn-options → makeVar): do not value-import fnImpl
+// at module load. Link it after fn finishes initializing.
+import type { Fn } from "./fn";
 import { matchesTarget, type OnEntry } from "./module";
 import {
 	type AttrBag,
@@ -100,6 +100,12 @@ export type VarMap = Record<string, VarDefination<any, any, any, any>>;
 
 export const varRegistry = new Map<string, any>();
 
+/** Set from `fn.ts` once `fnImpl` exists — breaks var ↔ fn init cycle. */
+let linkedFnImpl: ((...args: any[]) => any) | null = null;
+export const linkFnImpl = (impl: (...args: any[]) => any) => {
+	linkedFnImpl = impl;
+};
+
 export const makeVar = (name: string, options: any = {}): any => {
 	const schema =
 		options.schema === undefined ? undefined : asType(options.schema);
@@ -122,7 +128,7 @@ export const makeVar = (name: string, options: any = {}): any => {
 				...(def.$attrs !== undefined ? { attrs: def.$attrs } : {}),
 				schema: opts.schema({
 					...vTypes,
-					fn: fnImpl,
+					fn: linkedFnImpl!,
 					add: (shape: any) => ({
 						name: "object",
 						shape: { ...((def.schema?.shape as any) ?? {}), ...shape },

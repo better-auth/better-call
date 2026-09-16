@@ -72,6 +72,7 @@ import {
 	contextScope,
 	type Frame,
 	getCell,
+	linkFnImpl,
 	readVar,
 	readVarThrough,
 	type VarDefination,
@@ -2076,3 +2077,4 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 };
 
 export const fnImpl = builderFn("", {});
+linkFnImpl(fnImpl);
