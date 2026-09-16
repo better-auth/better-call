@@ -1,10 +1,12 @@
 import { v } from "..";
 import { createRandomStringGenerator } from "../helpers/random";
 import {
+	attrsOf,
 	type DefineOutput,
 	type InferArgs,
 	type InferInput,
 	isType,
+	isVar,
 	noInput,
 	type TypeDefination,
 	withAttrs,
@@ -24,7 +26,7 @@ type ModelVar<N extends LiteralString, S> = VarDefination<
 	| (S extends TypeDefination<any, any, any> ? InferInput<S> : DefineOutput<S>)
 	| null,
 	ModelSchema<S>
->;
+> & { $attrs: { db: { model: true } } };
 
 /** A `v.var` options bag — not a field shape and not a type. */
 type SchemaArg<S> =
@@ -83,16 +85,26 @@ export const id = <T, O>(
 		),
 	) as TypeDefination<T, O, string> & { $attrs: { v: { noInput: true } } };
 
+/** True when {@link schema} stamped this var (`$attrs.db.model`). */
+export const isModel = (value: unknown): boolean =>
+	isVar(value) && attrsOf(value, "db")?.model === true;
+
 /** A model var from a type or a plain field object. Default is always null.
- * Import it from the db plugin: `import { schema } from "better-call/plugins/db"`. */
+ * Stamped `$attrs.db.model` so tooling (OpenAPI, …) can tell models from
+ * option / session vars. Import from the db plugin:
+ * `import { schema } from "better-call/plugins/db"`. */
 export const schema = <N extends LiteralString, S>(
 	name: N,
 	schema: SchemaArg<S>,
 ): ModelVar<N, S> =>
-	v.var(name, {
-		default: null,
-		schema: isType(schema) ? schema : v.object(schema),
-	}) as ModelVar<N, S>;
+	withAttrs(
+		v.var(name, {
+			default: null,
+			schema: isType(schema) ? schema : v.object(schema),
+		}),
+		"db",
+		{ model: true },
+	) as ModelVar<N, S>;
 
 export const db = {
 	unique,
@@ -100,4 +112,5 @@ export const db = {
 	references,
 	id,
 	schema,
+	isModel,
 };

@@ -981,6 +981,52 @@ const defineFn = (
 			},
 		];
 	}
+	// `cookieCache` / `cache` on options synthesize exact-key wraps that
+	// delegate to `c.cookieCache.run` / `c.cache.run` (plugins mount those
+	// APIs). Cookie wrap is pushed first so reduceRight makes it outermost
+	// when both are set: cookie → store → body.
+	if (opts.cookieCache !== undefined) {
+		const policy = opts.cookieCache;
+		opts.use = [
+			...((opts.use ?? []) as Module[]),
+			{
+				$cookieCache: policy,
+				$cookieCacheWrap: onImpl(key, (c: any, next: any) => {
+					const api = c.cookieCache;
+					if (!api || typeof api.run !== "function") {
+						throw new ValidationError(
+							`${key}.cookieCache`,
+							`cookieCache is set but c.cookieCache.run is missing — mount http (use: [http])`,
+						);
+					}
+					return api.run(c, policy, next);
+				}),
+			},
+		];
+	}
+	if (opts.cache !== undefined || opts.invalidateTags !== undefined) {
+		const policy = opts.cache;
+		const invalidateTags = opts.invalidateTags;
+		opts.use = [
+			...((opts.use ?? []) as Module[]),
+			{
+				...(policy !== undefined ? { $cache: policy } : {}),
+				...(invalidateTags !== undefined
+					? { $invalidateTags: invalidateTags }
+					: {}),
+				$cacheWrap: onImpl(key, (c: any, next: any) => {
+					const api = c.cache;
+					if (!api || typeof api.run !== "function") {
+						throw new ValidationError(
+							`${key}.cache`,
+							`cache/invalidateTags is set but c.cache.run is missing — mount cache({ store })`,
+						);
+					}
+					return api.run(c, policy, invalidateTags, next);
+				}),
+			},
+		];
+	}
 	const modules = resolveModules((options.use ?? []) as Module[]);
 
 	// Interceptors and var extensions this fn brings, from its modules -
@@ -1702,6 +1748,13 @@ const defineFn = (
 			...(options.deprecated === true ? { deprecated: true } : {}),
 		},
 		...(routeMeta ? { $route: routeMeta } : {}),
+		...(opts.cache !== undefined ? { $cache: opts.cache } : {}),
+		...(opts.invalidateTags !== undefined
+			? { $invalidateTags: opts.invalidateTags }
+			: {}),
+		...(opts.cookieCache !== undefined
+			? { $cookieCache: opts.cookieCache }
+			: {}),
 	});
 };
 

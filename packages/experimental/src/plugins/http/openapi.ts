@@ -8,6 +8,7 @@ import {
 	type TypeDefination,
 } from "../../schema";
 import { isStorage } from "../../storage";
+import { isModel } from "../db";
 import { statusOf } from "./error";
 import { type CollectedRoute, collectRoutes, type Router } from "./router";
 
@@ -100,8 +101,9 @@ export type ToOpenAPIOptions = {
 	/** Prepended to every path (e.g. router `basePath`). */
 	basePath?: string;
 	/**
-	 * Modules from `createRouter({ use })` (or any bag of storages / model
-	 * vars). Storages contribute `$models`; bare model vars are included too.
+	 * Modules from `createRouter({ use })`. Models come from
+	 * `v.storage(...).$models` and bare {@link import("../db").schema}
+	 * vars (`$attrs.db.model`) — not option / session vars.
 	 */
 	use?: readonly unknown[];
 	/**
@@ -339,7 +341,8 @@ const modelVarOf = (
 
 /**
  * Walk router `use` modules for DB models.
- * Prefers `v.storage(...).$models`; also picks up bare `schema(...)` vars.
+ * Takes `v.storage(...).$models` and bare vars stamped by `schema()`
+ * (`$attrs.db.model`) — skips option / session / other plain vars.
  */
 export function collectModelsFromUse(
 	modules: readonly unknown[] | undefined,
@@ -368,7 +371,7 @@ export function collectModelsFromUse(
 			return;
 		}
 		if (isVar(value)) {
-			take(value);
+			if (isModel(value)) take(value);
 			return;
 		}
 		// Storage-only modules (`{ db }`) are not namespaces — still walk them.

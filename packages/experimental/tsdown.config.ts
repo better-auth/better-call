@@ -10,6 +10,7 @@ export default defineConfig({
 		"plugins/http/client/react": "src/plugins/http/client/react.ts",
 		"plugins/read-only": "src/plugins/read-only.ts",
 		"plugins/db": "src/plugins/db.ts",
+		"plugins/cache": "src/plugins/cache/index.ts",
 		capability: "src/capability.ts",
 	},
 	dts: { build: true, incremental: true },

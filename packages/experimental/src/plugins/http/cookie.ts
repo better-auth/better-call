@@ -53,6 +53,9 @@ const serialize = (
 	return parts.join("; ");
 };
 
+/** Serialize a Set-Cookie line (used by chunk sizing and writers). */
+export const serializeCookie = serialize;
+
 const ck = v.fn("cookie.", {
 	use: [{ req, res, cookieOptions }],
 });

@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { memoryAdapter, v } from "../index";
 import { attrsOf, validate } from "../schema";
 import type { ValueOfVar } from "../var";
-import { db, generateId, id, schema } from "./db";
+import { db, generateId, id, isModel, schema } from "./db";
 
 const ALPHANUMERIC = /^[a-zA-Z0-9]+$/;
 
@@ -89,6 +89,9 @@ describe("schema", () => {
 		expect(user.default).toBeNull();
 		expect(user.schema?.name).toBe("object");
 		expect(attrsOf(user.schema?.shape?.email, "db")).toEqual({ unique: true });
+		expect(attrsOf(user, "db")).toEqual({ model: true });
+		expect(isModel(user)).toBe(true);
+		expect(isModel(v.var("plain", { default: null }))).toBe(false);
 	});
 
 	it("accepts v.object as well as a plain field object", () => {

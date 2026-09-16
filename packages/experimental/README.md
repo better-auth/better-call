@@ -277,3 +277,73 @@ The arc it walks: in-process calls need no token → an agent is born asking and
 
 - `test/http-demo.ts` — serving fns over HTTP via `src/plugins/http/`
 - `test/better-auth.ts`, `test/email-password.ts`, `test/session.ts`, `test/birthday.ts` — module composition sketches
+
+## Cache
+
+Store-backed memoization and an HTTP cookie-cache layer. They compose as **cookie → store → body** when both options are set on a fn.
+
+### Store cache (`better-call/plugins/cache`)
+
+```ts
+import { v } from "better-call";
+import { cache, memoryCache } from "better-call/plugins/cache";
+
+const app = v.fn({ use: [cache({ store: memoryCache() })] });
+
+const getUser = app.fn(
+  "user.get",
+  {
+    input: { id: v.string() },
+    cache: {
+      key: (c) => `user:${c.input.id}`,
+      ttl: 60,
+      tags: ["user"],
+    },
+  },
+  async (c) => loadUser(c.input.id),
+);
+
+const deleteUser = app.fn(
+  "user.delete",
+  {
+    input: { id: v.string() },
+    invalidateTags: ["user"],
+  },
+  async (c) => removeUser(c.input.id),
+);
+```
+
+`c.cache` exposes `get` / `set` / `delete` / `getAndDelete` / `increment` / `invalidateTags` against the mounted store. `CacheStore` is the adapter contract (string values, optional TTL in seconds).
+
+### Cookie cache (HTTP)
+
+Unlocked with `http` via `cookieCache` on fn options. Strategies: `compact` (HMAC), `jwt` (HS256), `jwe` (dir + A256CBC-HS512 + HKDF). Chunking, version, `refreshCache`, `disableCookieCache`, and `validate` / `prepare` hooks are supported.
+
+```ts
+import { http } from "better-call/plugins/http";
+import { cache, memoryCache } from "better-call/plugins/cache";
+
+const app = v.fn({ use: [http, cache({ store: memoryCache() })] });
+
+const getSession = app.fn("session.get", {
+  path: "/get-session",
+  method: "GET",
+  cookieCache: {
+    name: "session_data",
+    strategy: "jwe",
+    maxAge: 300,
+    secret: secrets,
+    jwe: { salt: "session-cache", info: "session-cache-key" },
+    version: "1",
+    refreshCache: false,
+    validate: (payload, c) => /* caller policy */,
+  },
+  cache: {
+    key: (c) => `session:${c.input.token}`,
+    ttl: 60 * 60 * 24 * 7,
+    tags: ["session"],
+  },
+}, async (c) => loadAuthoritative(c));
+```
+
+Standalone decode: `getCookieCache(request | cookies, config)`. Custom JWT verification: pass `signer: { sign, verify }` with `strategy: "jwt"`.

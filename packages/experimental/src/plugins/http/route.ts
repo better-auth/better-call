@@ -157,6 +157,7 @@ export type HttpOptions = {
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
+	cookieCache?: unknown;
 };
 
 /**
@@ -174,4 +175,5 @@ export const httpOptions = v.extend(fnOptions, {
 	}),
 	invalidate: v.array(v.string(), { optional: true }),
 	status: v.number({ optional: true }),
+	cookieCache: v.any({ optional: true }),
 });

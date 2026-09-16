@@ -34,7 +34,8 @@
 		}
 	},
 	"dependencies": {
-		"@better-fetch/fetch": "^1.1.21"
+		"@better-fetch/fetch": "^1.1.21",
+		"jose": "^6.0.11"
 	},
 	"exports": {
 		".": {
@@ -123,6 +124,17 @@
 			"require": {
 				"types": "./dist/plugins/db.d.cts",
 				"default": "./dist/plugins/db.cjs"
+			}
+		},
+		"./plugins/cache": {
+			"dev-source": "./src/plugins/cache/index.ts",
+			"import": {
+				"types": "./dist/plugins/cache.d.mts",
+				"default": "./dist/plugins/cache.mjs"
+			},
+			"require": {
+				"types": "./dist/plugins/cache.d.cts",
+				"default": "./dist/plugins/cache.cjs"
 			}
 		},
 		"./capability": {

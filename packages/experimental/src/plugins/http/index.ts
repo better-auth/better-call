@@ -8,7 +8,26 @@ import {
 	wireInput,
 } from "./attrs";
 import { createClient } from "./client";
-import { cookieOptions, deleteCookie, getCookie, setCookie } from "./cookie";
+import {
+	cookieOptions,
+	deleteCookie,
+	getCookie,
+	serializeCookie,
+	setCookie,
+} from "./cookie";
+import {
+	cookieCacheApi,
+	createChunkedCookieStore,
+	createCookieCacheApi,
+	getChunkedCookie,
+	getCookieCache,
+	compactCodec,
+	jwtCodec,
+	jweCodec,
+	codecFor,
+	MAX_COOKIE_CHUNKS,
+	MAX_COOKIE_SIZE,
+} from "./cookie-cache";
 import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
 import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
@@ -31,6 +50,7 @@ import {
 	toOpenAPI,
 } from "./openapi";
 import { collectRoutes, createRouter, NOT_FOUND } from "./router";
+import { v } from "../../index";
 
 export {
 	clientSchema,
@@ -59,8 +79,33 @@ export {
 	cookieShape,
 	deleteCookie,
 	getCookie,
+	serializeCookie,
 	setCookie,
 } from "./cookie";
+export type {
+	CookieCacheApi,
+	CookieCacheCodec,
+	CookieCachePolicy,
+	CookieCacheSigner,
+	CookieCacheStrategy,
+	ChunkCookie,
+	ChunkedCookieStore,
+	DecodeResult,
+	GetCookieCacheConfig,
+} from "./cookie-cache";
+export {
+	cookieCacheApi,
+	codecFor,
+	compactCodec,
+	createChunkedCookieStore,
+	createCookieCacheApi,
+	getChunkedCookie,
+	getCookieCache,
+	jweCodec,
+	jwtCodec,
+	MAX_COOKIE_CHUNKS,
+	MAX_COOKIE_SIZE,
+} from "./cookie-cache";
 export type {
 	EncodedError,
 	EncodeErrorOptions,
@@ -148,11 +193,17 @@ export {
 	toOpenAPIPath,
 } from "./openapi";
 
+/** `c.cookieCache` — set/get/run/clear for the cookie-cache layer. */
+export const cookieCache = v.var("cookieCache", {
+	default: cookieCacheApi,
+});
+
 export const http = {
 	httpOptions,
 	req,
 	res,
 	cookieOptions,
+	cookieCache,
 	fromRequest,
 	handler,
 	createHandler,
@@ -167,6 +218,7 @@ export const http = {
 	getCookie,
 	setCookie,
 	deleteCookie,
+	serializeCookie,
 	err,
 	statusOf,
 	errorStatus,
@@ -191,4 +243,13 @@ export const http = {
 	scalarHTML,
 	openapi,
 	isOpenAPIModule,
+	getCookieCache,
+	createChunkedCookieStore,
+	getChunkedCookie,
+	compactCodec,
+	jwtCodec,
+	jweCodec,
+	codecFor,
+	MAX_COOKIE_SIZE,
+	MAX_COOKIE_CHUNKS,
 };

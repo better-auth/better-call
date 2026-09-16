@@ -323,7 +323,7 @@ describe("OpenAPI components.schemas from DB models", () => {
 	});
 	const db = v.storage(memoryAdapter(), { user, session });
 
-	it("collectModelsFromUse reads storage.$models (and nested { db })", () => {
+	it("collectModelsFromUse reads storage.$models and schema() vars", () => {
 		expect(Object.keys(collectModelsFromUse([db])).sort()).toEqual([
 			"session",
 			"user",
@@ -333,6 +333,19 @@ describe("OpenAPI components.schemas from DB models", () => {
 			"user",
 		]);
 		expect(Object.keys(collectModelsFromUse([{ user }]))).toEqual(["user"]);
+	});
+
+	it("skips option / config vars in use (not schema() models)", () => {
+		const options = v.var("better-auth-options", {
+			default: {},
+			schema: v.object({ baseURL: v.string({ optional: true }) }),
+		});
+		expect(
+			collectModelsFromUse([{ db, options }, options]),
+		).toEqual(collectModelsFromUse([{ db }]));
+		expect(
+			toOpenAPI(routes, { use: [{ db, options }] }).components?.schemas,
+		).not.toHaveProperty("better-auth-options");
 	});
 
 	it("toOpenAPI emits components.schemas from use", () => {
