@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { parseCookies } from "./cookies";
+import { parseCookies, serializeCookie } from "./cookies";
 import { signCookieValue } from "./crypto";
 import { createEndpoint } from "./endpoint";
 
@@ -15,6 +15,75 @@ describe("parseCookies", () => {
 		const cookies = parseCookies("test=test; test2=test%202");
 		expect(cookies.get("test")).toBe("test");
 		expect(cookies.get("test2")).toBe("test 2");
+	});
+});
+
+describe("serializeCookie", () => {
+	it.each([
+		["secure", "__Secure-session=value; Secure"],
+		["host", "__Host-session=value; Path=/; Secure"],
+	] as const)("applies the %s prefix requirements", (prefix, expected) => {
+		expect(serializeCookie("session", "value", { prefix })).toBe(expected);
+	});
+
+	it("does not mutate options when applying a prefix", () => {
+		const options = {
+			prefix: "host",
+			secure: false,
+			path: "/auth",
+			domain: "example.com",
+		} as const;
+
+		expect(serializeCookie("session", "value", options)).toBe(
+			"__Host-session=value; Path=/; Secure",
+		);
+		expect(options).toEqual({
+			prefix: "host",
+			secure: false,
+			path: "/auth",
+			domain: "example.com",
+		});
+	});
+
+	it.each([
+		["__Secure-session", {}, "__Secure-session=value; Secure"],
+		["__secure-session", {}, "__secure-session=value; Secure"],
+		["__Host-session", {}, "__Host-session=value; Path=/; Secure"],
+		[
+			"__HOST-session",
+			{ secure: true },
+			"__HOST-session=value; Path=/; Secure",
+		],
+		[
+			"__Host-session",
+			{ secure: true, path: "/", domain: "example.com" },
+			"__Host-session=value; Path=/; Secure",
+		],
+	] as const)(
+		"adds required attributes to a directly prefixed cookie %s",
+		(name, options, expected) => {
+			expect(serializeCookie(name, "value", options)).toBe(expected);
+		},
+	);
+
+	it("adds Secure to Partitioned cookies", () => {
+		expect(serializeCookie("session", "value", { partitioned: true })).toBe(
+			"session=value; Secure; Partitioned",
+		);
+	});
+
+	it("adds Secure to SameSite=None cookies", () => {
+		expect(serializeCookie("session", "value", { sameSite: "none" })).toBe(
+			"session=value; Secure; SameSite=None",
+		);
+	});
+
+	it("keeps an unknown runtime prefix unprefixed", () => {
+		expect(
+			serializeCookie("session", "value", {
+				prefix: "unknown" as "secure",
+			}),
+		).toBe("session=value");
 	});
 });
 

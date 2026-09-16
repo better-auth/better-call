@@ -3,6 +3,11 @@ import { tryDecode } from "./utils";
 
 export type CookiePrefixOptions = "host" | "secure";
 
+const COOKIE_PREFIXES = {
+	secure: "__Secure-",
+	host: "__Host-",
+} as const satisfies Record<CookiePrefixOptions, string>;
+
 export type CookieOptions = {
 	/**
 	 * Domain of the cookie
@@ -85,23 +90,21 @@ export type CookieOptions = {
 	 * - secure: `__Secure-` -> `__Secure-cookie-name`
 	 * - host: `__Host-` -> `__Host-cookie-name`
 	 *
-	 * `secure` must be set to true to use prefixes
+	 * Required Secure, Path, and Domain attributes are applied automatically.
 	 */
 	prefix?: CookiePrefixOptions;
 };
 
+type Cookie = {
+	name: string;
+	value: string;
+	options: CookieOptions;
+};
+
 export const getCookieKey = (key: string, prefix?: CookiePrefixOptions) => {
-	let finalKey = key;
-	if (prefix) {
-		if (prefix === "secure") {
-			finalKey = "__Secure-" + key;
-		} else if (prefix === "host") {
-			finalKey = "__Host-" + key;
-		} else {
-			return undefined;
-		}
-	}
-	return finalKey;
+	if (!prefix) return key;
+	if (prefix !== "secure" && prefix !== "host") return undefined;
+	return COOKIE_PREFIXES[prefix] + key;
 };
 
 /**
@@ -151,82 +154,78 @@ export function parseCookies(str: string) {
 	return cookies;
 }
 
-const _serialize = (key: string, value: string, opt: CookieOptions = {}) => {
-	let cookie: string;
+function resolveCookie(
+	name: string,
+	value: string,
+	options: CookieOptions = {},
+): Cookie {
+	const resolvedName = getCookieKey(name, options.prefix) ?? name;
+	const resolvedOptions = { ...options };
 
-	if (opt?.prefix === "secure") {
-		cookie = `${`__Secure-${key}`}=${value}`;
-	} else if (opt?.prefix === "host") {
-		cookie = `${`__Host-${key}`}=${value}`;
-	} else {
-		cookie = `${key}=${value}`;
+	const lowerName = resolvedName.toLowerCase();
+	if (lowerName.startsWith("__host-")) {
+		resolvedOptions.secure = true;
+		resolvedOptions.path = "/";
+		resolvedOptions.domain = undefined;
+	} else if (lowerName.startsWith("__secure-")) {
+		resolvedOptions.secure = true;
+	}
+	if (
+		resolvedOptions.partitioned === true ||
+		resolvedOptions.sameSite?.toLowerCase() === "none"
+	) {
+		resolvedOptions.secure = true;
 	}
 
-	if (key.startsWith("__Secure-") && !opt.secure) {
-		opt.secure = true;
-	}
+	return { name: resolvedName, value, options: resolvedOptions };
+}
 
-	if (key.startsWith("__Host-")) {
-		if (!opt.secure) {
-			opt.secure = true;
-		}
-
-		if (opt.path !== "/") {
-			opt.path = "/";
-		}
-
-		if (opt.domain) {
-			opt.domain = undefined;
-		}
-	}
-
-	if (opt && typeof opt.maxAge === "number" && opt.maxAge >= 0) {
-		if (opt.maxAge > 34560000) {
+function serializeCookieValue({ name, value, options }: Cookie) {
+	let cookie = `${name}=${value}`;
+	if (typeof options.maxAge === "number" && options.maxAge >= 0) {
+		if (options.maxAge > 34560000) {
 			throw new Error(
 				"Cookies Max-Age SHOULD NOT be greater than 400 days (34560000 seconds) in duration.",
 			);
 		}
-		cookie += `; Max-Age=${Math.floor(opt.maxAge)}`;
+		cookie += `; Max-Age=${Math.floor(options.maxAge)}`;
 	}
 
-	if (opt.domain && opt.prefix !== "host") {
-		cookie += `; Domain=${opt.domain}`;
+	if (options.domain) {
+		cookie += `; Domain=${options.domain}`;
 	}
 
-	if (opt.path) {
-		cookie += `; Path=${opt.path}`;
+	if (options.path) {
+		cookie += `; Path=${options.path}`;
 	}
 
-	if (opt.expires) {
-		if (opt.expires.getTime() - Date.now() > 34560000_000) {
+	if (options.expires) {
+		if (options.expires.getTime() - Date.now() > 34560000_000) {
 			throw new Error(
 				"Cookies Expires SHOULD NOT be greater than 400 days (34560000 seconds) in the future.",
 			);
 		}
-		cookie += `; Expires=${opt.expires.toUTCString()}`;
+		cookie += `; Expires=${options.expires.toUTCString()}`;
 	}
 
-	if (opt.httpOnly) {
+	if (options.httpOnly) {
 		cookie += "; HttpOnly";
 	}
 
-	if (opt.secure) {
+	if (options.secure) {
 		cookie += "; Secure";
 	}
 
-	if (opt.sameSite) {
-		cookie += `; SameSite=${opt.sameSite.charAt(0).toUpperCase() + opt.sameSite.slice(1)}`;
+	if (options.sameSite) {
+		cookie += `; SameSite=${options.sameSite.charAt(0).toUpperCase() + options.sameSite.slice(1)}`;
 	}
 
-	if (opt.partitioned) {
-		if (!opt.secure) {
-			opt.secure = true;
-		}
+	if (options.partitioned) {
 		cookie += "; Partitioned";
 	}
 
 	return cookie;
-};
+}
 
 export const serializeCookie = (
 	key: string,
@@ -234,7 +233,7 @@ export const serializeCookie = (
 	opt?: CookieOptions,
 ) => {
 	value = encodeURIComponent(value);
-	return _serialize(key, value, opt);
+	return serializeCookieValue(resolveCookie(key, value, opt));
 };
 
 export const serializeSignedCookie = async (
@@ -244,5 +243,5 @@ export const serializeSignedCookie = async (
 	opt?: CookieOptions,
 ) => {
 	value = await signCookieValue(value, secret);
-	return _serialize(key, value, opt);
+	return serializeCookieValue(resolveCookie(key, value, opt));
 };
