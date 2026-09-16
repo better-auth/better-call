@@ -1,7 +1,7 @@
 import {
 	base64url,
-	calculateJwkThumbprint,
 	type CompactJWEHeaderParameters,
+	calculateJwkThumbprint,
 	decodeProtectedHeader,
 	EncryptJWT,
 	jwtDecrypt,
@@ -12,11 +12,7 @@ import {
 export type CookieCacheStrategy = "compact" | "jwt" | "jwe";
 
 export type CookieCacheSigner = {
-	sign: (
-		payload: unknown,
-		expiresIn: number,
-		c: any,
-	) => Promise<string>;
+	sign: (payload: unknown, expiresIn: number, c: any) => Promise<string>;
 	verify: (
 		token: string,
 		c: any,
@@ -52,11 +48,7 @@ async function hmacSign(secret: string, data: string): Promise<string> {
 		false,
 		["sign"],
 	);
-	const sig = await crypto.subtle.sign(
-		"HMAC",
-		key,
-		textEncoder.encode(data),
-	);
+	const sig = await crypto.subtle.sign("HMAC", key, textEncoder.encode(data));
 	return bytesToBase64Url(new Uint8Array(sig));
 }
 
@@ -87,9 +79,7 @@ export function compactCodec(secret: string): CookieCacheCodec {
 				JSON.stringify({ data, expiresAt }),
 			);
 			return bytesToBase64Url(
-				textEncoder.encode(
-					JSON.stringify({ data, expiresAt, signature }),
-				),
+				textEncoder.encode(JSON.stringify({ data, expiresAt, signature })),
 			);
 		},
 		decode: async (value) => {
@@ -266,7 +256,11 @@ export function jweCodec(
 							}
 							throw new Error("no matching decryption secret");
 						}
-						return deriveEncryptionSecret(secrets[0]!, salt, info);
+						const primary = secrets[0];
+						if (!primary) {
+							throw new Error("no matching decryption secret");
+						}
+						return deriveEncryptionSecret(primary, salt, info);
 					},
 					decryptOpts,
 				);
@@ -278,9 +272,11 @@ export function jweCodec(
 			} catch {
 				if (hasKid || secrets.length <= 1) return null;
 				for (let i = 1; i < secrets.length; i++) {
+					const candidate = secrets[i];
+					if (!candidate) continue;
 					try {
 						const encryptionSecret = await deriveEncryptionSecret(
-							secrets[i]!,
+							candidate,
 							salt,
 							info,
 						);
@@ -294,9 +290,7 @@ export function jweCodec(
 							payload,
 							expiresAt: exp ? exp * 1000 : Date.now(),
 						};
-					} catch {
-						continue;
-					}
+					} catch {}
 				}
 				return null;
 			}
@@ -347,7 +341,7 @@ export function codecFor(
 		return jwtCodec(s);
 	}
 	if (!opts.jwe?.salt || !opts.jwe?.info) {
-		throw new Error('jwe strategy requires cookieCache.jwe: { salt, info }');
+		throw new Error("jwe strategy requires cookieCache.jwe: { salt, info }");
 	}
 	return jweCodec(secret, opts.jwe);
 }

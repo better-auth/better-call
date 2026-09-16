@@ -1,9 +1,9 @@
-import {
-	codecFor,
-	type CookieCacheStrategy,
-	type CookieCacheSigner,
-} from "./codecs";
 import { getChunkedCookie } from "./chunk";
+import {
+	type CookieCacheSigner,
+	type CookieCacheStrategy,
+	codecFor,
+} from "./codecs";
 
 export type GetCookieCacheConfig = {
 	name: string;
@@ -11,9 +11,7 @@ export type GetCookieCacheConfig = {
 	secret?: string | readonly string[];
 	jwe?: { salt: string; info: string };
 	signer?: CookieCacheSigner;
-	version?:
-		| string
-		| ((payload: unknown) => string | Promise<string>);
+	version?: string | ((payload: unknown) => string | Promise<string>);
 };
 
 function cookiesFrom(

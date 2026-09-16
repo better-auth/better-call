@@ -1,23 +1,21 @@
 import type { CookieOptions } from "../cookie";
+import {
+	type ChunkCookie,
+	createChunkedCookieStore,
+	getChunkedCookie,
+} from "./chunk";
 import type {
 	CookieCacheSigner,
 	CookieCacheStrategy,
 	DecodeResult,
 } from "./codecs";
 import { codecFor } from "./codecs";
-import {
-	createChunkedCookieStore,
-	getChunkedCookie,
-	type ChunkCookie,
-} from "./chunk";
 
 export type CookieCachePolicy = {
 	name: string;
 	strategy?: CookieCacheStrategy;
 	maxAge: number;
-	version?:
-		| string
-		| ((payload: unknown, c: any) => string | Promise<string>);
+	version?: string | ((payload: unknown, c: any) => string | Promise<string>);
 	secret?: string | readonly string[];
 	jwe?: { salt: string; info: string };
 	signer?: CookieCacheSigner;
@@ -92,12 +90,8 @@ function serializeCookie(
 
 function scrubSetCookie(headers: Headers, names: Set<string>) {
 	const existing = headers.getSetCookie?.() ?? [];
-	const list =
-		existing.length > 0
-			? existing
-			: headers.has("set-cookie")
-				? [headers.get("set-cookie")!].filter(Boolean)
-				: [];
+	const single = headers.get("set-cookie");
+	const list = existing.length > 0 ? existing : single ? [single] : [];
 	if (list.length === 0) return;
 	const kept: string[] = [];
 	for (const line of list) {

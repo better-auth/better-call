@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { v } from "../../../index";
 import { cache, memoryCache } from "../../cache";
 import {
-	http,
 	compactCodec,
-	getCookieCache,
 	createChunkedCookieStore,
-	serializeCookie,
-	jwtCodec,
+	getCookieCache,
+	http,
 	jweCodec,
+	jwtCodec,
+	serializeCookie,
 } from "../index";
 import type { CookieCachePolicy } from "./index";
 
@@ -17,17 +17,16 @@ const secret = "test-secret-key-at-least-32-chars!!";
 function cookieHeaderFrom(headers: Headers | undefined): string {
 	const parts = headers?.getSetCookie?.() ?? [];
 	return parts
-		.map((line) => line.split(";")[0]!)
-		.filter((pair) => {
+		.map((line) => line.split(";")[0])
+		.filter((pair): pair is string => {
+			if (!pair) return false;
 			const value = pair.slice(pair.indexOf("=") + 1);
 			return value.length > 0;
 		})
 		.join("; ");
 }
 
-const basePolicy = (
-	extra?: Partial<CookieCachePolicy>,
-): CookieCachePolicy => ({
+const basePolicy = (extra?: Partial<CookieCachePolicy>): CookieCachePolicy => ({
 	name: "session_data",
 	strategy: "compact",
 	maxAge: 300,
@@ -48,9 +47,7 @@ describe("cookie-cache codecs", () => {
 		const codec = compactCodec(secret);
 		const encoded = await codec.encode({ a: 1 }, 60);
 		expect(
-			await compactCodec("other-secret-key-at-least-32-chars!").decode(
-				encoded,
-			),
+			await compactCodec("other-secret-key-at-least-32-chars!").decode(encoded),
 		).toBeNull();
 	});
 
@@ -61,12 +58,12 @@ describe("cookie-cache codecs", () => {
 			info: "session-cache-key",
 		});
 		const payload = { id: "u1", version: "1" };
-		expect((await jwt.decode(await jwt.encode(payload, 60)))?.payload).toMatchObject(
-			payload,
-		);
-		expect((await jwe.decode(await jwe.encode(payload, 60)))?.payload).toMatchObject(
-			payload,
-		);
+		expect(
+			(await jwt.decode(await jwt.encode(payload, 60)))?.payload,
+		).toMatchObject(payload);
+		expect(
+			(await jwe.decode(await jwe.encode(payload, 60)))?.payload,
+		).toMatchObject(payload);
 	});
 });
 
@@ -275,9 +272,7 @@ describe("cookieCache fn layer", () => {
 	it("bad signature falls through", async () => {
 		const body = vi.fn(async () => ({ recovered: true }));
 		const app = v.fn({ use: [http] });
-		const get = app.fn("bad.get", { cookieCache: basePolicy() }, () =>
-			body(),
-		);
+		const get = app.fn("bad.get", { cookieCache: basePolicy() }, () => body());
 		const result = await app.fn(
 			"bad.entry",
 			{ input: { request: v.any<Request>() }, use: [{ get }] },

@@ -340,9 +340,9 @@ describe("OpenAPI components.schemas from DB models", () => {
 			default: {},
 			schema: v.object({ baseURL: v.string({ optional: true }) }),
 		});
-		expect(
-			collectModelsFromUse([{ db, options }, options]),
-		).toEqual(collectModelsFromUse([{ db }]));
+		expect(collectModelsFromUse([{ db, options }, options])).toEqual(
+			collectModelsFromUse([{ db }]),
+		);
 		expect(
 			toOpenAPI(routes, { use: [{ db, options }] }).components?.schemas,
 		).not.toHaveProperty("better-auth-options");

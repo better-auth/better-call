@@ -73,10 +73,7 @@ export function createChunkedCookieStore(
 		return expired;
 	};
 
-	const split = (
-		value: string,
-		attributes: CookieOptions,
-	): ChunkCookie[] => {
+	const split = (value: string, attributes: CookieOptions): ChunkCookie[] => {
 		const chunkSize = getMaxCookieValueSize(
 			`${cookieName}.${MAX_COOKIE_CHUNKS - 1}`,
 			attributes,

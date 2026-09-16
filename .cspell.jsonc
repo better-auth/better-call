@@ -30,6 +30,7 @@
 		"omittable",
 		"renamer",
 		"uncallable",
+		"unchunked",
 		"unflushed",
 		"uninterceptable",
 		"unqueryable",

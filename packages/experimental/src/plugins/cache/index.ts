@@ -1,15 +1,14 @@
 import { v } from "../../index";
-import { createCacheApi, type CacheApi } from "./api";
-import { memoryCache } from "./memory";
-import { cacheOptions, type CachePolicy, type InvalidateTags } from "./options";
+import { type CacheApi, createCacheApi } from "./api";
+import { type CachePolicy, cacheOptions, type InvalidateTags } from "./options";
 import type { CacheStore } from "./store";
 
 export type { CacheApi } from "./api";
-export type { CachePolicy, InvalidateTags } from "./options";
-export type { CacheStore } from "./store";
 export { createCacheApi } from "./api";
 export { memoryCache } from "./memory";
+export type { CachePolicy, InvalidateTags } from "./options";
 export { cacheOptions } from "./options";
+export type { CacheStore } from "./store";
 
 export type CacheModuleOptions = {
 	store: CacheStore;
@@ -37,4 +36,7 @@ export function cache(options: CacheModuleOptions) {
 	};
 }
 
-export { type CachePolicy as CacheFnPolicy, type InvalidateTags as CacheInvalidateTags };
+export type {
+	CachePolicy as CacheFnPolicy,
+	InvalidateTags as CacheInvalidateTags,
+};
