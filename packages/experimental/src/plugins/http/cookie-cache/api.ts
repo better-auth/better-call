@@ -1,3 +1,4 @@
+import { ValidationError } from "../../../error";
 import type { CookieOptions } from "../cookie";
 import {
 	type ChunkCookie,
@@ -6,7 +7,6 @@ import {
 } from "./chunk";
 import type { DecodeResult } from "./codecs";
 import { codecFor } from "./codecs";
-import { ValidationError } from "../../../error";
 import type { CookieCacheFnOption, CookieCachePolicy } from "./options";
 
 export type { CookieCachePolicy };

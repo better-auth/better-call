@@ -21,6 +21,8 @@
 		"OpenAPIHTML",
 		"Keypair",
 		"keypair",
+		"HMAC",
+		"HKDF",
 
 		// experimental package vocabulary
 		"Customizer",
@@ -29,6 +31,7 @@
 		"deriveds",
 		"omittable",
 		"renamer",
+		"traceparent",
 		"uncallable",
 		"unchunked",
 		"unflushed",

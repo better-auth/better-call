@@ -356,7 +356,7 @@ export interface FnDefination<
 	};
 	/**
 	 * HTTP route meta when `use` includes `route({ path, method, ... })`
-	 * from `better-call/plugins/http`. Stamped at definition for the
+	 * from `better-call/http`. Stamped at definition for the
 	 * router and typed client.
 	 */
 	readonly $route?: {
@@ -600,6 +600,8 @@ export type Context<
 	/** Define fns from inside: this fn's scope and key carry over, so
 	 * anything built here is typed exactly like a chained builder. */
 	fn: FnApi;
+	/** Key of the fn frame currently running (interceptors / handlers). */
+	fnKey: string;
 	/** The schema constructors (string, number, object, ...). */
 	types: typeof vTypes;
 } & /** Every var in scope, directly on `c`: read `c.session`, write by
@@ -1397,6 +1399,7 @@ const defineFn = (
 				fn: builderFn(key === "anonymous" ? "" : key, {
 					use: options.use ?? [],
 				}),
+				fnKey: key,
 				types: vTypes,
 			};
 			ctx = contextScope(frame, base);

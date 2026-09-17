@@ -92,7 +92,7 @@ export const isModel = (value: unknown): boolean =>
 /** A model var from a type or a plain field object. Default is always null.
  * Stamped `$attrs.db.model` so tooling (OpenAPI, …) can tell models from
  * option / session vars. Import from the db plugin:
- * `import { schema } from "better-call/plugins/db"`. */
+ * `import { schema } from "better-call/db"`. */
 export const schema = <N extends LiteralString, S>(
 	name: N,
 	schema: SchemaArg<S>,

@@ -47,6 +47,8 @@ export type OnDefaultContext = {
 	input: Record<string, any>;
 	types: typeof vTypes;
 	fn: unknown;
+	/** Key of the fn this interceptor is wrapping. */
+	fnKey: string;
 	/** Vars and used fns live directly on `c` - untyped here; mount the
 	 * entry on a builder's `on` for real types. */
 	[key: string]: any;

@@ -82,21 +82,22 @@ export {
 	setCookie,
 } from "./cookie";
 export type {
+	ChunkCookie,
+	ChunkedCookieStore,
 	CookieCacheApi,
 	CookieCacheCodec,
 	CookieCacheFnOption,
 	CookieCachePolicy,
 	CookieCacheSigner,
 	CookieCacheStrategy,
-	ChunkCookie,
-	ChunkedCookieStore,
 	DecodeResult,
 	GetCookieCacheConfig,
 } from "./cookie-cache";
 export {
-	cookieCacheApi,
 	codecFor,
 	compactCodec,
+	cookieCacheApi,
+	cookieCacheOptionSchema,
 	createChunkedCookieStore,
 	createCookieCacheApi,
 	getChunkedCookie,
@@ -105,7 +106,6 @@ export {
 	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
-	cookieCacheOptionSchema,
 } from "./cookie-cache";
 export type {
 	EncodedError,

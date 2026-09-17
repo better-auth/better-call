@@ -22,10 +22,14 @@
 		"dev": "tsdown --watch"
 	},
 	"peerDependencies": {
+		"@opentelemetry/api": "^1.9.0",
 		"react": ">=18.0.0",
 		"zod": "^4.0.0"
 	},
 	"peerDependenciesMeta": {
+		"@opentelemetry/api": {
+			"optional": true
+		},
 		"zod": {
 			"optional": true
 		},
@@ -71,70 +75,81 @@
 				"default": "./dist/schema.cjs"
 			}
 		},
-		"./plugins/http": {
+		"./http": {
 			"dev-source": "./src/plugins/http/index.ts",
 			"import": {
-				"types": "./dist/plugins/http.d.mts",
-				"default": "./dist/plugins/http.mjs"
+				"types": "./dist/http.d.mts",
+				"default": "./dist/http.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/http.d.cts",
-				"default": "./dist/plugins/http.cjs"
+				"types": "./dist/http.d.cts",
+				"default": "./dist/http.cjs"
 			}
 		},
-		"./plugins/http/client": {
+		"./http/client": {
 			"dev-source": "./src/plugins/http/client/index.ts",
 			"import": {
-				"types": "./dist/plugins/http/client/index.d.mts",
-				"default": "./dist/plugins/http/client/index.mjs"
+				"types": "./dist/http/client/index.d.mts",
+				"default": "./dist/http/client/index.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/http/client/index.d.cts",
-				"default": "./dist/plugins/http/client/index.cjs"
+				"types": "./dist/http/client/index.d.cts",
+				"default": "./dist/http/client/index.cjs"
 			}
 		},
-		"./plugins/http/react": {
+		"./http/react": {
 			"dev-source": "./src/plugins/http/client/react.ts",
 			"import": {
-				"types": "./dist/plugins/http/client/react.d.mts",
-				"default": "./dist/plugins/http/client/react.mjs"
+				"types": "./dist/http/client/react.d.mts",
+				"default": "./dist/http/client/react.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/http/client/react.d.cts",
-				"default": "./dist/plugins/http/client/react.cjs"
+				"types": "./dist/http/client/react.d.cts",
+				"default": "./dist/http/client/react.cjs"
 			}
 		},
-		"./plugins/read-only": {
+		"./read-only": {
 			"dev-source": "./src/plugins/read-only.ts",
 			"import": {
-				"types": "./dist/plugins/read-only.d.mts",
-				"default": "./dist/plugins/read-only.mjs"
+				"types": "./dist/read-only.d.mts",
+				"default": "./dist/read-only.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/read-only.d.cts",
-				"default": "./dist/plugins/read-only.cjs"
+				"types": "./dist/read-only.d.cts",
+				"default": "./dist/read-only.cjs"
 			}
 		},
-		"./plugins/db": {
+		"./db": {
 			"dev-source": "./src/plugins/db.ts",
 			"import": {
-				"types": "./dist/plugins/db.d.mts",
-				"default": "./dist/plugins/db.mjs"
+				"types": "./dist/db.d.mts",
+				"default": "./dist/db.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/db.d.cts",
-				"default": "./dist/plugins/db.cjs"
+				"types": "./dist/db.d.cts",
+				"default": "./dist/db.cjs"
 			}
 		},
-		"./plugins/cache": {
+		"./cache": {
 			"dev-source": "./src/plugins/cache/index.ts",
 			"import": {
-				"types": "./dist/plugins/cache.d.mts",
-				"default": "./dist/plugins/cache.mjs"
+				"types": "./dist/cache.d.mts",
+				"default": "./dist/cache.mjs"
 			},
 			"require": {
-				"types": "./dist/plugins/cache.d.cts",
-				"default": "./dist/plugins/cache.cjs"
+				"types": "./dist/cache.d.cts",
+				"default": "./dist/cache.cjs"
+			}
+		},
+		"./otel": {
+			"dev-source": "./src/plugins/otel/index.ts",
+			"import": {
+				"types": "./dist/otel.d.mts",
+				"default": "./dist/otel.mjs"
+			},
+			"require": {
+				"types": "./dist/otel.d.cts",
+				"default": "./dist/otel.cjs"
 			}
 		},
 		"./capability": {
@@ -153,6 +168,7 @@
 		"dist"
 	],
 	"devDependencies": {
+		"@opentelemetry/api": "^1.9.1",
 		"@types/react": "^19.3.0"
 	}
 }

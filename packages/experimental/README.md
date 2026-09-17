@@ -277,16 +277,17 @@ The arc it walks: in-process calls need no token → an agent is born asking and
 
 - `test/http-demo.ts` — serving fns over HTTP via `src/plugins/http/`
 - `test/better-auth.ts`, `test/email-password.ts`, `test/session.ts`, `test/birthday.ts` — module composition sketches
+- [`OTEL.md`](./OTEL.md) — OpenTelemetry via `better-call/otel` (`telemetry()` in router `use`)
 
 ## Cache
 
 Store-backed memoization and an HTTP cookie-cache layer. They compose as **cookie → store → body** when both options are set on a fn.
 
-### Store cache (`better-call/plugins/cache`)
+### Store cache (`better-call/cache`)
 
 ```ts
 import { v } from "better-call";
-import { cache, memoryCache } from "better-call/plugins/cache";
+import { cache, memoryCache } from "better-call/cache";
 
 const app = v.fn({ use: [cache({ store: memoryCache() })] });
 
@@ -320,8 +321,8 @@ const deleteUser = app.fn(
 Unlocked with `http` via `cookieCache` on fn options. Strategies: `compact` (HMAC), `jwt` (HS256), `jwe` (dir + A256CBC-HS512 + HKDF). Chunking, version, `refreshCache`, `disableCookieCache`, and `validate` / `prepare` hooks are supported.
 
 ```ts
-import { http } from "better-call/plugins/http";
-import { cache, memoryCache } from "better-call/plugins/cache";
+import { http } from "better-call/http";
+import { cache, memoryCache } from "better-call/cache";
 
 const app = v.fn({ use: [http, cache({ store: memoryCache() })] });
 
