@@ -7,6 +7,7 @@ import {
 	ValidationError,
 	v,
 } from "./index";
+import { asType } from "./schema";
 
 const session = v.var("fnt_session", {
 	default: null as { userId: string } | null,
@@ -586,6 +587,26 @@ describe("fn as input schema", () => {
 				onCreate: (i) => i.id,
 			}),
 		).toBe("1");
+	});
+
+	it("v.fn.type accepts OpenAPI / docs MetaOptions like v.string()", () => {
+		const create = v.fn.type({
+			input: { id: v.string() },
+			output: v.object({ id: v.string() }),
+			description: "Create a row",
+			title: "create",
+			deprecated: true,
+		});
+		expect(create.description).toBe("Create a row");
+		expect(create.title).toBe("create");
+		expect(create.deprecated).toBe(true);
+		expect(create.$fnSchema.input).toEqual({ id: expect.anything() });
+
+		const asDef = asType(create);
+		expect(asDef.name).toBe("function");
+		expect(asDef.description).toBe("Create a row");
+		expect(asDef.title).toBe("create");
+		expect(asDef.deprecated).toBe(true);
 	});
 
 	it("customize toolkit carries fn", () => {

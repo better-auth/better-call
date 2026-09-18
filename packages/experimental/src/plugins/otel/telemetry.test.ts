@@ -270,9 +270,14 @@ describe("telemetry()", () => {
 					}),
 				],
 				summary: "Tagged hello",
+				description: "Returns ok for OpenAPI + OTEL coverage",
 				tags: ["demo", "users"],
 				idempotent: true,
 				deprecated: true,
+				errors: {
+					not_found: v.object({}),
+					conflict: v.object({}),
+				},
 				output: v.object({ ok: v.boolean() }),
 			},
 			() => ({ ok: true }),
@@ -296,8 +301,12 @@ describe("telemetry()", () => {
 		const fnSpan = capturing.spans.find((s) => s.name === "demo.tagged");
 		expect(fnSpan?.attributes["better_call.tags"]).toBe("demo,users");
 		expect(fnSpan?.attributes["better_call.summary"]).toBe("Tagged hello");
+		expect(fnSpan?.attributes["better_call.description"]).toBe(
+			"Returns ok for OpenAPI + OTEL coverage",
+		);
 		expect(fnSpan?.attributes["better_call.idempotent"]).toBe(true);
 		expect(fnSpan?.attributes["better_call.deprecated"]).toBe(true);
+		expect(fnSpan?.attributes["better_call.errors"]).toBe("not_found,conflict");
 		expect(fnSpan?.attributes["better_call.route.declared_status"]).toBe(201);
 		expect(fnSpan?.attributes["better_call.route.invalidate"]).toBe(
 			"sessions,profile",

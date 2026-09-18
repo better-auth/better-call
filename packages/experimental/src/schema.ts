@@ -434,7 +434,8 @@ export const isFnSchema = (
 	$fnSchema: { input?: unknown; output?: unknown };
 	optional?: boolean;
 	default?: unknown;
-} => typeof value?.$fnSchema === "object" && value.$fnSchema !== null;
+} & MetaOptions =>
+	typeof value?.$fnSchema === "object" && value.$fnSchema !== null;
 
 export const asType = (value: any): TypeDefination<any, any> =>
 	// A var's own `name` ("user") would duck-match isType, so unwrap first -
@@ -447,6 +448,16 @@ export const asType = (value: any): TypeDefination<any, any> =>
 					fnInput: value.$fnSchema.input,
 					...(value.optional ? { optional: true } : {}),
 					...(value.default !== undefined ? { default: value.default } : {}),
+					...(value.description !== undefined
+						? { description: value.description }
+						: {}),
+					...(value.title !== undefined ? { title: value.title } : {}),
+					...(value.example !== undefined ? { example: value.example } : {}),
+					...(value.examples !== undefined ? { examples: value.examples } : {}),
+					...(value.deprecated !== undefined
+						? { deprecated: value.deprecated }
+						: {}),
+					...(value.format !== undefined ? { format: value.format } : {}),
 				} as TypeDefination<any, any>)
 			: isType(value)
 				? value

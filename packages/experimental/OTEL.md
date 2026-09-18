@@ -45,8 +45,9 @@ Attributes include OTel HTTP conventions (`http.request.method`, `http.route`,
 `http.response.status_code`, `url.path` / `url.scheme` / `url.query`,
 `server.address` / `server.port`, `user_agent.original`) plus
 `better_call.fn`, `better_call.route.path` / `.method` / `.invalidate` /
-`.declared_status`, and `$schema` fields when present (`better_call.tags`,
-`.summary`, `.idempotent`, `.deprecated`). Sensitive query keys
+`.declared_status`, and every OpenAPI-facing `$schema` field when present
+(`better_call.tags`, `.summary`, `.description`, `.idempotent`,
+`.deprecated`, `.errors` as a comma-joined tag list). Sensitive query keys
 (`token`, `api_key`, …) are redacted in `url.query`.
 
 Skipped for fn spans: `http.router.dispatch`, `http.from_request` (request span already covers dispatch).

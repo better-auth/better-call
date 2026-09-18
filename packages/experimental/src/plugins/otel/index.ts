@@ -24,9 +24,12 @@ const ATTR_ROUTE_METHOD = "better_call.route.method";
 const ATTR_ROUTE_INVALIDATE = "better_call.route.invalidate";
 const ATTR_ROUTE_DECLARED_STATUS = "better_call.route.declared_status";
 const ATTR_SUMMARY = "better_call.summary";
+const ATTR_DESCRIPTION = "better_call.description";
 const ATTR_IDEMPOTENT = "better_call.idempotent";
 const ATTR_DEPRECATED = "better_call.deprecated";
 const ATTR_TAGS = "better_call.tags";
+/** Declared error tags (`errors: { … }`) — OpenAPI response keys. */
+const ATTR_ERRORS = "better_call.errors";
 const ATTR_HTTP_METHOD = "http.request.method";
 const ATTR_HTTP_ROUTE = "http.route";
 const ATTR_HTTP_STATUS = "http.response.status_code";
@@ -277,11 +280,19 @@ const routeOf = (c: {
 	};
 };
 
+/**
+ * OpenAPI / docs fields from a fn's `$schema` (same set `toOpenAPI` reads
+ * for operations: summary, description, tags, deprecated — plus idempotent
+ * and declared error tags).
+ */
 type FnSchemaMeta = {
 	tags?: readonly string[];
 	summary?: string;
+	description?: string;
 	idempotent?: boolean;
 	deprecated?: boolean;
+	/** Tag → payload schema map on the callable; only keys become attrs. */
+	errors?: Record<string, unknown>;
 };
 
 const schemaOf = (c: {
@@ -411,11 +422,18 @@ const schemaAttrs = (schema: FnSchemaMeta | undefined): AttrMap => {
 	if (typeof schema.summary === "string" && schema.summary.length > 0) {
 		attrs[ATTR_SUMMARY] = schema.summary;
 	}
+	if (typeof schema.description === "string" && schema.description.length > 0) {
+		attrs[ATTR_DESCRIPTION] = schema.description;
+	}
 	if (typeof schema.idempotent === "boolean") {
 		attrs[ATTR_IDEMPOTENT] = schema.idempotent;
 	}
 	if (typeof schema.deprecated === "boolean") {
 		attrs[ATTR_DEPRECATED] = schema.deprecated;
+	}
+	if (schema.errors && typeof schema.errors === "object") {
+		const tags = Object.keys(schema.errors);
+		if (tags.length > 0) attrs[ATTR_ERRORS] = tags.join(",");
 	}
 	return attrs;
 };

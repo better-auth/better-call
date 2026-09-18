@@ -54,6 +54,7 @@ import {
 	isNoInput,
 	isSchemaView,
 	isVar,
+	type MetaOptions,
 	type OutputSchemaOf,
 	outputContract,
 	rejectFields,
@@ -612,6 +613,8 @@ export type Context<
 		description?: string;
 		tags?: readonly string[];
 		deprecated?: boolean;
+		/** Declared error tag → payload schema (OpenAPI error responses). */
+		errors?: Record<string, unknown>;
 	};
 	/** The schema constructors (string, number, object, ...). */
 	types: typeof vTypes;
@@ -650,7 +653,9 @@ export interface Fn<
 	 * gets the declared input checked at its door on every call.
 	 *
 	 * `optional` / `default` work like on `v.string()` etc., so a prop in
-	 * `v.object({...})` can be a fn type and still omittable.
+	 * `v.object({...})` can be a fn type and still omittable. Docs /
+	 * OpenAPI annotations (`description`, `title`, `example`, …) are the
+	 * same {@link MetaOptions} every other type helper accepts.
 	 *
 	 * This exists apart from a handler-less `v.fn({ input, output })` for
 	 * INLINE use: `v.fn`'s handler overloads return a callable, which makes
@@ -664,17 +669,18 @@ export interface Fn<
 		O = unknown,
 		D = never,
 		Opt extends boolean = false,
-	>(signature?: {
-		input?: I;
-		output?: O;
-		default?: D;
-		optional?: Opt;
-	}) => { readonly $fnSchema: { input?: I; output?: O } } & ([Opt] extends [
-		true,
-	]
+	>(
+		signature?: {
+			input?: I;
+			output?: O;
+			default?: D;
+			optional?: Opt;
+		} & MetaOptions,
+	) => { readonly $fnSchema: { input?: I; output?: O } } & ([Opt] extends [true]
 		? { readonly optional: true }
 		: unknown) &
-		([D] extends [never] ? unknown : { readonly default: D });
+		([D] extends [never] ? unknown : { readonly default: D }) &
+		MetaOptions;
 
 	/* ---- a handler TERMINATES: these four produce a callable fn ---- */
 	<R>(
@@ -1412,6 +1418,7 @@ const defineFn = (
 					? { tags: [...(options.tags as readonly string[])] }
 					: {}),
 				...(options.deprecated === true ? { deprecated: true as const } : {}),
+				...(declaredErrors ? { errors: declaredErrors } : {}),
 			};
 			const base: any = {
 				input: parsed,
@@ -2095,14 +2102,32 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 				output?: unknown;
 				optional?: boolean;
 				default?: unknown;
-			} = {},
-		) => ({
-			$fnSchema: { input: signature.input, output: signature.output },
-			...(signature.optional ? { optional: true as const } : {}),
-			...(signature.default !== undefined
-				? { default: signature.default }
-				: {}),
-		}),
+			} & MetaOptions = {},
+		) => {
+			const {
+				input,
+				output,
+				optional,
+				default: def,
+				description,
+				title,
+				example,
+				examples,
+				deprecated,
+				format,
+			} = signature;
+			return {
+				$fnSchema: { input, output },
+				...(optional ? { optional: true as const } : {}),
+				...(def !== undefined ? { default: def } : {}),
+				...(description !== undefined ? { description } : {}),
+				...(title !== undefined ? { title } : {}),
+				...(example !== undefined ? { example } : {}),
+				...(examples !== undefined ? { examples } : {}),
+				...(deprecated !== undefined ? { deprecated } : {}),
+				...(format !== undefined ? { format } : {}),
+			};
+		},
 	});
 };
 

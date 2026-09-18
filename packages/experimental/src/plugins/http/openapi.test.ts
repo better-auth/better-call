@@ -98,6 +98,30 @@ describe("schemaToOpenAPI", () => {
 		});
 	});
 
+	it("emits MetaOptions from v.fn.type fields", () => {
+		expect(
+			schemaToOpenAPI({
+				create: v.fn.type({
+					input: { id: v.string() },
+					output: v.object({ id: v.string() }),
+					description: "Create a row",
+					title: "create",
+					deprecated: true,
+				}),
+			}),
+		).toEqual({
+			type: "object",
+			properties: {
+				create: {
+					description: "Create a row",
+					title: "create",
+					deprecated: true,
+				},
+			},
+			required: ["create"],
+		});
+	});
+
 	it('emits format: "url" as-is', () => {
 		expect(schemaToOpenAPI(v.string({ format: "url" }))).toEqual({
 			type: "string",
@@ -246,9 +270,8 @@ describe("toOpenAPI", () => {
 		);
 		const doc = toOpenAPI({ demo });
 		expect(
-			doc.paths["/demo"]?.post?.responses["200"]?.content?.[
-				"application/json"
-			]?.schema,
+			doc.paths["/demo"]?.post?.responses["200"]?.content?.["application/json"]
+				?.schema,
 		).toEqual({
 			type: "object",
 			properties: {
