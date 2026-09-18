@@ -214,7 +214,11 @@ describe("telemetry()", () => {
 			},
 		);
 
-		const res = await router(new Request("http://localhost/hello"));
+		const res = await router(
+			new Request("http://localhost:3000/hello?ref=home", {
+				headers: { "user-agent": "telemetry-test/1.0" },
+			}),
+		);
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ ok: true });
 
@@ -223,6 +227,14 @@ describe("telemetry()", () => {
 		expect(requestSpan?.kind).toBe(SpanKind.SERVER);
 		expect(requestSpan?.attributes["http.request.method"]).toBe("GET");
 		expect(requestSpan?.attributes["http.response.status_code"]).toBe(200);
+		expect(requestSpan?.attributes["url.scheme"]).toBe("http");
+		expect(requestSpan?.attributes["server.address"]).toBe("localhost");
+		expect(requestSpan?.attributes["server.port"]).toBe(3000);
+		expect(requestSpan?.attributes["url.query"]).toBe("ref=home");
+		expect(requestSpan?.attributes["user_agent.original"]).toBe(
+			"telemetry-test/1.0",
+		);
+		expect(requestSpan?.attributes["http.route"]).toBe("/hello");
 		expect(requestSpan?.ended).toBe(true);
 
 		const fnSpan = capturing.spans.find((s) => s.name === "demo.hello");
@@ -243,6 +255,114 @@ describe("telemetry()", () => {
 		expect(
 			meterCap.counters.some((c) => c.name === "http.server.request.count"),
 		).toBe(true);
+	});
+
+	it("enriches fn spans from $schema and route invalidate", async () => {
+		const tagged = v.fn(
+			"demo.tagged",
+			{
+				use: [
+					route({
+						path: "/tagged",
+						method: "GET",
+						invalidate: ["sessions", "profile"],
+						status: 201,
+					}),
+				],
+				summary: "Tagged hello",
+				tags: ["demo", "users"],
+				idempotent: true,
+				deprecated: true,
+				output: v.object({ ok: v.boolean() }),
+			},
+			() => ({ ok: true }),
+		);
+
+		const router = createRouter(
+			{ tagged },
+			{
+				use: [
+					telemetry({
+						tracer: capturing.tracer,
+						meter: meterCap.meter,
+					}),
+				],
+			},
+		);
+
+		const res = await router(new Request("http://localhost/tagged"));
+		expect(res.status).toBe(201);
+
+		const fnSpan = capturing.spans.find((s) => s.name === "demo.tagged");
+		expect(fnSpan?.attributes["better_call.tags"]).toBe("demo,users");
+		expect(fnSpan?.attributes["better_call.summary"]).toBe("Tagged hello");
+		expect(fnSpan?.attributes["better_call.idempotent"]).toBe(true);
+		expect(fnSpan?.attributes["better_call.deprecated"]).toBe(true);
+		expect(fnSpan?.attributes["better_call.route.declared_status"]).toBe(201);
+		expect(fnSpan?.attributes["better_call.route.invalidate"]).toBe(
+			"sessions,profile",
+		);
+
+		const requestSpan = capturing.spans.find((s) => s.name.startsWith("GET "));
+		expect(requestSpan?.attributes["better_call.route.invalidate"]).toBe(
+			"sessions,profile",
+		);
+		expect(requestSpan?.attributes["better_call.route.declared_status"]).toBe(
+			201,
+		);
+	});
+
+	it("redacts sensitive query keys on the request span", async () => {
+		const router = createRouter(
+			{ hello },
+			{
+				use: [
+					telemetry({
+						tracer: capturing.tracer,
+						meter: meterCap.meter,
+					}),
+				],
+			},
+		);
+
+		await router(
+			new Request(
+				"http://localhost/hello?token=secret&page=2&api_key=abc&q=ok",
+			),
+		);
+
+		const requestSpan = capturing.spans.find((s) => s.name.startsWith("GET "));
+		expect(requestSpan?.attributes["url.query"]).toBe(
+			"token=REDACTED&page=2&api_key=REDACTED&q=ok",
+		);
+	});
+
+	it("prefers x-forwarded-proto and x-forwarded-host", async () => {
+		const router = createRouter(
+			{ hello },
+			{
+				use: [
+					telemetry({
+						tracer: capturing.tracer,
+						meter: meterCap.meter,
+					}),
+				],
+			},
+		);
+
+		await router(
+			new Request("http://localhost/hello", {
+				headers: {
+					"x-forwarded-proto": "https",
+					"x-forwarded-host": "api.example.com:8443",
+				},
+			}),
+		);
+
+		const requestSpan = capturing.spans.find((s) => s.name.startsWith("GET "));
+		expect(requestSpan?.attributes["url.scheme"]).toBe("https");
+		expect(requestSpan?.attributes["server.address"]).toBe("api.example.com");
+		expect(requestSpan?.attributes["server.port"]).toBe(8443);
 	});
 
 	it("records exceptions, ERROR status, and logs on FnError", async () => {

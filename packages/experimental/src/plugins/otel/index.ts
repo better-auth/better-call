@@ -21,15 +21,47 @@ const INSTRUMENTATION_NAME = "better-call";
 const ATTR_FN = "better_call.fn";
 const ATTR_ROUTE_PATH = "better_call.route.path";
 const ATTR_ROUTE_METHOD = "better_call.route.method";
+const ATTR_ROUTE_INVALIDATE = "better_call.route.invalidate";
+const ATTR_ROUTE_DECLARED_STATUS = "better_call.route.declared_status";
+const ATTR_SUMMARY = "better_call.summary";
+const ATTR_IDEMPOTENT = "better_call.idempotent";
+const ATTR_DEPRECATED = "better_call.deprecated";
+const ATTR_TAGS = "better_call.tags";
 const ATTR_HTTP_METHOD = "http.request.method";
 const ATTR_HTTP_ROUTE = "http.route";
 const ATTR_HTTP_STATUS = "http.response.status_code";
 const ATTR_URL_PATH = "url.path";
+const ATTR_URL_SCHEME = "url.scheme";
+const ATTR_URL_QUERY = "url.query";
+const ATTR_SERVER_ADDRESS = "server.address";
+const ATTR_SERVER_PORT = "server.port";
+const ATTR_USER_AGENT = "user_agent.original";
 const ATTR_ERROR_TYPE = "error.type";
 const ATTR_ERROR_CODE = "error.code";
 
 /** Keys that get a dedicated request span — skip a second fn span. */
 const SKIP_FN_SPAN = new Set(["http.router.dispatch", "http.from_request", ""]);
+
+/** Query keys stripped from `url.query` (case-insensitive substring match). */
+const REDACT_QUERY_KEYS = [
+	"token",
+	"secret",
+	"password",
+	"passwd",
+	"auth",
+	"api_key",
+	"apikey",
+	"access_token",
+	"refresh_token",
+	"session",
+	"cookie",
+	"credential",
+	"sig",
+	"signature",
+];
+
+type AttrValue = string | number | boolean;
+type AttrMap = Record<string, AttrValue>;
 
 export type TelemetryFilter = string | RegExp;
 
@@ -220,14 +252,172 @@ const fnKeyOf = (c: {
 };
 
 const routeOf = (c: {
-	route?: { path?: string; method?: string } | null;
-}): { path?: string; method?: string } => {
+	route?: {
+		path?: string;
+		method?: string;
+		invalidate?: readonly string[];
+		status?: number;
+	} | null;
+}): {
+	path?: string;
+	method?: string;
+	invalidate?: string[];
+	status?: number;
+} => {
 	const route = c.route;
 	if (!route || typeof route !== "object") return {};
+	const invalidate = Array.isArray(route.invalidate)
+		? route.invalidate.filter((v): v is string => typeof v === "string")
+		: undefined;
 	return {
 		path: typeof route.path === "string" ? route.path : undefined,
 		method: typeof route.method === "string" ? route.method : undefined,
+		invalidate: invalidate?.length ? invalidate : undefined,
+		status: typeof route.status === "number" ? route.status : undefined,
 	};
+};
+
+type FnSchemaMeta = {
+	tags?: readonly string[];
+	summary?: string;
+	idempotent?: boolean;
+	deprecated?: boolean;
+};
+
+const schemaOf = (c: {
+	$schema?: FnSchemaMeta;
+	fn?: { $schema?: FnSchemaMeta } | string;
+}): FnSchemaMeta | undefined => {
+	if (c.$schema && typeof c.$schema === "object") return c.$schema;
+	const fn = c.fn;
+	if (fn && typeof fn === "object" && fn.$schema) return fn.$schema;
+	return undefined;
+};
+
+const shouldRedactQueryKey = (key: string): boolean => {
+	const lower = key.toLowerCase();
+	return REDACT_QUERY_KEYS.some(
+		(needle) => lower === needle || lower.includes(needle),
+	);
+};
+
+/** Build a redacted `url.query` string from a URL search string. */
+const redactQuery = (search: string): string | undefined => {
+	const raw = search.startsWith("?") ? search.slice(1) : search;
+	if (!raw) return undefined;
+	const params = new URLSearchParams(raw);
+	const out = new URLSearchParams();
+	for (const [key, value] of params) {
+		out.append(key, shouldRedactQueryKey(key) ? "REDACTED" : value);
+	}
+	const serialized = out.toString();
+	return serialized.length > 0 ? serialized : undefined;
+};
+
+/** OTel HTTP URL / server / UA attrs from an incoming request. */
+const requestUrlAttrs = (request: {
+	path?: string;
+	headers?: Headers;
+	raw?: Request;
+	query?: Record<string, string | string[]>;
+}): AttrMap => {
+	const attrs: AttrMap = {};
+	const headers = request.headers;
+	const ua = headers?.get("user-agent");
+	if (ua) attrs[ATTR_USER_AGENT] = ua;
+
+	let url: URL | undefined;
+	const rawUrl = request.raw?.url;
+	if (typeof rawUrl === "string" && rawUrl.length > 0) {
+		try {
+			url = new URL(rawUrl);
+		} catch {
+			url = undefined;
+		}
+	}
+
+	if (url) {
+		if (url.protocol) {
+			attrs[ATTR_URL_SCHEME] = url.protocol.replace(/:$/, "");
+		}
+		if (url.hostname) attrs[ATTR_SERVER_ADDRESS] = url.hostname;
+		if (url.port) {
+			attrs[ATTR_SERVER_PORT] = Number(url.port);
+		} else if (url.protocol === "https:") {
+			attrs[ATTR_SERVER_PORT] = 443;
+		} else if (url.protocol === "http:") {
+			attrs[ATTR_SERVER_PORT] = 80;
+		}
+		const query = redactQuery(url.search);
+		if (query) attrs[ATTR_URL_QUERY] = query;
+	} else if (request.query && typeof request.query === "object") {
+		const params = new URLSearchParams();
+		for (const [key, value] of Object.entries(request.query)) {
+			if (Array.isArray(value)) {
+				for (const item of value) params.append(key, item);
+			} else if (typeof value === "string") {
+				params.append(key, value);
+			}
+		}
+		const query = redactQuery(params.toString());
+		if (query) attrs[ATTR_URL_QUERY] = query;
+	}
+
+	// Prefer forwarded host/proto when present (behind a proxy).
+	const forwardedProto = headers?.get("x-forwarded-proto");
+	if (forwardedProto) {
+		const proto = forwardedProto.split(",")[0]?.trim();
+		if (proto) attrs[ATTR_URL_SCHEME] = proto;
+	}
+	const forwardedHost = headers?.get("x-forwarded-host");
+	const hostHeader = forwardedHost ?? headers?.get("host");
+	if (hostHeader) {
+		const host = hostHeader.split(",")[0]?.trim();
+		if (host) {
+			const [address, port] = host.split(":");
+			if (address) attrs[ATTR_SERVER_ADDRESS] = address;
+			if (port && !Number.isNaN(Number(port))) {
+				attrs[ATTR_SERVER_PORT] = Number(port);
+			}
+		}
+	}
+
+	return attrs;
+};
+
+const routeAttrs = (
+	route: ReturnType<typeof routeOf>,
+	opts?: { httpRoute?: boolean },
+): AttrMap => {
+	const attrs: AttrMap = {};
+	if (route.path) {
+		attrs[ATTR_ROUTE_PATH] = route.path;
+		if (opts?.httpRoute) attrs[ATTR_HTTP_ROUTE] = route.path;
+	}
+	if (route.method) attrs[ATTR_ROUTE_METHOD] = route.method;
+	if (route.invalidate?.length) {
+		attrs[ATTR_ROUTE_INVALIDATE] = [...new Set(route.invalidate)].join(",");
+	}
+	if (typeof route.status === "number") {
+		attrs[ATTR_ROUTE_DECLARED_STATUS] = route.status;
+	}
+	return attrs;
+};
+
+const schemaAttrs = (schema: FnSchemaMeta | undefined): AttrMap => {
+	const attrs: AttrMap = {};
+	if (!schema) return attrs;
+	if (schema.tags?.length) attrs[ATTR_TAGS] = [...schema.tags].join(",");
+	if (typeof schema.summary === "string" && schema.summary.length > 0) {
+		attrs[ATTR_SUMMARY] = schema.summary;
+	}
+	if (typeof schema.idempotent === "boolean") {
+		attrs[ATTR_IDEMPOTENT] = schema.idempotent;
+	}
+	if (typeof schema.deprecated === "boolean") {
+		attrs[ATTR_DEPRECATED] = schema.deprecated;
+	}
+	return attrs;
 };
 
 /**
@@ -257,6 +447,8 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 						method?: string;
 						path?: string;
 						headers?: Headers;
+						raw?: Request;
+						query?: Record<string, string | string[]>;
 				  }
 				| null
 				| undefined;
@@ -265,6 +457,7 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 			const headers = request?.headers ?? new Headers();
 			const parent = extractIncoming(headers);
 			const start = nowMs();
+			const urlAttrs = request ? requestUrlAttrs(request) : ({} as AttrMap);
 
 			return tracer.startActiveSpan(
 				`${method} ${path}`,
@@ -273,6 +466,7 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 					attributes: {
 						[ATTR_HTTP_METHOD]: method,
 						[ATTR_URL_PATH]: path,
+						...urlAttrs,
 					},
 				},
 				parent,
@@ -286,13 +480,7 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 									200);
 						const route = routeOf(c);
 						span.setAttribute(ATTR_HTTP_STATUS, status);
-						if (route.path) {
-							span.setAttribute(ATTR_HTTP_ROUTE, route.path);
-							span.setAttribute(ATTR_ROUTE_PATH, route.path);
-						}
-						if (route.method) {
-							span.setAttribute(ATTR_ROUTE_METHOD, route.method);
-						}
+						span.setAttributes(routeAttrs(route, { httpRoute: true }));
 						if (status >= 500) {
 							span.setStatus({
 								code: SpanStatusCode.ERROR,
@@ -335,19 +523,11 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 			}
 
 			const start = nowMs();
-			const attributes: Record<string, string> = {
+			const attributes: AttrMap = {
 				[ATTR_FN]: key,
+				...routeAttrs(routeBefore),
+				...schemaAttrs(schemaOf(c)),
 			};
-			if (routeBefore.path) attributes[ATTR_ROUTE_PATH] = routeBefore.path;
-			if (routeBefore.method)
-				attributes[ATTR_ROUTE_METHOD] = routeBefore.method;
-
-			const metaTags = (
-				c.fn as { $schema?: { tags?: readonly string[] } } | undefined
-			)?.$schema?.tags;
-			if (metaTags?.length) {
-				attributes["better_call.tags"] = [...metaTags].join(",");
-			}
 
 			return tracer.startActiveSpan(
 				key,
@@ -356,25 +536,13 @@ export function telemetry(options: TelemetryOptions = {}): TelemetryModule {
 					try {
 						const result = await next();
 						// `route()` seeds `c.route` inside the chain — read after next.
-						const route = routeOf(c);
-						if (route.path) {
-							span.setAttribute(ATTR_ROUTE_PATH, route.path);
-						}
-						if (route.method) {
-							span.setAttribute(ATTR_ROUTE_METHOD, route.method);
-						}
+						span.setAttributes(routeAttrs(routeOf(c)));
 						instruments.fnDuration.record(elapsedSec(start), {
 							[ATTR_FN]: key,
 						});
 						return result;
 					} catch (thrown) {
-						const route = routeOf(c);
-						if (route.path) {
-							span.setAttribute(ATTR_ROUTE_PATH, route.path);
-						}
-						if (route.method) {
-							span.setAttribute(ATTR_ROUTE_METHOD, route.method);
-						}
+						span.setAttributes(routeAttrs(routeOf(c)));
 						recordError(span, logger, thrown, { [ATTR_FN]: key });
 						instruments.fnErrors.add(1, {
 							[ATTR_FN]: key,

@@ -23,6 +23,7 @@
 		"keypair",
 		"HMAC",
 		"HKDF",
+		"apikey",
 
 		// experimental package vocabulary
 		"Customizer",

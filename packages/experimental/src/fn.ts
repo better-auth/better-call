@@ -602,6 +602,17 @@ export type Context<
 	fn: FnApi;
 	/** Key of the fn frame currently running (interceptors / handlers). */
 	fnKey: string;
+	/**
+	 * Declared contract meta for the running fn (tags, summary, …) —
+	 * same fields as the callable's `$schema`, without input/output schemas.
+	 */
+	$schema?: {
+		idempotent?: boolean;
+		summary?: string;
+		description?: string;
+		tags?: readonly string[];
+		deprecated?: boolean;
+	};
 	/** The schema constructors (string, number, object, ...). */
 	types: typeof vTypes;
 } & /** Every var in scope, directly on `c`: read `c.session`, write by
@@ -994,6 +1005,7 @@ const defineFn = (
 						path,
 						method,
 						invalidate: [...invalidate],
+						...(status !== undefined ? { status } : {}),
 					};
 					return next();
 				}),
@@ -1388,6 +1400,19 @@ const defineFn = (
 
 			// The context's FIXED surface; everything not on it is a var, read
 			// and written straight on `c` through the proxy below.
+			const schemaMeta = {
+				...(options.idempotent === true ? { idempotent: true as const } : {}),
+				...(options.summary !== undefined
+					? { summary: options.summary as string }
+					: {}),
+				...(options.description !== undefined
+					? { description: options.description as string }
+					: {}),
+				...(options.tags !== undefined
+					? { tags: [...(options.tags as readonly string[])] }
+					: {}),
+				...(options.deprecated === true ? { deprecated: true as const } : {}),
+			};
 			const base: any = {
 				input: parsed,
 				error: mintError,
@@ -1401,6 +1426,8 @@ const defineFn = (
 				}),
 				fnKey: key,
 				types: vTypes,
+				// Introspection meta for plugins (otel, docs hosts, …).
+				...(Object.keys(schemaMeta).length > 0 ? { $schema: schemaMeta } : {}),
 			};
 			ctx = contextScope(frame, base);
 			// Used fns land DIRECTLY on the context (`c.createUser(...)`), bound

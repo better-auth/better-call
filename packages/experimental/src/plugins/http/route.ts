@@ -39,6 +39,8 @@ export type RouteState = {
 	method: string;
 	/** Mutable - handlers may push extra resource names at runtime. */
 	invalidate: string[];
+	/** Declared success status when set on {@link route}. */
+	status?: number;
 };
 
 export type RouteMeta<
@@ -107,6 +109,7 @@ export function route<
 				path,
 				method,
 				invalidate: [...invalidate],
+				...(options.status !== undefined ? { status: options.status } : {}),
 			};
 			return next();
 		}),

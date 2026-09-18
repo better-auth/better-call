@@ -41,7 +41,13 @@ Register an OTel **context manager** (Node SDK does this) so spans nest across `
 | **Propagation** | Extracts W3C `traceparent` from the incoming request (works without a global propagator) |
 | **Errors** | `span.recordException` + status `ERROR`; HTTP ≥500 marks the request span |
 
-Attributes include OTel HTTP conventions plus `better_call.fn`, `better_call.route.path` / `.method`, and `better_call.tags` when present.
+Attributes include OTel HTTP conventions (`http.request.method`, `http.route`,
+`http.response.status_code`, `url.path` / `url.scheme` / `url.query`,
+`server.address` / `server.port`, `user_agent.original`) plus
+`better_call.fn`, `better_call.route.path` / `.method` / `.invalidate` /
+`.declared_status`, and `$schema` fields when present (`better_call.tags`,
+`.summary`, `.idempotent`, `.deprecated`). Sensitive query keys
+(`token`, `api_key`, …) are redacted in `url.query`.
 
 Skipped for fn spans: `http.router.dispatch`, `http.from_request` (request span already covers dispatch).
 
