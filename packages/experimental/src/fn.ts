@@ -2148,8 +2148,9 @@ type BoundCallFrom<F> =
  *
  * `PL` is the accumulated `use` chain ({@link ChainPL}) - child `.fn`
  * must see it as `BasePL` so `FnOptsExt` (e.g. http `path`/`method`) and
- * `VarExtension` model merges resolve. `fnOutput` methods from `use` are
- * intersected onto the overload return via {@link InstanceResult}.
+ * `VarExtension` model merges resolve. Overloads return
+ * {@link InstanceResult} so `fnOutput` unlocks (e.g. `grant`) stay
+ * emit-portable too.
  */
 export interface Instance<
 	Base = unknown,
@@ -2197,12 +2198,20 @@ export interface Instance<
 	>;
 }
 
-/** {@link Instance} plus `fnOutput` methods unlocked by `use` mounts. */
-type InstanceResult<
-	Base,
-	BaseFns,
-	PL extends readonly UseEntry[],
-	Prefix extends string,
+/**
+ * {@link Instance} plus `fnOutput` methods unlocked by `use` mounts
+ * (e.g. `grant` from `better-call/grant`).
+ *
+ * Exported from the package entry so declaration emit can name
+ * `InstanceResult<…>` instead of expanding `FnOutBound` / `CallCtx`
+ * (TS2883 via `FnsFrom`/`Members`/`UnionToIntersection`, TS7056, OOM).
+ * Same mitigation pattern as {@link Instance} / {@link InstanceOn}.
+ */
+export type InstanceResult<
+	Base = unknown,
+	BaseFns = unknown,
+	PL extends readonly UseEntry[] = [],
+	Prefix extends string = "",
 	I = unknown,
 	O = unknown,
 > = Instance<Base, BaseFns, PL, Prefix, I, O> &

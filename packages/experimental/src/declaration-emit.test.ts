@@ -167,9 +167,13 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			existsSync(join(root, "dist/index.d.mts")),
 			"dist/index.d.mts missing - run pnpm build in packages/experimental",
 		).toBe(true);
-		// InstanceOn must be public so emit can name Instance.portably (TS2883).
+		// InstanceOn / InstanceResult must be public so emit can name
+		// builders portably (TS2883), including when grant unlocks fnOutput.
 		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
 			/\bInstanceOn\b/,
+		);
+		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
+			/\bInstanceResult\b/,
 		);
 
 		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-app-"));
@@ -226,14 +230,22 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			}
 
 			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
-			// Builders carry Base/BaseFns/PL (http use alone is large) but must
+			// Builders carry Base/BaseFns/PL (http + grant use is large) but must
 			// stay under TS7056 (~1e6). Soft ceiling tracks realistic auth apps.
 			expect(dts.length).toBeLessThan(500_000);
 			expect(dts).toMatch(/export declare const app:/);
+			expect(dts).toMatch(/export declare const adminGrant:/);
 			expect(dts).toMatch(/export declare const signIn:/);
-			expect(dts).toMatch(/import\("better-call"\)\.Instance/);
+			// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
+			// With grant mounted, emit must name InstanceResult (not expand
+			// FnOutBound / FnsFrom / Members / UnionToIntersection).
+			expect(dts).toMatch(/import\("better-call"\)\.InstanceResult/);
 			expect(dts).not.toMatch(/dist\/fn\.mjs/);
+			expect(dts).not.toMatch(/dist\/module\.mjs/);
+			expect(dts).not.toMatch(/dist\/types\.mjs/);
 			expect(dts).not.toMatch(/InstanceOn/);
+			expect(dts).not.toMatch(/\bFnsFrom\b/);
+			expect(dts).not.toMatch(/\bUnionToIntersection\b/);
 		} finally {
 			rmSync(consumerDir, { recursive: true, force: true });
 		}

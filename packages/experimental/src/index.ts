@@ -189,6 +189,7 @@ export type {
 	InferReturn,
 	Instance,
 	InstanceOn,
+	InstanceResult,
 	OptionType,
 	ParentContext,
 	PublicFn,

@@ -2,10 +2,12 @@
  * Consumer failure mode: export the builder itself
  * (`export const app = v.fn("x.", { use: [...] })`), not only terminating
  * `app.fn(...)` results. Under declaration + composite, emit must name
- * Instance / InstanceOn via the package entry (TS2883) and stay under
- * the serialize limit (TS7056). Includes `http` so BasePL is non-trivial.
+ * InstanceResult via the package entry (TS2883) and stay under the
+ * serialize limit (TS7056). Includes `http` + `grant` so BasePL is
+ * non-trivial and fnOutput unlock is exercised.
  */
 import { memoryAdapter, v } from "better-call";
+import { grant } from "better-call/grant";
 import { http } from "better-call/http";
 
 const user = v.var("user", {
@@ -104,11 +106,24 @@ const coreCache = {
 };
 
 export const app = v.fn("auth.", {
-	use: [http, coreSession, coreAccount, coreUser, coreCache, { db }],
+	use: [
+		http,
+		coreSession,
+		coreAccount,
+		coreUser,
+		coreCache,
+		{ db },
+		grant({ default: () => [] }),
+	],
 });
 
 // Call-site typing on the exported builder still works — including
-// http options unlocked by parent BasePL.
+// http options unlocked by parent BasePL, and grant from fnOutput.
+export const adminGrant = app.grant(
+	{ name: "admin.createUser" },
+	() => ["admin.*"] as const,
+);
+
 export const signIn = app.fn(
 	"sign_in",
 	{
@@ -116,6 +131,7 @@ export const signIn = app.fn(
 		method: "POST",
 		input: { email: v.string() },
 		provides: ["user"] as const,
+		gate: [adminGrant],
 	},
 	async (c) => {
 		c.user = {
