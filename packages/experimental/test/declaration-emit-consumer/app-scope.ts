@@ -3,9 +3,10 @@
  * (`export const app = v.fn("x.", { use: [...] })`), not only terminating
  * `app.fn(...)` results. Under declaration + composite, emit must name
  * Instance / InstanceOn via the package entry (TS2883) and stay under
- * the serialize limit (TS7056).
+ * the serialize limit (TS7056). Includes `http` so BasePL is non-trivial.
  */
 import { memoryAdapter, v } from "better-call";
+import { http } from "better-call/http";
 
 const user = v.var("user", {
 	default: null,
@@ -103,13 +104,19 @@ const coreCache = {
 };
 
 export const app = v.fn("auth.", {
-	use: [coreSession, coreAccount, coreUser, coreCache, { db }],
+	use: [http, coreSession, coreAccount, coreUser, coreCache, { db }],
 });
 
-// Call-site typing on the exported builder still works.
+// Call-site typing on the exported builder still works — including
+// http options unlocked by parent BasePL.
 export const signIn = app.fn(
 	"sign_in",
-	{ input: { email: v.string() }, provides: ["user"] as const },
+	{
+		path: "/sign-in",
+		method: "POST",
+		input: { email: v.string() },
+		provides: ["user"] as const,
+	},
 	async (c) => {
 		c.user = {
 			id: "1",
@@ -125,3 +132,4 @@ export const signIn = app.fn(
 
 app.with(signIn, { user: null });
 signIn.key satisfies "auth.sign_in";
+signIn.$route!.path satisfies "/sign-in";

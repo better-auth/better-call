@@ -2146,20 +2146,21 @@ type BoundCallFrom<F> =
  * of expanding `.on: InstanceOn<...>` (TS2883). Re-exported from the
  * package entry with {@link InstanceOn}.
  *
- * Type args are `Base` / `BaseFns` / `Prefix` only - the `use` tuple is
- * not carried as a type parameter (it is folded into Base/BaseFns), so
- * exporting large scopes stays under TS7056. `fnOutput` methods from
- * `use` are intersected onto the overload return via {@link InstanceResult}.
+ * `PL` is the accumulated `use` chain ({@link ChainPL}) - child `.fn`
+ * must see it as `BasePL` so `FnOptsExt` (e.g. http `path`/`method`) and
+ * `VarExtension` model merges resolve. `fnOutput` methods from `use` are
+ * intersected onto the overload return via {@link InstanceResult}.
  */
 export interface Instance<
 	Base = unknown,
 	BaseFns = unknown,
+	PL extends readonly UseEntry[] = [],
 	Prefix extends string = "",
 	I = unknown,
 	O = unknown,
 > {
 	/** Same as `v.fn`, with this builder's key prefix and options baked in. */
-	fn: Fn<Base, BaseFns, [], Prefix>;
+	fn: Fn<Base, BaseFns, PL, Prefix>;
 	/**
 	 * A handler-less builder doubles as an input SCHEMA: used as `input`
 	 * (or an input field) it declares "a FN from `input` to `output`" -
@@ -2178,7 +2179,7 @@ export interface Instance<
 	 */
 	with<F extends FnDefination<any, any, string, any, any, any>>(
 		fn: F,
-		context: WithSeed<ScopeOf<[], Base>, BaseFns>,
+		context: WithSeed<ScopeOf<[], Base, PL>, BaseFns>,
 	): BoundCallFrom<F>;
 	/**
 	 * The context a handler on this builder receives - a TYPE carrier for
@@ -2187,7 +2188,13 @@ export interface Instance<
 	 * loosened since they vary per fn. A real context only exists per
 	 * invocation, so this is `undefined` at runtime.
 	 */
-	readonly ctx: Context<unknown, ScopeOf<[], Base>, never, BaseFns, unknown>;
+	readonly ctx: Context<
+		unknown,
+		ScopeOf<[], Base, PL>,
+		never,
+		BaseFns,
+		unknown
+	>;
 }
 
 /** {@link Instance} plus `fnOutput` methods unlocked by `use` mounts. */
@@ -2198,7 +2205,7 @@ type InstanceResult<
 	Prefix extends string,
 	I = unknown,
 	O = unknown,
-> = Instance<Base, BaseFns, Prefix, I, O> &
+> = Instance<Base, BaseFns, PL, Prefix, I, O> &
 	FnOutBound<PL, Base, BaseFns, PL, Prefix>;
 
 /**

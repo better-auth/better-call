@@ -76,6 +76,27 @@ describe("declaration emit (TS7056)", () => {
 			rmSync(outDir, { recursive: true, force: true });
 		}
 	});
+
+	it("keeps parent use as BasePL for http options + v.extend on nested scopes", () => {
+		try {
+			execFileSync(
+				process.execPath,
+				[tsc, "-p", join(fixtureDir, "basepl-chain.tsconfig.json")],
+				{ cwd: root, stdio: "pipe" },
+			);
+		} catch (err) {
+			const e = err as { stderr?: Buffer; stdout?: Buffer };
+			throw new Error(
+				[
+					"BasePL chain typecheck failed:",
+					e.stderr?.toString("utf8"),
+					e.stdout?.toString("utf8"),
+				]
+					.filter(Boolean)
+					.join("\n"),
+			);
+		}
+	});
 });
 
 describe("declaration emit (TS2883 / package entry)", () => {
@@ -205,9 +226,9 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			}
 
 			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
-			// Builders still carry Base/BaseFns in type args (larger than
-			// terminating PublicFn exports) but must stay under TS7056.
-			expect(dts.length).toBeLessThan(250_000);
+			// Builders carry Base/BaseFns/PL (http use alone is large) but must
+			// stay under TS7056 (~1e6). Soft ceiling tracks realistic auth apps.
+			expect(dts.length).toBeLessThan(500_000);
 			expect(dts).toMatch(/export declare const app:/);
 			expect(dts).toMatch(/export declare const signIn:/);
 			expect(dts).toMatch(/import\("better-call"\)\.Instance/);
