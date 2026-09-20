@@ -1052,7 +1052,7 @@ export interface Fn<
 	   and its `.fn` follows the same rule recursively. ---- */
 	<K extends LiteralString>(
 		key: K,
-	): Instance<Base, BaseFns, BasePL, `${Prefix}${K}`>;
+	): InstanceResult<Base, BaseFns, BasePL, `${Prefix}${K}`>;
 	<
 		I,
 		O,
@@ -1065,7 +1065,7 @@ export interface Fn<
 				ChainPL<BasePL, PL>,
 				CallCtx<I, Base, BaseFns, BasePL, PL, Q, false, NoErrors, Prefix>
 			>,
-	): Instance<
+	): InstanceResult<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
 		ChainPL<BasePL, PL>,
@@ -1097,7 +1097,7 @@ export interface Fn<
 					`${Prefix}${K}`
 				>
 			>,
-	): Instance<
+	): InstanceResult<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
 		ChainPL<BasePL, PL>,
@@ -2051,7 +2051,9 @@ type OnContext<Base, BaseFns, F, Ext = unknown> = {
 	UseApi<BaseFns>;
 
 /** `v.on`, scoped: string targets get the builder's key prefix; the
- * handler's `c` and `next()` are typed against the matched target fn. */
+ * handler's `c` and `next()` are typed against the matched target fn.
+ * Re-exported from the package entry so exporting an {@link Instance}
+ * stays declaration-emit portable under node16 (TS2883). */
 export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	/** A fn REFERENCE targets its own key - never prefixed, fully typed
 	 * from the fn itself plus the builder's scope. */
@@ -2138,16 +2140,26 @@ type BoundCallFrom<F> =
 		? BoundCall<A, R, I, Er>
 		: never;
 
-export type Instance<
-	Base,
-	BaseFns,
-	PL extends readonly UseEntry[] = [],
+/**
+ * Builder returned by handler-less `v.fn(...)`. Declared as an interface
+ * so declaration emit keeps a portable `Instance<...>` reference instead
+ * of expanding `.on: InstanceOn<...>` (TS2883). Re-exported from the
+ * package entry with {@link InstanceOn}.
+ *
+ * Type args are `Base` / `BaseFns` / `Prefix` only - the `use` tuple is
+ * not carried as a type parameter (it is folded into Base/BaseFns), so
+ * exporting large scopes stays under TS7056. `fnOutput` methods from
+ * `use` are intersected onto the overload return via {@link InstanceResult}.
+ */
+export interface Instance<
+	Base = unknown,
+	BaseFns = unknown,
 	Prefix extends string = "",
 	I = unknown,
 	O = unknown,
-> = {
+> {
 	/** Same as `v.fn`, with this builder's key prefix and options baked in. */
-	fn: Fn<Base, BaseFns, PL, Prefix>;
+	fn: Fn<Base, BaseFns, [], Prefix>;
 	/**
 	 * A handler-less builder doubles as an input SCHEMA: used as `input`
 	 * (or an input field) it declares "a FN from `input` to `output`" -
@@ -2166,7 +2178,7 @@ export type Instance<
 	 */
 	with<F extends FnDefination<any, any, string, any, any, any>>(
 		fn: F,
-		context: WithSeed<ScopeOf<[], Base, PL>, BaseFns>,
+		context: WithSeed<ScopeOf<[], Base>, BaseFns>,
 	): BoundCallFrom<F>;
 	/**
 	 * The context a handler on this builder receives - a TYPE carrier for
@@ -2175,14 +2187,19 @@ export type Instance<
 	 * loosened since they vary per fn. A real context only exists per
 	 * invocation, so this is `undefined` at runtime.
 	 */
-	readonly ctx: Context<
-		unknown,
-		ScopeOf<[], Base, PL>,
-		never,
-		BaseFns,
-		unknown
-	>;
-} & FnOutBound<PL, Base, BaseFns, PL, Prefix>;
+	readonly ctx: Context<unknown, ScopeOf<[], Base>, never, BaseFns, unknown>;
+}
+
+/** {@link Instance} plus `fnOutput` methods unlocked by `use` mounts. */
+type InstanceResult<
+	Base,
+	BaseFns,
+	PL extends readonly UseEntry[],
+	Prefix extends string,
+	I = unknown,
+	O = unknown,
+> = Instance<Base, BaseFns, Prefix, I, O> &
+	FnOutBound<PL, Base, BaseFns, PL, Prefix>;
 
 /**
  * The builder half of `v.fn`: no handler yet, so calls accumulate. Keys

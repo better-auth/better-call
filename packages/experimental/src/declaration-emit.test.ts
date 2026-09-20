@@ -141,6 +141,83 @@ describe("declaration emit (TS2883 / package entry)", () => {
 		}
 	});
 
+	it("exports v.fn builder scopes through better-call package entry under node16", () => {
+		expect(
+			existsSync(join(root, "dist/index.d.mts")),
+			"dist/index.d.mts missing - run pnpm build in packages/experimental",
+		).toBe(true);
+		// InstanceOn must be public so emit can name Instance.portably (TS2883).
+		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
+			/\bInstanceOn\b/,
+		);
+
+		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-app-"));
+		try {
+			mkdirSync(join(consumerDir, "node_modules"));
+			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
+			symlinkSync(
+				join(consumerFixtureDir, "app-scope.ts"),
+				join(consumerDir, "app-scope.ts"),
+			);
+			writeFileSync(
+				join(consumerDir, "tsconfig.json"),
+				JSON.stringify({
+					compilerOptions: {
+						strict: true,
+						declaration: true,
+						composite: true,
+						emitDeclarationOnly: true,
+						outDir: "./out",
+						module: "Node16",
+						moduleResolution: "Node16",
+						target: "ESNext",
+						skipLibCheck: true,
+						lib: ["esnext"],
+					},
+					include: ["./app-scope.ts"],
+				}),
+			);
+			writeFileSync(
+				join(consumerDir, "package.json"),
+				JSON.stringify({
+					name: "better-call-declaration-emit-app-scope",
+					private: true,
+					type: "module",
+				}),
+			);
+
+			try {
+				execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+					cwd: consumerDir,
+					stdio: "pipe",
+				});
+			} catch (err) {
+				const e = err as { stderr?: Buffer; stdout?: Buffer };
+				throw new Error(
+					[
+						"app-scope declaration emit failed:",
+						e.stderr?.toString("utf8"),
+						e.stdout?.toString("utf8"),
+					]
+						.filter(Boolean)
+						.join("\n"),
+				);
+			}
+
+			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
+			// Builders still carry Base/BaseFns in type args (larger than
+			// terminating PublicFn exports) but must stay under TS7056.
+			expect(dts.length).toBeLessThan(250_000);
+			expect(dts).toMatch(/export declare const app:/);
+			expect(dts).toMatch(/export declare const signIn:/);
+			expect(dts).toMatch(/import\("better-call"\)\.Instance/);
+			expect(dts).not.toMatch(/dist\/fn\.mjs/);
+			expect(dts).not.toMatch(/InstanceOn/);
+		} finally {
+			rmSync(consumerDir, { recursive: true, force: true });
+		}
+	});
+
 	it("emits db schema under the serialize limit", () => {
 		const dtsPath = join(root, "dist/db.d.mts");
 		expect(existsSync(dtsPath), "dist/db.d.mts missing - run pnpm build").toBe(

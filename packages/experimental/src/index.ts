@@ -175,6 +175,7 @@ export {
 	makeEvent,
 } from "./event";
 export type {
+	ArgsOf,
 	BoundCall,
 	Context,
 	CtxBound,
@@ -185,7 +186,9 @@ export type {
 	FnOutField,
 	FnOutImpl,
 	FnOutMethod,
+	InferReturn,
 	Instance,
+	InstanceOn,
 	OptionType,
 	ParentContext,
 	PublicFn,
