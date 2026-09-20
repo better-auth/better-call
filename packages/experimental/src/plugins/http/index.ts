@@ -19,14 +19,16 @@ import {
 import {
 	codecFor,
 	compactCodec,
-	cookieCacheApi,
 	createChunkedCookieStore,
+	createCookieCacheApi,
 	getChunkedCookie,
 	getCookieCache,
 	jweCodec,
 	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
+	type CookieCacheMountConfig,
+	type CookieCachePreset,
 } from "./cookie-cache";
 import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
@@ -43,6 +45,7 @@ import { applyRedirect, asResponse, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import { res, toResponse } from "./response";
 import {
+	createHttpOptions,
 	getRouteMeta,
 	httpOptions,
 	INVALIDATE_HEADER,
@@ -87,17 +90,22 @@ export type {
 	CookieCacheApi,
 	CookieCacheCodec,
 	CookieCacheFnOption,
+	CookieCacheFnOptionObject,
+	CookieCacheMountConfig,
 	CookieCachePolicy,
+	CookieCachePreset,
 	CookieCacheSigner,
 	CookieCacheStrategy,
 	DecodeResult,
 	GetCookieCacheConfig,
+	SoftAlias,
 } from "./cookie-cache";
 export {
 	codecFor,
 	compactCodec,
 	cookieCacheApi,
 	cookieCacheOptionSchema,
+	cookieCacheOptionSchemaFor,
 	createChunkedCookieStore,
 	createCookieCacheApi,
 	getChunkedCookie,
@@ -106,6 +114,7 @@ export {
 	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
+	resolveCookieCachePolicy,
 } from "./cookie-cache";
 export type {
 	EncodedError,
@@ -179,6 +188,7 @@ export type {
 	RouteState,
 } from "./route";
 export {
+	createHttpOptions,
 	getRouteMeta,
 	httpOptions,
 	INVALIDATE_HEADER,
@@ -193,17 +203,22 @@ export type {
 } from "./router";
 export { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
-/** `c.cookieCache` — set/get/run/clear for the cookie-cache layer. */
-export const cookieCache = v.var("cookieCache", {
-	default: cookieCacheApi,
-});
+/** Options for {@link http} / {@link createHttp}. */
+export type HttpModuleOptions<
+	Policies extends Record<string, CookieCachePreset> = Record<
+		string,
+		CookieCachePreset
+	>,
+> = {
+	cookieCache?: CookieCacheMountConfig & {
+		policies?: Policies;
+	};
+};
 
-export const http = {
-	httpOptions,
+const httpModuleBase = {
 	req,
 	res,
 	cookieOptions,
-	cookieCache,
 	fromRequest,
 	handler,
 	createHandler,
@@ -252,4 +267,63 @@ export const http = {
 	codecFor,
 	MAX_COOKIE_SIZE,
 	MAX_COOKIE_CHUNKS,
-};
+} as const;
+
+/**
+ * Build an HTTP plugin module. Pass `cookieCache.policies` for named presets
+ * and optional `cookieCache.secret` as the mount-wide codec default.
+ *
+ * @example
+ * ```ts
+ * use: [http({
+ *   cookieCache: {
+ *     secret: secrets,
+ *     policies: {
+ *       session: { cookieName: "session_data", maxAge: 300 },
+ *     },
+ *   },
+ * })]
+ * ```
+ */
+export function createHttp<
+	const Policies extends Record<string, CookieCachePreset> = Record<
+		string,
+		CookieCachePreset
+	>,
+>(options?: HttpModuleOptions<Policies>) {
+	type Aliases = string & keyof Policies;
+	const mount: CookieCacheMountConfig = {
+		secret: options?.cookieCache?.secret,
+		policies: options?.cookieCache?.policies,
+	};
+	const api = createCookieCacheApi(mount);
+	return {
+		...httpModuleBase,
+		httpOptions: createHttpOptions<Aliases>(),
+		cookieCache: v.var("cookieCache", {
+			default: api,
+		}),
+	};
+}
+
+export type HttpModule = ReturnType<typeof createHttp>;
+
+/**
+ * HTTP plugin: callable for presets (`http({ cookieCache: … })`) and usable
+ * bare (`use: [http]`) via assigned default module members.
+ */
+function httpFn<
+	const Policies extends Record<string, CookieCachePreset> = Record<
+		string,
+		CookieCachePreset
+	>,
+>(options?: HttpModuleOptions<Policies>) {
+	return createHttp(options);
+}
+
+const defaultHttp = createHttp();
+
+export const http: typeof httpFn & HttpModule = Object.assign(
+	httpFn,
+	defaultHttp,
+);

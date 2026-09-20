@@ -160,23 +160,17 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
 /**
  * Extra `v.fn` option keys unlocked when `http` (or this marker) is in `use`.
  * Prefer `{ path }` over `use: [route({ path, method })]` for new code.
+ * `Aliases` soft-types `cookieCache.name` from mount `policies` keys.
  */
-export type HttpOptions = {
+export type HttpOptions<Aliases extends string = string> = {
 	path?: LiteralString;
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
-	cookieCache?: CookieCacheFnOption;
+	cookieCache?: CookieCacheFnOption<Aliases>;
 };
 
-/**
- * Extends core {@link fnOptions} with HTTP route keys. Mount via
- * `use: [httpOptions]`, `use: [{ httpOptions }]`, or `use: [http]` to unlock
- * `{ path, method?, … }` on `v.fn` options (runtime stamps `$route` when
- * `path` is set). `path` uses `literal: true` so call-site paths stay
- * narrow (`"/a"` not `string`).
- */
-export const httpOptions = v.extend(fnOptions, {
+const httpOptionsFields = {
 	path: v.string({ literal: true, optional: true }),
 	method: v.string({
 		optional: true,
@@ -185,4 +179,22 @@ export const httpOptions = v.extend(fnOptions, {
 	invalidate: v.array(v.string(), { optional: true }),
 	status: v.number({ optional: true }),
 	cookieCache: cookieCacheOptionSchema,
-});
+} as const;
+
+/**
+ * Extends core {@link fnOptions} with HTTP route keys. Mount via
+ * `use: [httpOptions]`, `use: [{ httpOptions }]`, or `use: [http]` to unlock
+ * `{ path, method?, … }` on `v.fn` options (runtime stamps `$route` when
+ * `path` is set). `path` uses `literal: true` so call-site paths stay
+ * narrow (`"/a"` not `string`).
+ */
+export const httpOptions = v.extend(fnOptions, httpOptionsFields);
+
+/**
+ * Per-mount httpOptions when `http({ cookieCache: { policies } })` is used.
+ * Runtime schema is identical; `Aliases` soft-types `cookieCache.name` via
+ * {@link HttpOptions}.
+ */
+export function createHttpOptions<_Aliases extends string = string>() {
+	return v.extend(fnOptions, httpOptionsFields);
+}

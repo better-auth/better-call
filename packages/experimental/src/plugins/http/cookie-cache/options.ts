@@ -3,13 +3,26 @@ import type { InferArgs } from "../../../schema";
 import { cookieShape } from "../cookie";
 
 /**
- * Fn-option shape for `cookieCache`. Schema is the source of truth; the
- * TS type falls out via {@link InferArgs}. Keys are optional so an
- * in-progress `{ | }` keeps a contextual type for IntelliSense — runtime
- * still requires `name` and `maxAge` when the layer runs.
+ * Soft string: prefers `Aliases` for IntelliSense but accepts any string
+ * (one-off cookie aliases are not a type error).
+ */
+export type SoftAlias<Aliases extends string = string> =
+	Aliases | (string & {});
+
+/**
+ * Fn-option / API option shape for `cookieCache`.
+ *
+ * - `name` — preset **alias** (looks up `http({ cookieCache: { policies } })`)
+ * - `cookieName` — on-the-wire cookie name (required after resolve)
+ *
+ * Keys are optional so an in-progress `{ | }` keeps contextual IntelliSense —
+ * runtime still requires `cookieName` + `maxAge` when the layer runs.
  */
 export const cookieCacheShape = {
+	/** Preset alias (not the cookie wire name). */
 	name: v.string({ optional: true }),
+	/** On-the-wire cookie name. */
+	cookieName: v.string({ optional: true }),
 	strategy: v.string({
 		enum: ["compact", "jwt", "jwe"],
 		optional: true,
@@ -38,19 +51,70 @@ export const cookieCacheShape = {
 		{ optional: true },
 	),
 	cookie: v.object(cookieShape, { optional: true }),
-	disableWhen: v.fn.type({ output: v.boolean(), optional: true }),
+	/**
+	 * When false, skip the entire layer (no get, no set).
+	 * Default true. Replaces `disableWhen`.
+	 */
+	enabled: v.union(
+		[v.boolean(), v.fn.type({ output: v.boolean() })],
+		{ optional: true },
+	),
 	validate: v.fn.type({ output: v.boolean(), optional: true }),
+	/** Transform payload before encode (write path). */
 	prepare: v.fn.type({ optional: true }),
+	/** Transform / side-effect on successful hit (read path). */
+	onHit: v.fn.type({ optional: true }),
 };
 
-export type CookieCacheFnOption = InferArgs<typeof cookieCacheShape>;
+type CookieCacheShapeArgs = InferArgs<typeof cookieCacheShape>;
 
-/** Complete policy after {@link requirePolicy}-style checks (name + maxAge). */
-export type CookieCachePolicy = Omit<CookieCacheFnOption, "name" | "maxAge"> & {
-	name: string;
+/** Object form of a cookie-cache option / preset (no callback). */
+export type CookieCacheFnOptionObject<
+	Aliases extends string = string,
+> = Omit<CookieCacheShapeArgs, "name"> & {
+	name?: SoftAlias<Aliases> | null;
+};
+
+/** Preset entry under `http({ cookieCache: { policies } })` — no alias field. */
+export type CookieCachePreset = Omit<CookieCacheFnOptionObject, "name">;
+
+/**
+ * Fn / API option: object or `(c) => object | Promise<object>`.
+ * Soft-typed `name` when `Aliases` is provided from the mount.
+ */
+export type CookieCacheFnOption<Aliases extends string = string> =
+	| CookieCacheFnOptionObject<Aliases>
+	| ((
+			c: any,
+	  ) =>
+			| CookieCacheFnOptionObject<Aliases>
+			| Promise<CookieCacheFnOptionObject<Aliases>>);
+
+/** Complete policy after resolve (cookieName + maxAge required). */
+export type CookieCachePolicy = Omit<
+	CookieCacheFnOptionObject,
+	"cookieName" | "maxAge" | "name"
+> & {
+	/** Preset alias, if any. */
+	name?: string;
+	cookieName: string;
 	maxAge: number;
 };
 
-export const cookieCacheOptionSchema = v.object(cookieCacheShape, {
-	optional: true,
-});
+/** Mount config for {@link createCookieCacheApi}. */
+export type CookieCacheMountConfig = {
+	secret?: string | readonly string[];
+	policies?: Record<string, CookieCachePreset>;
+};
+
+export const cookieCacheOptionSchema = v.union(
+	[v.object(cookieCacheShape), v.fn.type()],
+	{ optional: true },
+);
+
+/** Build an optional cookieCache fn-option schema (same runtime; soft types overlay). */
+export function cookieCacheOptionSchemaFor<
+	_Aliases extends string = string,
+>() {
+	return cookieCacheOptionSchema;
+}

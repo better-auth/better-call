@@ -1,9 +1,9 @@
 import { cookieCacheApi } from "./api";
 import {
-	compactCodec,
-	jwtCodec,
-	jweCodec,
 	codecFor,
+	compactCodec,
+	jweCodec,
+	jwtCodec,
 	type CookieCacheCodec,
 	type CookieCacheSigner,
 	type CookieCacheStrategy,
@@ -20,13 +20,22 @@ import {
 import { getCookieCache, type GetCookieCacheConfig } from "./get";
 import {
 	cookieCacheOptionSchema,
+	cookieCacheOptionSchemaFor,
 	type CookieCacheFnOption,
+	type CookieCacheFnOptionObject,
+	type CookieCacheMountConfig,
 	type CookieCachePolicy,
+	type CookieCachePreset,
+	type SoftAlias,
 } from "./options";
 
 export type {
 	CookieCachePolicy,
 	CookieCacheFnOption,
+	CookieCacheFnOptionObject,
+	CookieCacheMountConfig,
+	CookieCachePreset,
+	SoftAlias,
 	CookieCacheCodec,
 	CookieCacheSigner,
 	CookieCacheStrategy,
@@ -39,6 +48,7 @@ export type {
 export {
 	cookieCacheApi,
 	cookieCacheOptionSchema,
+	cookieCacheOptionSchemaFor,
 	compactCodec,
 	jwtCodec,
 	jweCodec,
@@ -51,4 +61,7 @@ export {
 };
 
 export type { CookieCacheApi } from "./api";
-export { createCookieCacheApi } from "./api";
+export {
+	createCookieCacheApi,
+	resolveCookieCachePolicy,
+} from "./api";

@@ -1,17 +1,35 @@
 import { v } from "../../index";
 import { type CacheApi, createCacheApi } from "./api";
-import { type CachePolicy, cacheOptions, type InvalidateTags } from "./options";
+import {
+	type CacheMountConfig,
+	type CachePolicy,
+	type CachePreset,
+	cacheOptions,
+	cacheOptionsFor,
+	type InvalidateTags,
+} from "./options";
 import type { CacheStore } from "./store";
 
 export type { CacheApi } from "./api";
-export { createCacheApi } from "./api";
+export { createCacheApi, resolveCachePolicy } from "./api";
 export { memoryCache } from "./memory";
-export type { CachePolicy, InvalidateTags } from "./options";
-export { cacheOptions } from "./options";
+export type {
+	CacheMountConfig,
+	CachePolicy,
+	CachePolicyObject,
+	CachePreset,
+	InvalidateTags,
+	ResolvedCachePolicy,
+	SoftCacheAlias,
+} from "./options";
+export { cacheOptions, cacheOptionsFor, cachePolicyOptionSchema } from "./options";
 export type { CacheStore } from "./store";
 
-export type CacheModuleOptions = {
+export type CacheModuleOptions<
+	Defaults extends Record<string, CachePreset> = Record<string, CachePreset>,
+> = {
 	store: CacheStore;
+	defaults?: Defaults;
 };
 
 /**
@@ -20,16 +38,30 @@ export type CacheModuleOptions = {
  *
  * @example
  * ```ts
- * const app = v.fn({ use: [cache({ store: memoryCache() })] });
+ * const app = v.fn({
+ *   use: [cache({
+ *     store: memoryCache(),
+ *     defaults: { user: { ttl: 60, tags: ["user"] } },
+ *   })],
+ * });
  * app.fn("user.get", {
- *   cache: { key: (c) => `user:${c.input.id}`, ttl: 60 },
+ *   cache: { name: "user", key: (c) => `user:${c.input.id}` },
  * }, handler);
  * ```
  */
-export function cache(options: CacheModuleOptions) {
-	const api = createCacheApi(options.store);
+export function cache<
+	const Defaults extends Record<string, CachePreset> = Record<
+		string,
+		CachePreset
+	>,
+>(options: CacheModuleOptions<Defaults>) {
+	type Aliases = string & keyof Defaults;
+	const mount: CacheMountConfig = {
+		defaults: options.defaults,
+	};
+	const api = createCacheApi(options.store, mount);
 	return {
-		cacheOptions,
+		cacheOptions: cacheOptionsFor<Aliases>(),
 		cache: v.var("cache", {
 			default: api as CacheApi,
 		}),

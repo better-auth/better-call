@@ -27,7 +27,7 @@ function cookieHeaderFrom(headers: Headers | undefined): string {
 }
 
 const basePolicy = (extra?: Partial<CookieCachePolicy>): CookieCachePolicy => ({
-	name: "session_data",
+	cookieName: "session_data",
 	strategy: "compact",
 	maxAge: 300,
 	secret,
@@ -296,7 +296,7 @@ describe("cookieCache fn layer", () => {
 			{ cookieCache: basePolicy() },
 			async () => null,
 		);
-		expect(get.$cookieCache).toMatchObject({ name: "session_data" });
+		expect(get.$cookieCache).toMatchObject({ cookieName: "session_data" });
 	});
 
 	it("cookie hit skips store layer", async () => {
@@ -451,5 +451,311 @@ describe("cookieCache fn layer", () => {
 		});
 		expect(body).toHaveBeenCalledTimes(0);
 		expect(cookieHeaderFrom(refreshedHeaders).length).toBeGreaterThan(0);
+	});
+});
+
+describe("cookieCache presets + resolve", () => {
+	it("resolves { name } from mount policies for run/set/clear", async () => {
+		const body = vi.fn(async () => ({ user: { id: "1" } }));
+		const app = v.fn({
+			use: [
+				http({
+					cookieCache: {
+						secret,
+						policies: {
+							session: {
+								cookieName: "better-auth.session_data",
+								strategy: "compact",
+								maxAge: 300,
+								version: "1",
+							},
+						},
+					},
+				}),
+			],
+		});
+		const get = app.fn(
+			"preset.get",
+			{ cookieCache: { name: "session" } },
+			() => body(),
+		);
+
+		let headers: Headers | undefined;
+		await app.fn(
+			"preset.seed",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.get();
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(body).toHaveBeenCalledTimes(1);
+		const cookie = cookieHeaderFrom(headers);
+		expect(cookie).toContain("better-auth.session_data=");
+
+		body.mockClear();
+		const hit = await app.fn(
+			"preset.hit",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				return c.get();
+			},
+		)({
+			request: new Request("http://x.test/", { headers: { cookie } }),
+		});
+		expect(hit).toMatchObject({ user: { id: "1" } });
+		expect(body).toHaveBeenCalledTimes(0);
+
+		// clear by alias — cookieName stays from preset
+		await app.fn(
+			"preset.clear",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.cookieCache.clear(c, { name: "session" });
+				headers = c.res?.headers;
+			},
+		)({
+			request: new Request("http://x.test/", { headers: { cookie } }),
+		});
+		const cleared = cookieHeaderFrom(headers);
+		// Max-Age=0 clears; value empty — header may still list the name
+		expect(cleared.includes("better-auth.session_data=") || cleared === "").toBe(
+			true,
+		);
+	});
+
+	it("set with { name } uses mount secret and cookieName", async () => {
+		const app = v.fn({
+			use: [
+				http({
+					cookieCache: {
+						secret,
+						policies: {
+							session: {
+								cookieName: "wired",
+								maxAge: 300,
+								strategy: "compact",
+								version: "1",
+							},
+						},
+					},
+				}),
+			],
+		});
+		let headers: Headers | undefined;
+		await app.fn(
+			"set.alias",
+			{ input: { request: v.any<Request>() } },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.cookieCache.set(c, { name: "session" }, { ok: true });
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(cookieHeaderFrom(headers)).toContain("wired=");
+	});
+
+	it("overrides cookieName without changing alias", async () => {
+		const app = v.fn({
+			use: [
+				http({
+					cookieCache: {
+						secret,
+						policies: {
+							session: {
+								cookieName: "default_name",
+								maxAge: 300,
+								strategy: "compact",
+								version: "1",
+							},
+						},
+					},
+				}),
+			],
+		});
+		let headers: Headers | undefined;
+		await app.fn(
+			"set.override",
+			{ input: { request: v.any<Request>() } },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.cookieCache.set(
+					c,
+					{ name: "session", cookieName: "custom_wire" },
+					{ ok: true },
+				);
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(cookieHeaderFrom(headers)).toContain("custom_wire=");
+		expect(cookieHeaderFrom(headers)).not.toContain("default_name=");
+	});
+
+	it("enabled false skips get and set", async () => {
+		const body = vi.fn(async () => ({ n: 1 }));
+		const app = v.fn({ use: [http] });
+		const get = app.fn(
+			"en.get",
+			{
+				cookieCache: basePolicy({ enabled: false }),
+			},
+			() => body(),
+		);
+		let headers: Headers | undefined;
+		await app.fn(
+			"en.run",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.get();
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(body).toHaveBeenCalledTimes(1);
+		expect(cookieHeaderFrom(headers)).toBe("");
+	});
+
+	it('disableCookieCache "true" string force-misses', async () => {
+		const body = vi.fn(async () => ({ n: 1 }));
+		const app = v.fn({ use: [http] });
+		const get = app.fn(
+			"str.get",
+			{
+				input: { disableCookieCache: v.any({ optional: true }) },
+				cookieCache: basePolicy(),
+			},
+			() => body(),
+		);
+
+		let headers: Headers | undefined;
+		await app.fn(
+			"str.seed",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.get({});
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+		const cookie = cookieHeaderFrom(headers);
+
+		body.mockClear();
+		await app.fn(
+			"str.entry",
+			{
+				input: {
+					request: v.any<Request>(),
+					disableCookieCache: v.any({ optional: true }),
+				},
+				use: [{ get }],
+			},
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				return c.get({ disableCookieCache: c.input.disableCookieCache });
+			},
+		)({
+			request: new Request("http://x.test/", { headers: { cookie } }),
+			disableCookieCache: "true",
+		});
+		expect(body).toHaveBeenCalledTimes(1);
+	});
+
+	it("onHit runs on hit and can transform return", async () => {
+		const body = vi.fn(async () => ({ user: { id: "1" } }));
+		const onHit = vi.fn(async (payload: any, c: any) => {
+			c.hit = true;
+			return { ...payload, fromHit: true };
+		});
+		const app = v.fn({ use: [http] });
+		const get = app.fn(
+			"hit.get",
+			{ cookieCache: basePolicy({ onHit }) },
+			() => body(),
+		);
+
+		let headers: Headers | undefined;
+		await app.fn(
+			"hit.seed",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.get();
+				headers = c.res?.headers;
+			},
+		)({ request: new Request("http://x.test/") });
+
+		body.mockClear();
+		let sawHit: unknown;
+		const result = await app.fn(
+			"hit.read",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				const value = await c.get();
+				sawHit = (c as any).hit;
+				return value;
+			},
+		)({
+			request: new Request("http://x.test/", {
+				headers: { cookie: cookieHeaderFrom(headers) },
+			}),
+		});
+		expect(body).toHaveBeenCalledTimes(0);
+		expect(onHit).toHaveBeenCalled();
+		expect(sawHit).toBe(true);
+		expect(result).toMatchObject({ fromHit: true, user: { id: "1" } });
+	});
+
+	it("async policy callback is awaited", async () => {
+		const body = vi.fn(async () => ({ async: true }));
+		const app = v.fn({ use: [http] });
+		const get = app.fn(
+			"async.get",
+			{
+				cookieCache: async () => ({
+					cookieName: "session_data",
+					strategy: "compact" as const,
+					maxAge: 300,
+					secret,
+					version: "1",
+				}),
+			},
+			() => body(),
+		);
+		await app.fn(
+			"async.entry",
+			{ input: { request: v.any<Request>() }, use: [{ get }] },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				return c.get();
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(body).toHaveBeenCalledTimes(1);
+	});
+
+	it("set opts.session omits Max-Age", async () => {
+		const app = v.fn({ use: [http] });
+		let setCookieLines: string[] = [];
+		await app.fn(
+			"sess.set",
+			{ input: { request: v.any<Request>() } },
+			async (c) => {
+				await c.fromRequest({ request: c.input.request });
+				await c.cookieCache.set(
+					c,
+					basePolicy(),
+					{ ok: true },
+					{ session: true },
+				);
+				setCookieLines = c.res?.headers?.getSetCookie?.() ?? [];
+			},
+		)({ request: new Request("http://x.test/") });
+		expect(setCookieLines.some((l) => /Max-Age=/i.test(l))).toBe(false);
+		expect(setCookieLines.some((l) => l.startsWith("session_data="))).toBe(
+			true,
+		);
 	});
 });

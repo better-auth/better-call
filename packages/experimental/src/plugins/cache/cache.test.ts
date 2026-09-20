@@ -129,4 +129,114 @@ describe("cache plugin", () => {
 		});
 		expect(JSON.parse((await set()) as string)).toEqual({ a: 1 });
 	});
+
+	it("resolves defaults by name alias", async () => {
+		const store = memoryCache();
+		const body = vi.fn(async () => ({ id: 1 }));
+		const app = v.fn({
+			use: [
+				cache({
+					store,
+					defaults: {
+						user: { ttl: 60, tags: ["user"] },
+					},
+				}),
+			],
+		});
+		const get = app.fn(
+			"user.get",
+			{
+				input: { id: v.string() },
+				cache: {
+					name: "user",
+					key: (c: any) => `user:${c.input.id}`,
+				},
+			},
+			body,
+		);
+		await get({ id: "1" });
+		expect(await store.get("user:1")).toBeTruthy();
+		await get({ id: "1" });
+		expect(body).toHaveBeenCalledTimes(1);
+	});
+
+	it("enabled false skips get/set", async () => {
+		const store = memoryCache();
+		await store.set("item:1", JSON.stringify({ ok: true }));
+		const body = vi.fn(async () => ({ ok: false }));
+		const app = v.fn({
+			use: [cache({ store })],
+		});
+		const get = app.fn(
+			"item.get",
+			{
+				cache: { key: "item:1", ttl: 60, enabled: false },
+			},
+			body,
+		);
+		const result = await get();
+		expect(result).toEqual({ ok: false });
+		expect(body).toHaveBeenCalledTimes(1);
+		// original value preserved — no write-back
+		expect(JSON.parse((await store.get("item:1")) as string)).toEqual({
+			ok: true,
+		});
+	});
+
+	it("onHit transforms cached value", async () => {
+		const store = memoryCache();
+		const app = v.fn({ use: [cache({ store })] });
+		const get = app.fn(
+			"x.get",
+			{
+				cache: {
+					key: "x",
+					ttl: 60,
+					onHit: (payload: any) => ({ ...payload, hit: true }),
+				},
+			},
+			async () => ({ n: 1 }),
+		);
+		await get();
+		const second = await get();
+		expect(second).toEqual({ n: 1, hit: true });
+	});
+
+	it("prepare transforms before store", async () => {
+		const store = memoryCache();
+		const app = v.fn({ use: [cache({ store })] });
+		const get = app.fn(
+			"p.get",
+			{
+				cache: {
+					key: "p",
+					ttl: 60,
+					prepare: (value: any) => ({ ...value, prepared: true }),
+				},
+			},
+			async () => ({ n: 1 }),
+		);
+		const first = await get();
+		expect(first).toEqual({ n: 1 });
+		expect(JSON.parse((await store.get("p")) as string)).toEqual({
+			n: 1,
+			prepared: true,
+		});
+	});
+
+	it("async cache policy callback is awaited", async () => {
+		const store = memoryCache();
+		const body = vi.fn(async () => ({ a: 1 }));
+		const app = v.fn({ use: [cache({ store })] });
+		const get = app.fn(
+			"a.get",
+			{
+				cache: async () => ({ key: "a", ttl: 60 }),
+			},
+			body,
+		);
+		await get();
+		await get();
+		expect(body).toHaveBeenCalledTimes(1);
+	});
 });

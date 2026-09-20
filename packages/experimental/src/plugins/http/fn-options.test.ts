@@ -1,7 +1,10 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
-import { v } from "../../index";
+import type {
+	CookieCacheFnOptionObject,
+	SoftAlias,
+} from "./cookie-cache/options";
 import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
-import type { CookieCacheFnOption } from "./cookie-cache/options";
+import { v } from "../../index";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 describe("httpOptions — path on fn options", () => {
 	it("unlocks path when http is in parent use", () => {
@@ -154,7 +157,7 @@ describe("httpOptions — path on fn options", () => {
 			"session.get",
 			{
 				cookieCache: {
-					name: "session_data",
+					cookieName: "session_data",
 					maxAge: 300,
 					strategy: "jwe",
 					secret: "x",
@@ -162,23 +165,57 @@ describe("httpOptions — path on fn options", () => {
 					refreshCache: { updateAge: 60 },
 					jwe: { salt: "s", info: "i" },
 					validate: (payload) => payload != null,
-					disableWhen: () => false,
+					enabled: () => true,
 					prepare: (value) => value,
+					onHit: (value) => value,
 				},
 			},
 			async () => null,
 		);
 		expect(get.$cookieCache).toMatchObject({
-			name: "session_data",
+			cookieName: "session_data",
 			strategy: "jwe",
 		});
 		// Empty object stays assignable so `{ | }` keeps contextual IntelliSense.
 		e.fn("scratch", { cookieCache: {} }, async () => null);
 
-		expectTypeOf<CookieCacheFnOption>().toMatchTypeOf<{
+		expectTypeOf<CookieCacheFnOptionObject>().toMatchTypeOf<{
 			name?: string | null;
+			cookieName?: string | null;
 			strategy?: "compact" | "jwt" | "jwe" | null;
 			validate?: ((...args: any[]) => boolean | Promise<boolean>) | null;
 		}>();
+	});
+
+	it("cookieCache.name soft-types preset aliases", () => {
+		const mod = http({
+			cookieCache: {
+				secret: "x",
+				policies: {
+					session: {
+						cookieName: "better-auth.session_data",
+						maxAge: 300,
+					},
+				},
+			},
+		});
+		const e = v.fn({ use: [mod] });
+		e.fn("ok", { cookieCache: { name: "session" } }, async () => null);
+		// Ad-hoc alias still assignable (soft typing).
+		e.fn(
+			"adhoc",
+			{
+				cookieCache: {
+					name: "other",
+					cookieName: "other_cookie",
+					maxAge: 60,
+					secret: "x",
+				},
+			},
+			async () => null,
+		);
+		type SessionAlias = SoftAlias<"session">;
+		expectTypeOf<"session">().toMatchTypeOf<SessionAlias>();
+		expectTypeOf<"ad_hoc">().toMatchTypeOf<SessionAlias>();
 	});
 });

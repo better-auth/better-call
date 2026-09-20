@@ -289,16 +289,24 @@ Store-backed memoization and an HTTP cookie-cache layer. They compose as **cooki
 import { v } from "better-call";
 import { cache, memoryCache } from "better-call/cache";
 
-const app = v.fn({ use: [cache({ store: memoryCache() })] });
+const app = v.fn({
+  use: [
+    cache({
+      store: memoryCache(),
+      defaults: {
+        user: { ttl: 60, tags: ["user"] },
+      },
+    }),
+  ],
+});
 
 const getUser = app.fn(
   "user.get",
   {
     input: { id: v.string() },
     cache: {
+      name: "user", // preset alias
       key: (c) => `user:${c.input.id}`,
-      ttl: 60,
-      tags: ["user"],
     },
   },
   async (c) => loadUser(c.input.id),
@@ -314,37 +322,56 @@ const deleteUser = app.fn(
 );
 ```
 
-`c.cache` exposes `get` / `set` / `delete` / `getAndDelete` / `increment` / `invalidateTags` against the mounted store. `CacheStore` is the adapter contract (string values, optional TTL in seconds).
+`c.cache` exposes `get` / `set` / `delete` / `getAndDelete` / `increment` / `invalidateTags` against the mounted store. `CacheStore` is the adapter contract (string values, optional TTL in seconds). Per-fn `cache` accepts an object or `(c) => …` callback; `enabled` / `onHit` / `prepare` are supported.
 
 ### Cookie cache (HTTP)
 
-Unlocked with `http` via `cookieCache` on fn options. Strategies: `compact` (HMAC), `jwt` (HS256), `jwe` (dir + A256CBC-HS512 + HKDF). Chunking, version, `refreshCache`, `disableCookieCache`, and `validate` / `prepare` hooks are supported.
+Mount presets under `http({ cookieCache: { secret?, policies } })`. Fn option `name` is a **stable alias**; the on-the-wire cookie name is `cookieName`. Strategies: `compact` (HMAC), `jwt` (HS256), `jwe` (dir + A256CBC-HS512 + HKDF). Chunking, version, `refreshCache`, `disableCookieCache` (`true` | `"true"`), `enabled`, `validate` / `prepare` / `onHit` are supported. Omitted `secret` falls back to mount `cookieCache.secret`.
 
 ```ts
 import { http } from "better-call/http";
 import { cache, memoryCache } from "better-call/cache";
 
-const app = v.fn({ use: [http, cache({ store: memoryCache() })] });
+const app = v.fn({
+  use: [
+    http({
+      cookieCache: {
+        secret: secrets,
+        policies: {
+          session: {
+            cookieName: "session_data",
+            strategy: "jwe",
+            maxAge: 300,
+            jwe: { salt: "session-cache", info: "session-cache-key" },
+            version: "1",
+          },
+        },
+      },
+    }),
+    cache({ store: memoryCache() }),
+  ],
+});
 
 const getSession = app.fn("session.get", {
   path: "/get-session",
   method: "GET",
-  cookieCache: {
-    name: "session_data",
-    strategy: "jwe",
-    maxAge: 300,
-    secret: secrets,
-    jwe: { salt: "session-cache", info: "session-cache-key" },
-    version: "1",
+  cookieCache: (c) => ({
+    name: "session",
+    // cookieName / strategy / maxAge can override the preset per instance
     refreshCache: false,
     validate: (payload, c) => /* caller policy */,
-  },
+    onHit: (payload, c) => { /* rehydrate; return */ },
+  }),
   cache: {
     key: (c) => `session:${c.input.token}`,
     ttl: 60 * 60 * 24 * 7,
     tags: ["session"],
   },
 }, async (c) => loadAuthoritative(c));
+
+// create / sign-out stay imperative against the alias:
+// await c.cookieCache.set(c, { name: "session" }, payload, { session: dontRememberMe })
+// await c.cookieCache.clear(c, { name: "session" })
 ```
 
 Standalone decode: `getCookieCache(request | cookies, config)`. Custom JWT verification: pass `signer: { sign, verify }` with `strategy: "jwt"`.
