@@ -19,6 +19,12 @@ import {
 	publishEvent,
 } from "./event";
 import type { OptionType } from "./fn-options";
+import { isFnOutField } from "./fn-output";
+import {
+	evaluateGates,
+	findGrantDefault,
+	type GateEntry,
+} from "./grant";
 import {
 	type ApplyOns,
 	collectMergeSeeds,
@@ -46,6 +52,8 @@ import {
 
 export type { OptionType } from "./fn-options";
 export { fnOptions, fnOptionsSchema } from "./fn-options";
+export type { FnOutMethod, FnOutField, FnOutImpl } from "./fn-output";
+export { fnOut, fnOutput, fnOutputSchema, isFnOutField } from "./fn-output";
 
 import {
 	asType,
@@ -279,6 +287,144 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 
 /** Extra `v.fn` option keys from `v.extend(fnOptions, …)` modules in scope. */
 type FnOptsExt<PL> = VarExtensionArgsFor<PL, "fnOptions">;
+
+/** Extra builder methods from `v.extend(fnOutput, …)` modules in scope. */
+type FnOutExt<PL> = VarExtensionArgsFor<PL, "fnOutput">;
+
+/**
+ * Brand an extended `fnOptions` field as "callback receives this fn's
+ * handler Context". Declare with `v.any<CtxBound<R>>()` (or similar);
+ * {@link BindOptCtx} rewrites it to `(c: Context) => Awaitable<R>` on
+ * `v.fn` calls.
+ */
+export type CtxBound<R> = { readonly $ctxBound: R };
+
+type Awaitable<T> = T | Promise<T>;
+
+/**
+ * Rebind {@link CtxBound} fields on extended options to this fn's handler
+ * {@link Context}. Plain function types (cache keys, etc.) are left alone.
+ */
+type BindOptCtx<T, C> = T extends { readonly $ctxBound: infer R }
+	? (c: C) => Awaitable<R>
+	: T extends (...args: any) => any
+		? T
+		: T extends readonly any[]
+			? { [K in keyof T]: BindOptCtx<T[K], C> }
+			: T extends object
+				? { [K in keyof T]: BindOptCtx<T[K], C> }
+				: T;
+
+type FnOptsBound<PL, C> = BindOptCtx<FnOptsExt<PL>, C>;
+
+/**
+ * Rebind a single {@link import("./fn-output").FnOutMethod} brand to a
+ * builder method: `args` is a tuple (one parameter per position);
+ * optional `use` on any arg widens context; {@link CtxBound} fields
+ * become real callbacks against that context. Return-side
+ * {@link CtxBound}s widen to `(c: any) => …` so the result can be stored
+ * and later passed into another fn's options (e.g. `gate`) whose
+ * {@link CallCtx} instantiation differs.
+ */
+type BindFnOutRet<T> = T extends { readonly $ctxBound: infer R }
+	? (c: any) => Awaitable<R>
+	: T extends (...args: any) => any
+		? T
+		: T extends readonly any[]
+			? { [K in keyof T]: BindFnOutRet<T[K]> }
+			: T extends object
+				? { [K in keyof T]: BindFnOutRet<T[K]> }
+				: T;
+
+/** One call arg: optional `use` becomes the PL generic; CtxBound binds. */
+type BindFnOutArg<Arg, PL, C> = Arg extends { use?: any }
+	? BindOptCtx<Omit<Arg, "use"> & { use?: PL }, C>
+	: BindOptCtx<Arg, C>;
+
+type BindFnOutArgs<A extends readonly unknown[], PL, C> = {
+	[I in keyof A]: BindFnOutArg<A[I], PL, C>;
+};
+
+type BindFnOutMethod<
+	T,
+	Base,
+	BaseFns,
+	BasePL extends readonly UseEntry[],
+	Prefix extends string,
+> = T extends { readonly $fnOut: { args: infer A; ret: infer R } }
+	? A extends readonly unknown[]
+		? <const PL extends readonly UseEntry[] = []>(
+				...args: BindFnOutArgs<
+					A,
+					PL,
+					CallCtx<
+						unknown,
+						Base,
+						BaseFns,
+						BasePL,
+						PL,
+						readonly [],
+						false,
+						NoErrors,
+						Prefix
+					>
+				>
+			) => BindFnOutRet<R>
+		: never
+	: never;
+
+/**
+ * Map mounted `fnOutput` extension fields to callable methods on an
+ * {@link Instance}. `unknown` (no extensions) intersects away.
+ */
+type BindFnOut<
+	T,
+	Base,
+	BaseFns,
+	BasePL extends readonly UseEntry[],
+	Prefix extends string,
+> = unknown extends T
+	? unknown
+	: {
+			[K in keyof T as T[K] extends { readonly $fnOut: any }
+				? K
+				: never]: BindFnOutMethod<T[K], Base, BaseFns, BasePL, Prefix>;
+		};
+
+type FnOutBound<
+	PL,
+	Base,
+	BaseFns,
+	BasePL extends readonly UseEntry[],
+	Prefix extends string,
+> = BindFnOut<FnOutExt<PL>, Base, BaseFns, BasePL, Prefix>;
+
+/** Handler context for a terminating `v.fn` call — shared by body + opt fns. */
+type CallCtx<
+	I,
+	Base,
+	BaseFns,
+	BasePL extends readonly UseEntry[],
+	PL extends readonly UseEntry[],
+	Q extends readonly string[],
+	RO extends boolean,
+	Er,
+	Prefix extends string,
+> = Context<
+	I,
+	ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
+	WithDerived<PL, BasePL, Q[number]>,
+	UsableInScope<BaseFns, PL, BasePL>,
+	Fn<
+		Base & ResolvedVars<PL>,
+		UsableInScope<BaseFns, PL, BasePL>,
+		ChainPL<BasePL, PL>,
+		Prefix
+	>,
+	RO,
+	Er,
+	ChainPL<BasePL, PL>
+>;
 
 /** POST when input is declared, else GET (better-auth client default). */
 type DefaultRouteMethod<I> = [unknown] extends [I]
@@ -736,7 +882,10 @@ export interface Fn<
 		const Status extends number = number,
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptsExt<ChainPL<BasePL, PL>> &
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
+			> &
 			(FnOptsExt<ChainPL<BasePL, PL>> extends {
 				path?: infer _Path;
 			}
@@ -748,21 +897,7 @@ export interface Fn<
 					}
 				: never),
 		fn: (
-			ctx: Context<
-				I,
-				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-				WithDerived<PL, BasePL, Q[number]>,
-				UsableInScope<BaseFns, PL, BasePL>,
-				Fn<
-					Base & ResolvedVars<PL>,
-					UsableInScope<BaseFns, PL, BasePL>,
-					ChainPL<BasePL, PL>,
-					Prefix
-				>,
-				RO,
-				Er,
-				ChainPL<BasePL, PL>
-			>,
+			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>,
 		) => R,
 	): TerminatingFn<
 		WidenedArgs<I, ChainPL<BasePL, PL>>,
@@ -797,7 +932,10 @@ export interface Fn<
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptsExt<ChainPL<BasePL, PL>> &
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>
+			> &
 			(FnOptsExt<ChainPL<BasePL, PL>> extends {
 				path?: infer _Path;
 			}
@@ -809,20 +947,16 @@ export interface Fn<
 					}
 				: never),
 		fn: (
-			ctx: Context<
+			ctx: CallCtx<
 				I,
-				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-				WithDerived<PL, BasePL, Q[number]>,
-				UsableInScope<BaseFns, PL, BasePL>,
-				Fn<
-					Base & ResolvedVars<PL>,
-					UsableInScope<BaseFns, PL, BasePL>,
-					ChainPL<BasePL, PL>,
-					`${Prefix}${K}`
-				>,
+				Base,
+				BaseFns,
+				BasePL,
+				PL,
+				Q,
 				RO,
 				Er,
-				ChainPL<BasePL, PL>
+				`${Prefix}${K}`
 			>,
 		) => R,
 	): TerminatingFn<
@@ -852,23 +986,12 @@ export interface Fn<
 		Er extends Record<string, unknown> = NoErrors,
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptsExt<ChainPL<BasePL, PL>>,
-		fn: (
-			ctx: Context<
-				I,
-				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-				WithDerived<PL, BasePL, Q[number]>,
-				UsableInScope<BaseFns, PL, BasePL>,
-				Fn<
-					Base & ResolvedVars<PL>,
-					UsableInScope<BaseFns, PL, BasePL>,
-					ChainPL<BasePL, PL>,
-					Prefix
-				>,
-				RO,
-				Er,
-				ChainPL<BasePL, PL>
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
 			>,
+		fn: (
+			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>,
 		) => R,
 	): StampHttpRoute<
 		TerminatingFn<
@@ -895,22 +1018,21 @@ export interface Fn<
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
-			FnOptsExt<ChainPL<BasePL, PL>>,
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>
+			>,
 		fn: (
-			ctx: Context<
+			ctx: CallCtx<
 				I,
-				ScopeOf<PL, Base, ChainPL<BasePL, PL>>,
-				WithDerived<PL, BasePL, Q[number]>,
-				UsableInScope<BaseFns, PL, BasePL>,
-				Fn<
-					Base & ResolvedVars<PL>,
-					UsableInScope<BaseFns, PL, BasePL>,
-					ChainPL<BasePL, PL>,
-					`${Prefix}${K}`
-				>,
+				Base,
+				BaseFns,
+				BasePL,
+				PL,
+				Q,
 				RO,
 				Er,
-				ChainPL<BasePL, PL>
+				`${Prefix}${K}`
 			>,
 		) => R,
 	): StampHttpRoute<
@@ -938,7 +1060,11 @@ export interface Fn<
 		const P extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
-		options: OptionType<I, O, P, Q, PL> & FnOptsExt<ChainPL<BasePL, PL>>,
+		options: OptionType<I, O, P, Q, PL> &
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<I, Base, BaseFns, BasePL, PL, Q, false, NoErrors, Prefix>
+			>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -956,7 +1082,21 @@ export interface Fn<
 		const Q extends readonly VarName<ScopeOf<PL, Base>>[] = readonly [],
 	>(
 		key: K,
-		options: OptionType<I, O, P, Q, PL> & FnOptsExt<ChainPL<BasePL, PL>>,
+		options: OptionType<I, O, P, Q, PL> &
+			FnOptsBound<
+				ChainPL<BasePL, PL>,
+				CallCtx<
+					I,
+					Base,
+					BaseFns,
+					BasePL,
+					PL,
+					Q,
+					false,
+					NoErrors,
+					`${Prefix}${K}`
+				>
+			>,
 	): Instance<
 		Base & ResolvedVars<PL>,
 		UsableInScope<BaseFns, PL, BasePL>,
@@ -1060,6 +1200,23 @@ const defineFn = (
 						);
 					}
 					return api.run(c, policy, invalidateTags, next);
+				}),
+			},
+		];
+	}
+	if (Array.isArray(opts.gate) && opts.gate.length > 0) {
+		const gates = opts.gate as GateEntry[];
+		const defaultGrant = findGrantDefault(opts.use as Module[] | undefined);
+		opts.use = [
+			...((opts.use ?? []) as Module[]),
+			{
+				$gate: gates,
+				$gateWrap: onImpl(key, (c: any, next: any) => {
+					const cells = c[STORE] as Cells;
+					return thenMaybe(
+						evaluateGates(c, cells, gates, key, defaultGrant),
+						() => next(),
+					);
 				}),
 			},
 		];
@@ -2025,7 +2182,7 @@ export type Instance<
 		BaseFns,
 		unknown
 	>;
-};
+} & FnOutBound<PL, Base, BaseFns, PL, Prefix>;
 
 /**
  * The builder half of `v.fn`: no handler yet, so calls accumulate. Keys
@@ -2043,6 +2200,10 @@ const mergeOptions = (
 	use: [...(base.use ?? []), ...(child.use ?? [])],
 	requires: [...(base.requires ?? []), ...(child.requires ?? [])],
 	provides: [...(base.provides ?? []), ...(child.provides ?? [])],
+	// Grant gates accumulate like `use` so scoped builders keep parent gates.
+	...(base.gate || child.gate
+		? { gate: [...(base.gate ?? []), ...(child.gate ?? [])] }
+		: {}),
 	// Error declarations accumulate tag-wise, child wins per tag. Only
 	// materialized when declared somewhere - an empty `errors` would flip
 	// the defect-wrapping rule on for every fn.
@@ -2050,6 +2211,35 @@ const mergeOptions = (
 		? { errors: { ...(base.errors ?? {}), ...(child.errors ?? {}) } }
 		: {}),
 });
+
+/**
+ * Collect `$fnOutImpl` methods from mounted `fnOutput` extensions in
+ * `use`. Later mounts win on key collision.
+ */
+const collectFnOutputMethods = (
+	modules: readonly unknown[] | undefined,
+): Record<string, (...args: any[]) => any> => {
+	const methods: Record<string, (...args: any[]) => any> = {};
+	if (!modules?.length) return methods;
+	const scan = (mod: Record<string, unknown>) => {
+		for (const value of Object.values(mod)) {
+			if (isVarExtension(value) && value.name === "fnOutput") {
+				const shape = value.schema;
+				if (shape && typeof shape === "object" && !Array.isArray(shape)) {
+					for (const [key, field] of Object.entries(
+						shape as Record<string, unknown>,
+					)) {
+						if (isFnOutField(field)) methods[key] = field.$fnOutImpl;
+					}
+				}
+			} else if (isNamespace(value)) {
+				scan(value);
+			}
+		}
+	};
+	for (const mod of resolveModules(modules)) scan(mod);
+	return methods;
+};
 
 const builderFn = (baseKey: string, base: Record<string, any>) => {
 	const build = (...args: any[]) => {
@@ -2062,7 +2252,7 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 		const key = baseKey + childKey;
 		const options = mergeOptions(base, childOptions);
 		if (typeof handler !== "function") {
-			return {
+			const instance: Record<string, unknown> = {
 				fn: builderFn(key, options),
 				// A handler-less builder doubles as an input schema: "a fn
 				// from `input` to `output`" (see `isFnSchema`).
@@ -2086,6 +2276,12 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 				with: (fn: { with: (context: unknown) => unknown }, context: unknown) =>
 					fn.with(context),
 			};
+			for (const [name, impl] of Object.entries(
+				collectFnOutputMethods(options.use),
+			)) {
+				instance[name] = (...args: any[]) => impl(...args);
+			}
+			return instance;
 		}
 		return defineFn(key || "anonymous", options, handler);
 	};

@@ -15,7 +15,7 @@ import {
 	fmtCap,
 	fnOf,
 	serve,
-} from "../src/capability";
+} from "../src/archive_capability";
 
 /* --------------------------------- data --------------------------------- */
 

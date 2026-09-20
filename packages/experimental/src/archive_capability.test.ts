@@ -21,7 +21,7 @@ import {
 	verifyAttestation,
 	verifyDelegation,
 	verifyInvocation,
-} from "./capability";
+} from "./archive_capability";
 import { v } from "./index";
 
 const now = () => Math.floor(Date.now() / 1000);

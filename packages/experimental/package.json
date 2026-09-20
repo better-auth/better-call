@@ -153,7 +153,7 @@
 			}
 		},
 		"./capability": {
-			"dev-source": "./src/capability.ts",
+			"dev-source": "./src/archive_capability.ts",
 			"import": {
 				"types": "./dist/capability.d.mts",
 				"default": "./dist/capability.mjs"
@@ -161,6 +161,28 @@
 			"require": {
 				"types": "./dist/capability.d.cts",
 				"default": "./dist/capability.cjs"
+			}
+		},
+		"./archive_capability": {
+			"dev-source": "./src/archive_capability.ts",
+			"import": {
+				"types": "./dist/archive_capability.d.mts",
+				"default": "./dist/archive_capability.mjs"
+			},
+			"require": {
+				"types": "./dist/archive_capability.d.cts",
+				"default": "./dist/archive_capability.cjs"
+			}
+		},
+		"./grant": {
+			"dev-source": "./src/grant.ts",
+			"import": {
+				"types": "./dist/grant.d.mts",
+				"default": "./dist/grant.mjs"
+			},
+			"require": {
+				"types": "./dist/grant.d.cts",
+				"default": "./dist/grant.cjs"
 			}
 		}
 	},

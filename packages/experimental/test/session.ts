@@ -58,10 +58,31 @@ export const createSession = s.fn(
 	},
 );
 
+export const getSession = s.fn("get_session", {}, async (c) => {
+	return {
+		session: {} as {
+			id: string;
+			userId: string;
+			userAgent: string;
+			createdAt: Date;
+			expiresAt: Date;
+		},
+		user: {} as {
+			id: string;
+			name: string;
+			email: string;
+			role: string;
+			createdAt: Date;
+			updatedAt: Date;
+		},
+	};
+});
+
 export const coreSession = {
 	createUser,
 	createSession,
 	session,
 	user,
 	sessionCookie,
+	getSession,
 };

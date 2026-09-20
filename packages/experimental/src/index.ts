@@ -177,10 +177,14 @@ export {
 export type {
 	BoundCall,
 	Context,
+	CtxBound,
 	Fn,
 	FnDefination,
 	FnErrors,
 	FnErrorsOf,
+	FnOutField,
+	FnOutImpl,
+	FnOutMethod,
 	Instance,
 	OptionType,
 	ParentContext,
@@ -192,7 +196,14 @@ export type {
 	WithSeedOpaque,
 	WithSeedStored,
 } from "./fn";
-export { fnOptions, fnOptionsSchema } from "./fn";
+export {
+	fnOptions,
+	fnOptionsSchema,
+	fnOut,
+	fnOutput,
+	fnOutputSchema,
+	isFnOutField,
+} from "./fn";
 export {
 	type ApplyOn,
 	type ApplyOns,
