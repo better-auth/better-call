@@ -230,9 +230,10 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			}
 
 			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
-			// Builders carry Base/BaseFns/PL (http + grant use is large) but must
-			// stay under TS7056 (~1e6). Soft ceiling tracks realistic auth apps.
-			expect(dts.length).toBeLessThan(500_000);
+			// Builders carry Base/BaseFns/PL plus stamped $use/$requires (http +
+			// grant use is large) but must stay under TS7056 (~1e6). Soft ceiling
+			// tracks realistic auth apps (~620KB today).
+			expect(dts.length).toBeLessThan(750_000);
 			expect(dts).toMatch(/export declare const app:/);
 			expect(dts).toMatch(/export declare const adminGrant:/);
 			expect(dts).toMatch(/export declare const signIn:/);
