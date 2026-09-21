@@ -6,7 +6,8 @@
 			"ignoreDependencies": [
 				// optional peers for optional entry surfaces
 				"zod",
-				"react"
+				"react",
+				"@opentelemetry/api"
 			]
 		},
 		// WIP package: treat all sources as entries so the settling export
@@ -17,7 +18,8 @@
 			"ignoreDependencies": [
 				// optional peers for optional entry surfaces
 				"zod",
-				"react"
+				"react",
+				"@opentelemetry/api"
 			]
 		}
 	}
