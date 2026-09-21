@@ -17,6 +17,8 @@ import {
 	setCookie,
 } from "./cookie";
 import {
+	type CookieCacheMountConfig,
+	type CookieCachePreset,
 	codecFor,
 	compactCodec,
 	createChunkedCookieStore,
@@ -27,8 +29,6 @@ import {
 	jwtCodec,
 	MAX_COOKIE_CHUNKS,
 	MAX_COOKIE_SIZE,
-	type CookieCacheMountConfig,
-	type CookieCachePreset,
 } from "./cookie-cache";
 import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
@@ -47,7 +47,6 @@ import { res, toResponse } from "./response";
 import {
 	createHttpOptions,
 	getRouteMeta,
-	httpOptions,
 	INVALIDATE_HEADER,
 	route,
 	routeVar,
@@ -311,7 +310,21 @@ export type HttpModule = ReturnType<typeof createHttp>;
 /**
  * HTTP plugin: callable for presets (`http({ cookieCache: … })`) and usable
  * bare (`use: [http]`) via assigned default module members.
+ *
+ * Prefer `use: [http()]` (or `use: [createHttp({…})]`) when the bare
+ * callable intersection fails to unlock http fn-options under tsc.
  */
+export type Http = import("../../module").Module &
+	HttpModule &
+	(<
+		const Policies extends Record<string, CookieCachePreset> = Record<
+			string,
+			CookieCachePreset
+		>,
+	>(
+		options?: HttpModuleOptions<Policies>,
+	) => ReturnType<typeof createHttp<Policies>>);
+
 function httpFn<
 	const Policies extends Record<string, CookieCachePreset> = Record<
 		string,
@@ -323,7 +336,4 @@ function httpFn<
 
 const defaultHttp = createHttp();
 
-export const http: typeof httpFn & HttpModule = Object.assign(
-	httpFn,
-	defaultHttp,
-);
+export const http: Http = Object.assign(httpFn, defaultHttp) as Http;

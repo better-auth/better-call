@@ -107,7 +107,7 @@ const coreCache = {
 
 export const app = v.fn("auth.", {
 	use: [
-		http,
+		http(),
 		coreSession,
 		coreAccount,
 		coreUser,

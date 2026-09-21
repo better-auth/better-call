@@ -10,7 +10,7 @@
 import { memoryAdapter, v } from "../../src";
 import { http } from "../../src/plugins/http";
 
-const app = v.fn("a.", { use: [http] });
+const app = v.fn("a.", { use: [http()] });
 
 export const routed = app.fn("x", { path: "/x", method: "GET" }, async () => ({
 	ok: true as const,
@@ -26,7 +26,7 @@ const user = v.var("user", {
 const userWithEmail = v.extend(user, { email: v.string() });
 const db = v.storage(memoryAdapter(), { user: { schema: user } });
 
-const auth = v.fn("auth.", { use: [http, { db }] });
+const auth = v.fn("auth.", { use: [http(), { db }] });
 const emailPassword = auth.fn("emailPassword.", {
 	use: [{ userWithEmail }],
 });
