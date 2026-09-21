@@ -370,7 +370,7 @@ const getSession = app.fn("session.get", {
 }, async (c) => loadAuthoritative(c));
 
 // create / sign-out stay imperative against the alias:
-// await c.cookieCache.set(c, { name: "session" }, payload, { session: dontRememberMe })
+// await c.cookieCache.set(c, { name: "session" }, payload, { session: doNotRememberMe })
 // await c.cookieCache.clear(c, { name: "session" })
 ```
 
