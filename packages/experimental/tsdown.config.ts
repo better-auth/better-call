@@ -13,7 +13,6 @@ export default defineConfig({
 		cache: "src/plugins/cache/index.ts",
 		otel: "src/plugins/otel/index.ts",
 		capability: "src/archive_capability.ts",
-		archive_capability: "src/archive_capability.ts",
 		grant: "src/grant.ts",
 	},
 	dts: { build: true, incremental: true },

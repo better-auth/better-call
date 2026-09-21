@@ -166,12 +166,12 @@
 		"./archive_capability": {
 			"dev-source": "./src/archive_capability.ts",
 			"import": {
-				"types": "./dist/archive_capability.d.mts",
-				"default": "./dist/archive_capability.mjs"
+				"types": "./dist/capability.d.mts",
+				"default": "./dist/capability.mjs"
 			},
 			"require": {
-				"types": "./dist/archive_capability.d.cts",
-				"default": "./dist/archive_capability.cjs"
+				"types": "./dist/capability.d.cts",
+				"default": "./dist/capability.cjs"
 			}
 		},
 		"./grant": {
