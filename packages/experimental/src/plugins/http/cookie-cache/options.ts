@@ -7,7 +7,8 @@ import { cookieShape } from "../cookie";
  * (one-off cookie aliases are not a type error).
  */
 export type SoftAlias<Aliases extends string = string> =
-	Aliases | (string & {});
+	| Aliases
+	| (string & {});
 
 /**
  * Fn-option / API option shape for `cookieCache`.
@@ -46,19 +47,17 @@ export const cookieCacheShape = {
 		},
 		{ optional: true },
 	),
-	refreshCache: v.union(
-		[v.boolean(), v.object({ updateAge: v.number() })],
-		{ optional: true },
-	),
+	refreshCache: v.union([v.boolean(), v.object({ updateAge: v.number() })], {
+		optional: true,
+	}),
 	cookie: v.object(cookieShape, { optional: true }),
 	/**
 	 * When false, skip the entire layer (no get, no set).
 	 * Default true. Replaces `disableWhen`.
 	 */
-	enabled: v.union(
-		[v.boolean(), v.fn.type({ output: v.boolean() })],
-		{ optional: true },
-	),
+	enabled: v.union([v.boolean(), v.fn.type({ output: v.boolean() })], {
+		optional: true,
+	}),
 	validate: v.fn.type({ output: v.boolean(), optional: true }),
 	/** Transform payload before encode (write path). */
 	prepare: v.fn.type({ optional: true }),
@@ -69,9 +68,10 @@ export const cookieCacheShape = {
 type CookieCacheShapeArgs = InferArgs<typeof cookieCacheShape>;
 
 /** Object form of a cookie-cache option / preset (no callback). */
-export type CookieCacheFnOptionObject<
-	Aliases extends string = string,
-> = Omit<CookieCacheShapeArgs, "name"> & {
+export type CookieCacheFnOptionObject<Aliases extends string = string> = Omit<
+	CookieCacheShapeArgs,
+	"name"
+> & {
 	name?: SoftAlias<Aliases> | null;
 };
 
@@ -113,8 +113,6 @@ export const cookieCacheOptionSchema = v.union(
 );
 
 /** Build an optional cookieCache fn-option schema (same runtime; soft types overlay). */
-export function cookieCacheOptionSchemaFor<
-	_Aliases extends string = string,
->() {
+export function cookieCacheOptionSchemaFor<_Aliases extends string = string>() {
 	return cookieCacheOptionSchema;
 }

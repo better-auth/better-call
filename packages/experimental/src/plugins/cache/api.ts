@@ -25,7 +25,11 @@ const resolveString = (
 ): string | Promise<string> => (typeof value === "function" ? value(c) : value);
 
 const resolveTags = (
-	tags: NonNullable<ResolvedCachePolicy["tags"]> | InvalidateTags | null | undefined,
+	tags:
+		| NonNullable<ResolvedCachePolicy["tags"]>
+		| InvalidateTags
+		| null
+		| undefined,
 	c: any,
 ): string[] | Promise<string[]> => {
 	if (!tags || tags.length === 0) return [];
@@ -185,9 +189,7 @@ export function createCacheApi(
 									}
 									return parsed;
 								}
-								return thenMaybe(next(), (value) =>
-									writeBack(policy, value),
-								);
+								return thenMaybe(next(), (value) => writeBack(policy, value));
 							}),
 						);
 					});

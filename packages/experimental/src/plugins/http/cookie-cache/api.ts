@@ -338,17 +338,13 @@ export function createCookieCacheApi(
 									full.cookieName,
 								);
 								if (had) {
-									return thenMaybe(api.clear(c, full), () =>
-										fallThrough(full),
-									);
+									return thenMaybe(api.clear(c, full), () => fallThrough(full));
 								}
 								return fallThrough(full);
 							}
 
 							if (decoded.expiresAt < Date.now()) {
-								return thenMaybe(api.clear(c, full), () =>
-									fallThrough(full),
-								);
+								return thenMaybe(api.clear(c, full), () => fallThrough(full));
 							}
 
 							return thenMaybe(
@@ -377,8 +373,7 @@ export function createCookieCacheApi(
 												full.refreshCache,
 											);
 											if (updateAge !== null) {
-												const remaining =
-													decoded.expiresAt - Date.now();
+												const remaining = decoded.expiresAt - Date.now();
 												if (remaining <= updateAge * 1000) {
 													return thenMaybe(
 														api.set(c, full, decoded.payload),

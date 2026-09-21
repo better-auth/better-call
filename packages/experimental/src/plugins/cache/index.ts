@@ -4,7 +4,6 @@ import {
 	type CacheMountConfig,
 	type CachePolicy,
 	type CachePreset,
-	cacheOptions,
 	cacheOptionsFor,
 	type InvalidateTags,
 } from "./options";
@@ -22,7 +21,11 @@ export type {
 	ResolvedCachePolicy,
 	SoftCacheAlias,
 } from "./options";
-export { cacheOptions, cacheOptionsFor, cachePolicyOptionSchema } from "./options";
+export {
+	cacheOptions,
+	cacheOptionsFor,
+	cachePolicyOptionSchema,
+} from "./options";
 export type { CacheStore } from "./store";
 
 export type CacheModuleOptions<

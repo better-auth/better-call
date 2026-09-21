@@ -20,11 +20,7 @@ import {
 } from "./event";
 import type { OptionType } from "./fn-options";
 import { isFnOutField } from "./fn-output";
-import {
-	evaluateGates,
-	findGrantDefault,
-	type GateEntry,
-} from "./grant";
+import { evaluateGates, findGrantDefault, type GateEntry } from "./grant";
 import {
 	type ApplyOns,
 	collectMergeSeeds,
@@ -52,7 +48,7 @@ import {
 
 export type { OptionType } from "./fn-options";
 export { fnOptions, fnOptionsSchema } from "./fn-options";
-export type { FnOutMethod, FnOutField, FnOutImpl } from "./fn-output";
+export type { FnOutField, FnOutImpl, FnOutMethod } from "./fn-output";
 export { fnOut, fnOutput, fnOutputSchema, isFnOutField } from "./fn-output";
 
 import {
@@ -250,7 +246,10 @@ export type PublicFn<
 > = FnDefination<A, R, K, I, P, Er, W, O>;
 
 /** Terminating `.fn()` product: opaque `W` so `export const foo = b.fn(...)`
- * stays under TS7056. Precise seeds: `builder.with(foo, seed)`. */
+ * stays under TS7056. Precise seeds: `builder.with(foo, seed)`.
+ * `C` is the handler {@link Context} (phantom `$inferContext`) so
+ * `v.on(fn, …)` / `builder.on(fn, …)` can type `c` from the fn's `use`
+ * / requires / route attrs without remounting on a builder. */
 type TerminatingFn<
 	A,
 	R,
@@ -259,8 +258,10 @@ type TerminatingFn<
 	P extends readonly string[],
 	Er,
 	O = unknown,
-> = PublicFn<A, R, K, I, P, Er, WithSeedOpaque, O>;
-
+	C = unknown,
+> = PublicFn<A, R, K, I, P, Er, WithSeedOpaque, O> & {
+	readonly $inferContext?: C;
+};
 /**
  * Pull HTTP `route({ path, method, invalidate })` meta out of a `use`
  * list so `$route.path` stays a string literal (not widened `string`).
@@ -538,6 +539,12 @@ export interface FnDefination<
 	readonly $output?: O;
 	/** Phantom: declared error tags -> payload schemas. */
 	readonly $errors?: Er;
+	/**
+	 * Phantom: the handler {@link Context} this fn's body sees (vars from
+	 * `use`, `requires` narrowing, used fns, …). Used by `v.on(fn, …)` so
+	 * interceptor `c` matches the target. Never set at runtime.
+	 */
+	readonly $inferContext?: unknown;
 }
 
 export type ArgsOf<I> = I extends readonly unknown[]
@@ -845,7 +852,15 @@ export interface Fn<
 		Prefix extends "" ? string : Prefix,
 		unknown,
 		readonly string[],
-		NoErrors
+		NoErrors,
+		unknown,
+		Context<
+			unknown,
+			ScopeOf<[], Base, BasePL>,
+			never,
+			BaseFns,
+			Fn<Base, BaseFns, BasePL, Prefix>
+		>
 	>;
 	<K extends LiteralString, R>(
 		key: K,
@@ -864,9 +879,16 @@ export interface Fn<
 		`${Prefix}${K}`,
 		unknown,
 		readonly string[],
-		NoErrors
+		NoErrors,
+		unknown,
+		Context<
+			unknown,
+			ScopeOf<[], Base, BasePL>,
+			never,
+			BaseFns,
+			Fn<Base, BaseFns, BasePL, `${Prefix}${K}`>
+		>
 	>;
-
 	<
 		const Path extends string,
 		const I,
@@ -896,9 +918,7 @@ export interface Fn<
 						status?: Status;
 					}
 				: never),
-		fn: (
-			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>,
-		) => R,
+		fn: (ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>) => R,
 	): TerminatingFn<
 		WidenedArgs<I, ChainPL<BasePL, PL>>,
 		R,
@@ -906,7 +926,8 @@ export interface Fn<
 		I,
 		P,
 		Er,
-		O
+		O,
+		CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
 	> & {
 		readonly $route: {
 			path: Path;
@@ -947,17 +968,7 @@ export interface Fn<
 					}
 				: never),
 		fn: (
-			ctx: CallCtx<
-				I,
-				Base,
-				BaseFns,
-				BasePL,
-				PL,
-				Q,
-				RO,
-				Er,
-				`${Prefix}${K}`
-			>,
+			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>,
 		) => R,
 	): TerminatingFn<
 		WidenedArgs<I, ChainPL<BasePL, PL>>,
@@ -966,7 +977,8 @@ export interface Fn<
 		I,
 		P,
 		Er,
-		O
+		O,
+		CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>
 	> & {
 		readonly $route: {
 			path: Path;
@@ -990,9 +1002,7 @@ export interface Fn<
 				ChainPL<BasePL, PL>,
 				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
 			>,
-		fn: (
-			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>,
-		) => R,
+		fn: (ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>) => R,
 	): StampHttpRoute<
 		TerminatingFn<
 			WidenedArgs<I, ChainPL<BasePL, PL>>,
@@ -1001,7 +1011,8 @@ export interface Fn<
 			I,
 			P,
 			Er,
-			O
+			O,
+			CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
 		>,
 		PL
 	>;
@@ -1023,17 +1034,7 @@ export interface Fn<
 				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>
 			>,
 		fn: (
-			ctx: CallCtx<
-				I,
-				Base,
-				BaseFns,
-				BasePL,
-				PL,
-				Q,
-				RO,
-				Er,
-				`${Prefix}${K}`
-			>,
+			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>,
 		) => R,
 	): StampHttpRoute<
 		TerminatingFn<
@@ -1043,11 +1044,11 @@ export interface Fn<
 			I,
 			P,
 			Er,
-			O
+			O,
+			CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>
 		>,
 		PL
 	>;
-
 	/* ---- NO handler: a builder. Keys concatenate, `use` accumulates,
 	   and its `.fn` follows the same rule recursively. ---- */
 	<K extends LiteralString>(
@@ -2041,6 +2042,32 @@ type MatchedResult<F> = [F] extends [never]
 		? Awaited<R>
 		: never;
 
+/**
+ * Handler context stamped on a terminating fn (`$inferContext`). When
+ * present, `v.on(fn, …)` / `builder.on(fn, …)` type `c` from the fn's own
+ * `use` / requires / attrs. `unknown` (unstamped / opaque exports) yields
+ * `never` so callers fall back to builder / default context.
+ */
+export type FnContextOf<F> = F extends { readonly $inferContext?: infer C }
+	? [unknown] extends [C]
+		? never
+		: Exclude<C, undefined>
+	: never;
+
+/** Merge an `on` input extension into a stamped (or fallback) context. */
+type WithOnInputExt<C, Ext> = unknown extends Ext
+	? C
+	: C extends { input: infer In }
+		? Omit<C, "input"> & { input: In & InferInput<Ext> }
+		: C & { input: InferInput<Ext> };
+
+/** Prefer the target fn's stamped context; else builder-scoped {@link OnContext}. */
+type OnFnContext<Base, BaseFns, F, Ext = unknown> = [FnContextOf<F>] extends [
+	never,
+]
+	? OnContext<Base, BaseFns, F, Ext>
+	: WithOnInputExt<FnContextOf<F>, Ext>;
+
 /** What a builder-scoped `on` handler sees: vars and `use` fns directly
  * on `c` from the builder, `input` from the TARGET fn when known. */
 type OnContext<Base, BaseFns, F, Ext = unknown> = {
@@ -2056,11 +2083,11 @@ type OnContext<Base, BaseFns, F, Ext = unknown> = {
  * stays declaration-emit portable under node16 (TS2883). */
 export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	/** A fn REFERENCE targets its own key - never prefixed, fully typed
-	 * from the fn itself plus the builder's scope. */
+	 * from the fn itself (`$inferContext` / `use`) plus the builder's scope. */
 	<F extends FnDefination<any, any, string, any, any, any>>(
 		target: F,
 		handler: (
-			c: OnContext<Base, BaseFns, F>,
+			c: OnFnContext<Base, BaseFns, F>,
 			next: () => Promise<MatchedResult<F>>,
 		) => any,
 	): OnEntry<F["key"]>;
@@ -2112,7 +2139,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	<N extends OnTargetSuggest<Base, BaseFns, Prefix> | LiteralString>(
 		target: N,
 		handler: (
-			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>>,
+			c: OnFnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`>;
@@ -2128,7 +2155,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 		target: N,
 		extend: { input: Ext },
 		handler: (
-			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>, Ext>,
+			c: OnFnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>, Ext>,
 			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
 		) => any,
 	): OnEntry<`${Prefix}${N}`, Ext>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bagCovers, covers, grant, GrantError } from "./grant";
+import { bagCovers, covers, GrantError, grant } from "./grant";
 import { v } from "./index";
 
 describe("covers", () => {
@@ -90,11 +90,7 @@ describe("grant / gate", () => {
 	it("required: false soft-fails without blocking", async () => {
 		const app = v.fn({ use: [grant()] });
 		const soft = app.grant({ name: "optional.perm" }, () => null);
-		const fn = app.fn(
-			"do",
-			{ gate: [soft({ required: false })] },
-			() => "ok",
-		);
+		const fn = app.fn("do", { gate: [soft({ required: false })] }, () => "ok");
 		expect(await fn()).toBe("ok");
 	});
 

@@ -26,6 +26,9 @@
 		"apikey",
 
 		// experimental package vocabulary
+		"BasePL",
+		"basepl",
+		"ExtPL",
 		"Customizer",
 		"dedup",
 		"dedups",

@@ -474,10 +474,8 @@ describe("cookieCache presets + resolve", () => {
 				}),
 			],
 		});
-		const get = app.fn(
-			"preset.get",
-			{ cookieCache: { name: "session" } },
-			() => body(),
+		const get = app.fn("preset.get", { cookieCache: { name: "session" } }, () =>
+			body(),
 		);
 
 		let headers: Headers | undefined;
@@ -522,9 +520,9 @@ describe("cookieCache presets + resolve", () => {
 		});
 		const cleared = cookieHeaderFrom(headers);
 		// Max-Age=0 clears; value empty — header may still list the name
-		expect(cleared.includes("better-auth.session_data=") || cleared === "").toBe(
-			true,
-		);
+		expect(
+			cleared.includes("better-auth.session_data=") || cleared === "",
+		).toBe(true);
 	});
 
 	it("set with { name } uses mount secret and cookieName", async () => {
@@ -670,10 +668,8 @@ describe("cookieCache presets + resolve", () => {
 			return { ...payload, fromHit: true };
 		});
 		const app = v.fn({ use: [http] });
-		const get = app.fn(
-			"hit.get",
-			{ cookieCache: basePolicy({ onHit }) },
-			() => body(),
+		const get = app.fn("hit.get", { cookieCache: basePolicy({ onHit }) }, () =>
+			body(),
 		);
 
 		let headers: Headers | undefined;

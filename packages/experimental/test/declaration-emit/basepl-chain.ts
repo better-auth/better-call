@@ -1,7 +1,7 @@
 /**
  * tsc-backed BasePL regressions (vitest expectTypeOf does not catch
  * excess-property failures on `.fn` options). Included by
- * `declaration-emit.test.ts` via `basepl-check.tsconfig.json`.
+ * `declaration-emit.test.ts` via `basepl-chain.tsconfig.json`.
  *
  * Parent `use` must remain `BasePL` on nested `.fn` for:
  * - http `path` / `method` (FnOptsExt)
@@ -12,11 +12,9 @@ import { http } from "../../src/plugins/http";
 
 const app = v.fn("a.", { use: [http] });
 
-export const routed = app.fn(
-	"x",
-	{ path: "/x", method: "GET" },
-	async () => ({ ok: true as const }),
-);
+export const routed = app.fn("x", { path: "/x", method: "GET" }, async () => ({
+	ok: true as const,
+}));
 
 routed.$route!.path satisfies "/x";
 routed.$route!.method satisfies "GET";

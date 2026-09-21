@@ -3,16 +3,14 @@ import { v } from "../../index";
 import type { InferArgs } from "../../schema";
 
 /** string, or a fn that returns one (typically `(c) => …`). */
-const cacheKeySchema = v.union([
-	v.string(),
-	v.fn.type({ output: v.string() }),
-]);
+const cacheKeySchema = v.union([v.string(), v.fn.type({ output: v.string() })]);
 
 /**
  * Soft string: prefers `Aliases` for IntelliSense but accepts any string.
  */
 export type SoftCacheAlias<Aliases extends string = string> =
-	Aliases | (string & {});
+	| Aliases
+	| (string & {});
 
 /**
  * Per-fn store cache policy shape — schema is the source of truth; the
@@ -35,10 +33,9 @@ export const cachePolicyShape = {
 	 * When false, skip cache-aside get/set (invalidateTags still runs).
 	 * Default true.
 	 */
-	enabled: v.union(
-		[v.boolean(), v.fn.type({ output: v.boolean() })],
-		{ optional: true },
-	),
+	enabled: v.union([v.boolean(), v.fn.type({ output: v.boolean() })], {
+		optional: true,
+	}),
 	/** Transform value before JSON.stringify (write path). */
 	prepare: v.fn.type({ optional: true }),
 	/** Transform / side-effect on successful hit (read path). */
