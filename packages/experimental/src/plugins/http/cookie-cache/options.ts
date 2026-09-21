@@ -70,9 +70,11 @@ type CookieCacheShapeArgs = InferArgs<typeof cookieCacheShape>;
 /** Object form of a cookie-cache option / preset (no callback). */
 export type CookieCacheFnOptionObject<Aliases extends string = string> = Omit<
 	CookieCacheShapeArgs,
-	"name"
+	"name" | "secret"
 > & {
 	name?: SoftAlias<Aliases> | null;
+	/** Single secret or rotation list (`readonly` so `as const` mounts type-check). */
+	secret?: string | readonly string[] | null;
 };
 
 /** Preset entry under `http({ cookieCache: { policies } })` — no alias field. */
