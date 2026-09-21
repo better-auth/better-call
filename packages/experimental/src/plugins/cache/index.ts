@@ -58,7 +58,7 @@ export function cache<
 		CachePreset
 	>,
 >(options: CacheModuleOptions<Defaults>) {
-	type Aliases = string & keyof Defaults;
+	type Aliases = Extract<keyof Defaults, string>;
 	const mount: CacheMountConfig = {
 		defaults: options.defaults,
 	};

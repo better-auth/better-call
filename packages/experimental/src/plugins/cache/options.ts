@@ -1,6 +1,6 @@
 import { fnOptions } from "../../fn-options";
 import { v } from "../../index";
-import type { InferArgs } from "../../schema";
+import type { InferArgs, TypeDefination } from "../../schema";
 
 /** string, or a fn that returns one (typically `(c) => …`). */
 const cacheKeySchema = v.union([v.string(), v.fn.type({ output: v.string() })]);
@@ -44,27 +44,36 @@ export const cachePolicyShape = {
 
 type CachePolicyShapeArgs = InferArgs<typeof cachePolicyShape>;
 
-/** Object form of a cache option / preset (no callback). */
-export type CachePolicyObject<Aliases extends string = string> = Omit<
-	CachePolicyShapeArgs,
-	"name" | "key"
-> & {
+/**
+ * Object form of a cache option / preset.
+ * Interface so object-literal IntelliSense survives the object|callback union.
+ */
+export interface CachePolicyObject<Aliases extends string = string> {
+	/** Preset alias (soft-typed from mount `defaults` keys). */
 	name?: SoftCacheAlias<Aliases> | null;
 	/** Storage key — required after merge unless provided by defaults. */
 	key?: CachePolicyShapeArgs["key"];
-};
+	ttl?: CachePolicyShapeArgs["ttl"];
+	tags?: CachePolicyShapeArgs["tags"];
+	enabled?: CachePolicyShapeArgs["enabled"];
+	prepare?: CachePolicyShapeArgs["prepare"];
+	onHit?: CachePolicyShapeArgs["onHit"];
+}
 
 /** Preset under `cache({ defaults })` — typically ttl/tags/hooks, optional key. */
 export type CachePreset = Omit<CachePolicyObject, "name">;
+
+/** Callback form — separate so the object branch keeps IntelliSense. */
+export type CachePolicyCallback<Aliases extends string = string> = (
+	c: any,
+) => CachePolicyObject<Aliases> | Promise<CachePolicyObject<Aliases>>;
 
 /**
  * Fn option: object or `(c) => object | Promise<object>`.
  */
 export type CachePolicy<Aliases extends string = string> =
 	| CachePolicyObject<Aliases>
-	| ((
-			c: any,
-	  ) => CachePolicyObject<Aliases> | Promise<CachePolicyObject<Aliases>>);
+	| CachePolicyCallback<Aliases>;
 
 /** Resolved policy with a concrete key. */
 export type ResolvedCachePolicy = Omit<CachePolicyObject, "key" | "name"> & {
@@ -86,6 +95,19 @@ export const cachePolicyOptionSchema = v.union(
 );
 
 /**
+ * Schema brand so {@link InferArgs} / `FnOptsExt` see soft-typed
+ * {@link CachePolicy}<Aliases>.
+ */
+export type SoftCacheOptionSchema<Aliases extends string = string> =
+	TypeDefination<CachePolicy<Aliases>, CachePolicy<Aliases>, undefined>;
+
+export function cachePolicyOptionSchemaFor<
+	Aliases extends string = string,
+>(): SoftCacheOptionSchema<Aliases> {
+	return cachePolicyOptionSchema as SoftCacheOptionSchema<Aliases>;
+}
+
+/**
  * Extends core {@link fnOptions} with store-cache keys. Mounted by
  * {@link import("./index").cache}; prefer `use: [cache({ store })]`.
  */
@@ -94,7 +116,10 @@ export const cacheOptions = v.extend(fnOptions, {
 	invalidateTags: v.array(cacheKeySchema, { optional: true }),
 });
 
-/** Per-mount cacheOptions (runtime identical; Aliases for soft typing). */
-export function cacheOptionsFor<_Aliases extends string = string>() {
-	return cacheOptions;
+/** Per-mount cacheOptions with soft-typed `cache.name` from defaults keys. */
+export function cacheOptionsFor<Aliases extends string = string>() {
+	return v.extend(fnOptions, {
+		cache: cachePolicyOptionSchemaFor<Aliases>(),
+		invalidateTags: v.array(cacheKeySchema, { optional: true }),
+	});
 }

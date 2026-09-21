@@ -1,7 +1,4 @@
-import type {
-	CookieCacheFnOptionObject,
-	SoftAlias,
-} from "./cookie-cache/options";
+import type { CookieCacheFnOptionObject } from "./cookie-cache/options";
 import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
 import { v } from "../../index";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -196,11 +193,16 @@ describe("httpOptions — path on fn options", () => {
 						cookieName: "better-auth.session_data",
 						maxAge: 300,
 					},
+					account: {
+						cookieName: "account_data",
+						maxAge: 60,
+					},
 				},
 			},
 		});
 		const e = v.fn({ use: [mod] });
 		e.fn("ok", { cookieCache: { name: "session" } }, async () => null);
+		e.fn("ok2", { cookieCache: { name: "account" } }, async () => null);
 		// Ad-hoc alias still assignable (soft typing).
 		e.fn(
 			"adhoc",
@@ -214,8 +216,15 @@ describe("httpOptions — path on fn options", () => {
 			},
 			async () => null,
 		);
-		type SessionAlias = SoftAlias<"session">;
-		expectTypeOf<"session">().toMatchTypeOf<SessionAlias>();
-		expectTypeOf<"ad_hoc">().toMatchTypeOf<SessionAlias>();
+
+		type ExtArgs = import("../../module").VarExtensionArgsFor<
+			[typeof mod],
+			"fnOptions"
+		>;
+		type CookieOpt = NonNullable<ExtArgs["cookieCache"]>;
+		type ObjectBranch = Extract<CookieOpt, { name?: unknown }>;
+		expectTypeOf<ObjectBranch["name"]>().toEqualTypeOf<
+			"session" | "account" | (string & {}) | null | undefined
+		>();
 	});
 });

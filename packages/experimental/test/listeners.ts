@@ -7,13 +7,24 @@ import { http } from "../src/plugins/http";
  * is typed from the builder's `use` via `app.on`, plus the target's own
  * `use` / `requires` (stamped as `$use` / `$requires`).
  */
-const app = v.fn({ use: [http()] });
+const app = v.fn({
+	use: [
+		http({
+			cookieCache: {
+				policies: {
+					session: {},
+				},
+			},
+		}),
+	],
+});
 
-const session = app.fn(
-	"session",
+const getSession = app.fn(
+	"get-session",
 	{
-		path: "/session",
+		path: "/get-session",
 		method: "GET",
+		cookieCache: { name: "session" },
 		use: [
 			{
 				test: v.var(
@@ -31,7 +42,7 @@ const session = app.fn(
 	},
 );
 
-app.on(session, (c, next) => {
+app.on(getSession, (c, next) => {
 	const path = c.req?.path;
 	const method = c.route?.method;
 	const name = c.test?.name;

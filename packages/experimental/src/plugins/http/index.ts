@@ -290,7 +290,7 @@ export function createHttp<
 		CookieCachePreset
 	>,
 >(options?: HttpModuleOptions<Policies>) {
-	type Aliases = string & keyof Policies;
+	type Aliases = Extract<keyof Policies, string>;
 	const mount: CookieCacheMountConfig = {
 		secret: options?.cookieCache?.secret,
 		policies: options?.cookieCache?.policies,

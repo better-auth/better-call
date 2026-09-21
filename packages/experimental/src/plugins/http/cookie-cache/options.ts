@@ -1,5 +1,5 @@
 import { v } from "../../../index";
-import type { InferArgs } from "../../../schema";
+import type { InferArgs, TypeDefination } from "../../../schema";
 import { cookieShape } from "../cookie";
 
 /**
@@ -67,18 +67,40 @@ export const cookieCacheShape = {
 
 type CookieCacheShapeArgs = InferArgs<typeof cookieCacheShape>;
 
-/** Object form of a cookie-cache option / preset (no callback). */
-export type CookieCacheFnOptionObject<Aliases extends string = string> = Omit<
-	CookieCacheShapeArgs,
-	"name" | "secret"
-> & {
+/**
+ * Object form of a cookie-cache option / preset (no callback).
+ * Declared as an interface so object-literal IntelliSense survives the
+ * object|callback union on {@link CookieCacheFnOption}.
+ */
+export interface CookieCacheFnOptionObject<Aliases extends string = string> {
+	/** Preset alias (soft-typed from mount `policies` keys). */
 	name?: SoftAlias<Aliases> | null;
+	/** On-the-wire cookie name. */
+	cookieName?: string | null;
+	strategy?: "compact" | "jwt" | "jwe" | null;
+	maxAge?: number | null;
+	version?: CookieCacheShapeArgs["version"];
 	/** Single secret or rotation list (`readonly` so `as const` mounts type-check). */
 	secret?: string | readonly string[] | null;
-};
+	jwe?: CookieCacheShapeArgs["jwe"];
+	signer?: CookieCacheShapeArgs["signer"];
+	refreshCache?: CookieCacheShapeArgs["refreshCache"];
+	cookie?: CookieCacheShapeArgs["cookie"];
+	enabled?: CookieCacheShapeArgs["enabled"];
+	validate?: CookieCacheShapeArgs["validate"];
+	prepare?: CookieCacheShapeArgs["prepare"];
+	onHit?: CookieCacheShapeArgs["onHit"];
+}
 
 /** Preset entry under `http({ cookieCache: { policies } })` — no alias field. */
 export type CookieCachePreset = Omit<CookieCacheFnOptionObject, "name">;
+
+/** Callback form — separate named type so the object branch keeps IntelliSense. */
+export type CookieCacheFnOptionCallback<Aliases extends string = string> = (
+	c: any,
+) =>
+	| CookieCacheFnOptionObject<Aliases>
+	| Promise<CookieCacheFnOptionObject<Aliases>>;
 
 /**
  * Fn / API option: object or `(c) => object | Promise<object>`.
@@ -86,11 +108,7 @@ export type CookieCachePreset = Omit<CookieCacheFnOptionObject, "name">;
  */
 export type CookieCacheFnOption<Aliases extends string = string> =
 	| CookieCacheFnOptionObject<Aliases>
-	| ((
-			c: any,
-	  ) =>
-			| CookieCacheFnOptionObject<Aliases>
-			| Promise<CookieCacheFnOptionObject<Aliases>>);
+	| CookieCacheFnOptionCallback<Aliases>;
 
 /** Complete policy after resolve (cookieName + maxAge required). */
 export type CookieCachePolicy = Omit<
@@ -114,7 +132,20 @@ export const cookieCacheOptionSchema = v.union(
 	{ optional: true },
 );
 
-/** Build an optional cookieCache fn-option schema (same runtime; soft types overlay). */
-export function cookieCacheOptionSchemaFor<_Aliases extends string = string>() {
-	return cookieCacheOptionSchema;
+/**
+ * Schema brand so {@link InferArgs} / `FnOptsExt` see soft-typed
+ * {@link CookieCacheFnOption}<Aliases> instead of plain `string` for `name`.
+ */
+export type SoftCookieCacheOptionSchema<Aliases extends string = string> =
+	TypeDefination<
+		CookieCacheFnOption<Aliases>,
+		CookieCacheFnOption<Aliases>,
+		undefined
+	>;
+
+/** Build an optional cookieCache fn-option schema with soft alias typing. */
+export function cookieCacheOptionSchemaFor<
+	Aliases extends string = string,
+>(): SoftCookieCacheOptionSchema<Aliases> {
+	return cookieCacheOptionSchema as SoftCookieCacheOptionSchema<Aliases>;
 }
