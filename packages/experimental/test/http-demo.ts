@@ -1,7 +1,7 @@
 import { v } from "../src";
 import { createHandler, http } from "../src/plugins/http";
 
-const app = v.fn({ use: [http] });
+const app = v.fn({ use: [http()] });
 
 export const whoami = app.fn("whoami", { requires: ["req"] }, (c) => {
 	// requiring `req` makes the whole request non-null - one var, all of it:

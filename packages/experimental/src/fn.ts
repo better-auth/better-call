@@ -434,6 +434,16 @@ type StampHttpRoute<F, PL> = [ExtractHttpRoute<PL>] extends [never]
 	? F
 	: F & { readonly $route: ExtractHttpRoute<PL> };
 
+/**
+ * Stamp the fn's own `use` / `requires` so `builder.on(fn)` / `v.on(fn)` can
+ * type `c` from the TARGET (not only the builder). Kept as the raw `PL` /
+ * `Q` lists — small compared to full {@link Context} (which blows TS7056).
+ */
+type StampFnMount<F, PL, Q> = F & {
+	readonly $use?: PL;
+	readonly $requires?: Q;
+};
+
 /** What `.with` returns: the same callable, context baked in.
  * Re-exported from the package entry so exporting `.with(...)` results
  * stays declaration-emit portable under node16. */
@@ -534,6 +544,17 @@ export interface FnDefination<
 	readonly $output?: O;
 	/** Phantom: declared error tags -> payload schemas. */
 	readonly $errors?: Er;
+	/**
+	 * Phantom: this fn's own `use` list (not the builder chain). Used by
+	 * `builder.on(fn)` so interceptor `c` sees target-local vars. Never set
+	 * at runtime.
+	 */
+	readonly $use?: unknown;
+	/**
+	 * Phantom: this fn's `requires` list. Used with `$use` to narrow
+	 * interceptor context. Never set at runtime.
+	 */
+	readonly $requires?: unknown;
 }
 
 export type ArgsOf<I> = I extends readonly unknown[]
@@ -893,22 +914,26 @@ export interface Fn<
 					}
 				: never),
 		fn: (ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>) => R,
-	): TerminatingFn<
-		WidenedArgs<I, ChainPL<BasePL, PL>>,
-		R,
-		Prefix extends "" ? string : Prefix,
-		I,
-		P,
-		Er,
-		O
-	> & {
-		readonly $route: {
-			path: Path;
-			method: Method;
-			invalidate: Inv;
-			status?: Status;
-		};
-	};
+	): StampFnMount<
+		TerminatingFn<
+			WidenedArgs<I, ChainPL<BasePL, PL>>,
+			R,
+			Prefix extends "" ? string : Prefix,
+			I,
+			P,
+			Er,
+			O
+		> & {
+			readonly $route: {
+				path: Path;
+				method: Method;
+				invalidate: Inv;
+				status?: Status;
+			};
+		},
+		PL,
+		Q
+	>;
 	<
 		K extends LiteralString,
 		const Path extends string,
@@ -943,22 +968,26 @@ export interface Fn<
 		fn: (
 			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>,
 		) => R,
-	): TerminatingFn<
-		WidenedArgs<I, ChainPL<BasePL, PL>>,
-		R,
-		`${Prefix}${K}`,
-		I,
-		P,
-		Er,
-		O
-	> & {
-		readonly $route: {
-			path: Path;
-			method: Method;
-			invalidate: Inv;
-			status?: Status;
-		};
-	};
+	): StampFnMount<
+		TerminatingFn<
+			WidenedArgs<I, ChainPL<BasePL, PL>>,
+			R,
+			`${Prefix}${K}`,
+			I,
+			P,
+			Er,
+			O
+		> & {
+			readonly $route: {
+				path: Path;
+				method: Method;
+				invalidate: Inv;
+				status?: Status;
+			};
+		},
+		PL,
+		Q
+	>;
 	<
 		const I,
 		O,
@@ -975,17 +1004,21 @@ export interface Fn<
 				CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>
 			>,
 		fn: (ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>) => R,
-	): StampHttpRoute<
-		TerminatingFn<
-			WidenedArgs<I, ChainPL<BasePL, PL>>,
-			R,
-			Prefix extends "" ? string : Prefix,
-			I,
-			P,
-			Er,
-			O
+	): StampFnMount<
+		StampHttpRoute<
+			TerminatingFn<
+				WidenedArgs<I, ChainPL<BasePL, PL>>,
+				R,
+				Prefix extends "" ? string : Prefix,
+				I,
+				P,
+				Er,
+				O
+			>,
+			PL
 		>,
-		PL
+		PL,
+		Q
 	>;
 	<
 		K extends LiteralString,
@@ -1007,17 +1040,21 @@ export interface Fn<
 		fn: (
 			ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, `${Prefix}${K}`>,
 		) => R,
-	): StampHttpRoute<
-		TerminatingFn<
-			WidenedArgs<I, ChainPL<BasePL, PL>>,
-			R,
-			`${Prefix}${K}`,
-			I,
-			P,
-			Er,
-			O
+	): StampFnMount<
+		StampHttpRoute<
+			TerminatingFn<
+				WidenedArgs<I, ChainPL<BasePL, PL>>,
+				R,
+				`${Prefix}${K}`,
+				I,
+				P,
+				Er,
+				O
+			>,
+			PL
 		>,
-		PL
+		PL,
+		Q
 	>;
 
 	/* ---- NO handler: a builder. Keys concatenate, `use` accumulates,
@@ -2013,22 +2050,38 @@ type MatchedResult<F> = [F] extends [never]
 		? Awaited<R>
 		: never;
 
-/** What a builder-scoped `on` handler sees: vars and `use` fns directly
- * on `c` from the builder, `input` from the TARGET fn when known. */
+/** Child `use` list stamped on a terminating fn (`$use`). */
+type FnUsePL<F> = F extends { readonly $use?: infer PL }
+	? PL extends readonly UseEntry[]
+		? PL
+		: readonly []
+	: readonly [];
+
+/** `requires` keys stamped on a terminating fn (`$requires`). */
+type FnRequiresKey<F> = F extends { readonly $requires?: infer Q }
+	? Q extends readonly (infer N extends string)[]
+		? N
+		: never
+	: never;
+
+/** What a builder-scoped `on` handler sees: builder scope, plus the target
+ * fn's own `use` / `requires` when stamped, and `input` from the target. */
 type OnContext<Base, BaseFns, F, Ext = unknown> = {
 	input: MatchedInput<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
 	types: typeof vTypes;
 	fn: unknown;
-} & VarScope<ScopeOf<[], Base>, never> &
-	UseApi<BaseFns>;
+} & VarScope<ScopeOf<FnUsePL<F>, Base>, FnRequiresKey<F>> &
+	UseApi<BaseFns> &
+	UseApi<ModuleFns<FnUsePL<F>>>;
 
 /** `v.on`, scoped: string targets get the builder's key prefix; the
  * handler's `c` and `next()` are typed against the matched target fn.
  * Re-exported from the package entry so exporting an {@link Instance}
  * stays declaration-emit portable under node16 (TS2883). */
 export interface InstanceOn<Base, BaseFns, Prefix extends string> {
-	/** A fn REFERENCE targets its own key - never prefixed, fully typed
-	 * from the fn itself plus the builder's scope. */
+	/** A fn REFERENCE targets its own key - never prefixed. `c` is typed
+	 * from the builder's `use` plus the target's stamped `$use` /
+	 * `$requires`, and the target's input / `next` result. */
 	<F extends FnDefination<any, any, string, any, any, any>>(
 		target: F,
 		handler: (
