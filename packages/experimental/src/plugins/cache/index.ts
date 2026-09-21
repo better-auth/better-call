@@ -1,7 +1,9 @@
 import { v } from "../../index";
+import type { VarDefination } from "../../var";
 import { type CacheApi, createCacheApi } from "./api";
 import {
 	type CacheMountConfig,
+	type CacheOptionsExtension,
 	type CachePolicy,
 	type CachePreset,
 	cacheOptionsFor,
@@ -14,12 +16,14 @@ export { createCacheApi, resolveCachePolicy } from "./api";
 export { memoryCache } from "./memory";
 export type {
 	CacheMountConfig,
+	CacheOptionsExtension,
 	CachePolicy,
 	CachePolicyObject,
 	CachePreset,
 	InvalidateTags,
 	ResolvedCachePolicy,
 	SoftCacheAlias,
+	SoftCacheOptionSchema,
 } from "./options";
 export {
 	cacheOptions,
@@ -33,6 +37,18 @@ export type CacheModuleOptions<
 > = {
 	store: CacheStore;
 	defaults?: Defaults;
+};
+
+/**
+ * Portable return of {@link cache}. Named so consumers that export
+ * `cache({ store, defaults })` can emit declarations via `better-call/cache`
+ * without referencing deep `plugins/cache/options.mjs` paths (TS2742 / TS2883).
+ */
+export type CacheModuleOf<
+	Defaults extends Record<string, CachePreset> = Record<string, CachePreset>,
+> = {
+	cacheOptions: CacheOptionsExtension<Extract<keyof Defaults, string>>;
+	cache: VarDefination<"cache", CacheApi, undefined, never>;
 };
 
 /**
@@ -57,7 +73,7 @@ export function cache<
 		string,
 		CachePreset
 	>,
->(options: CacheModuleOptions<Defaults>) {
+>(options: CacheModuleOptions<Defaults>): CacheModuleOf<Defaults> {
 	type Aliases = Extract<keyof Defaults, string>;
 	const mount: CacheMountConfig = {
 		defaults: options.defaults,
@@ -68,7 +84,7 @@ export function cache<
 		cache: v.var("cache", {
 			default: api as CacheApi,
 		}),
-	};
+	} as CacheModuleOf<Defaults>;
 }
 
 export type {

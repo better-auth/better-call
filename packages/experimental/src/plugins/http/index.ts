@@ -1,4 +1,5 @@
 import { v } from "../../index";
+import type { VarDefination } from "../../var";
 import {
 	clientSchema,
 	fromJsonBody,
@@ -17,6 +18,7 @@ import {
 	setCookie,
 } from "./cookie";
 import {
+	type CookieCacheApi,
 	type CookieCacheMountConfig,
 	type CookieCachePreset,
 	codecFor,
@@ -47,6 +49,7 @@ import { res, toResponse } from "./response";
 import {
 	createHttpOptions,
 	getRouteMeta,
+	type HttpOptionsExtension,
 	INVALIDATE_HEADER,
 	route,
 	routeVar,
@@ -98,6 +101,7 @@ export type {
 	DecodeResult,
 	GetCookieCacheConfig,
 	SoftAlias,
+	SoftCookieCacheOptionSchema,
 } from "./cookie-cache";
 export {
 	codecFor,
@@ -180,6 +184,7 @@ export type { HttpResponse } from "./response";
 export { res, toResponse } from "./response";
 export type {
 	HttpOptions,
+	HttpOptionsExtension,
 	RouteMeta,
 	RouteMethod,
 	RouteModule,
@@ -269,6 +274,22 @@ const httpModuleBase = {
 } as const;
 
 /**
+ * Portable return of {@link createHttp} / {@link http}. Named so consumers
+ * that export `http({ cookieCache: { policies } })` can emit declarations
+ * via `better-call/http` without deep `plugins/.../options.mjs` paths
+ * (TS2742 / TS2883).
+ */
+export type HttpModuleOf<
+	Policies extends Record<string, CookieCachePreset> = Record<
+		string,
+		CookieCachePreset
+	>,
+> = typeof httpModuleBase & {
+	httpOptions: HttpOptionsExtension<Extract<keyof Policies, string>>;
+	cookieCache: VarDefination<"cookieCache", CookieCacheApi, undefined, never>;
+};
+
+/**
  * Build an HTTP plugin module. Pass `cookieCache.policies` for named presets
  * and optional `cookieCache.secret` as the mount-wide codec default.
  *
@@ -289,7 +310,7 @@ export function createHttp<
 		string,
 		CookieCachePreset
 	>,
->(options?: HttpModuleOptions<Policies>) {
+>(options?: HttpModuleOptions<Policies>): HttpModuleOf<Policies> {
 	type Aliases = Extract<keyof Policies, string>;
 	const mount: CookieCacheMountConfig = {
 		secret: options?.cookieCache?.secret,
@@ -302,10 +323,10 @@ export function createHttp<
 		cookieCache: v.var("cookieCache", {
 			default: api,
 		}),
-	};
+	} as HttpModuleOf<Policies>;
 }
 
-export type HttpModule = ReturnType<typeof createHttp>;
+export type HttpModule = HttpModuleOf;
 
 /**
  * HTTP plugin: callable for presets (`http({ cookieCache: … })`) and usable
@@ -323,14 +344,14 @@ export type Http = import("../../module").Module &
 		>,
 	>(
 		options?: HttpModuleOptions<Policies>,
-	) => ReturnType<typeof createHttp<Policies>>);
+	) => HttpModuleOf<Policies>);
 
 function httpFn<
 	const Policies extends Record<string, CookieCachePreset> = Record<
 		string,
 		CookieCachePreset
 	>,
->(options?: HttpModuleOptions<Policies>) {
+>(options?: HttpModuleOptions<Policies>): HttpModuleOf<Policies> {
 	return createHttp(options);
 }
 

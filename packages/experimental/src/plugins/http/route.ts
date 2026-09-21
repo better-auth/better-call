@@ -1,11 +1,13 @@
-import { fnOptions } from "../../fn-options";
+import { fnOptions, fnOptionsSchema } from "../../fn-options";
 import { v } from "../../index";
-import { isFn, type Module } from "../../module";
+import { isFn, type Module, type VarExtension } from "../../module";
+import type { InferInput, TypeDefination } from "../../schema";
 import type { LiteralString } from "../../types";
-import type { CookieCacheFnOption } from "./cookie-cache/options";
 import {
 	cookieCacheOptionSchema,
 	cookieCacheOptionSchemaFor,
+	type CookieCacheFnOption,
+	type SoftCookieCacheOptionSchema,
 } from "./cookie-cache/options";
 
 /** HTTP methods the router / client understand. */
@@ -192,11 +194,48 @@ export const httpOptions = v.extend(fnOptions, {
 });
 
 /**
+ * Portable return of {@link createHttpOptions}. Named so consumers that
+ * export `http({ cookieCache: { policies } })` (or the options extension
+ * itself) can emit declarations via `better-call/http` without referencing
+ * deep `plugins/.../options.mjs` paths (TS2742 / TS2883).
+ */
+export type HttpOptionsExtension<Aliases extends string = string> =
+	VarExtension<
+		"fnOptions",
+		{
+			readonly path: TypeDefination<
+				LiteralString,
+				LiteralString | null | undefined,
+				undefined
+			>;
+			readonly method: TypeDefination<
+				RouteMethod,
+				RouteMethod | null | undefined,
+				undefined
+			>;
+			readonly invalidate: TypeDefination<
+				string[],
+				string[] | null | undefined,
+				undefined
+			>;
+			readonly status: TypeDefination<
+				number,
+				number | null | undefined,
+				undefined
+			>;
+			readonly cookieCache: SoftCookieCacheOptionSchema<Aliases>;
+		},
+		InferInput<typeof fnOptionsSchema>
+	>;
+
+/**
  * Per-mount httpOptions when `http({ cookieCache: { policies } })` is used.
  * Brands `cookieCache` so `InferArgs` / fn-option IntelliSense soft-types
  * `name` as mount policy aliases (still accepts any string).
  */
-export function createHttpOptions<Aliases extends string = string>() {
+export function createHttpOptions<
+	Aliases extends string = string,
+>(): HttpOptionsExtension<Aliases> {
 	return v.extend(fnOptions, {
 		path: v.string({ literal: true, optional: true }),
 		method: v.string({
@@ -206,5 +245,5 @@ export function createHttpOptions<Aliases extends string = string>() {
 		invalidate: v.array(v.string(), { optional: true }),
 		status: v.number({ optional: true }),
 		cookieCache: cookieCacheOptionSchemaFor<Aliases>(),
-	});
+	}) as HttpOptionsExtension<Aliases>;
 }

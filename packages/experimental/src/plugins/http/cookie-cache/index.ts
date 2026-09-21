@@ -27,6 +27,7 @@ import {
 	type CookieCachePolicy,
 	type CookieCachePreset,
 	type SoftAlias,
+	type SoftCookieCacheOptionSchema,
 } from "./options";
 
 export type {
@@ -36,6 +37,7 @@ export type {
 	CookieCacheMountConfig,
 	CookieCachePreset,
 	SoftAlias,
+	SoftCookieCacheOptionSchema,
 	CookieCacheCodec,
 	CookieCacheSigner,
 	CookieCacheStrategy,

@@ -1,6 +1,7 @@
-import { fnOptions } from "../../fn-options";
+import { fnOptions, fnOptionsSchema } from "../../fn-options";
 import { v } from "../../index";
-import type { InferArgs, TypeDefination } from "../../schema";
+import type { VarExtension } from "../../module";
+import type { InferArgs, InferInput, TypeDefination } from "../../schema";
 
 /** string, or a fn that returns one (typically `(c) => …`). */
 const cacheKeySchema = v.union([v.string(), v.fn.type({ output: v.string() })]);
@@ -116,10 +117,33 @@ export const cacheOptions = v.extend(fnOptions, {
 	invalidateTags: v.array(cacheKeySchema, { optional: true }),
 });
 
+/**
+ * Portable return of {@link cacheOptionsFor}. Named so consumers that
+ * export `cache({ store, defaults })` can emit declarations via
+ * `better-call/cache` without deep `plugins/cache/options.mjs` paths.
+ */
+export type CacheOptionsExtension<Aliases extends string = string> =
+	VarExtension<
+		"fnOptions",
+		{
+			readonly cache: SoftCacheOptionSchema<Aliases>;
+			readonly invalidateTags: TypeDefination<
+				(string | ((...args: any[]) => string | Promise<string>))[],
+				| (string | ((...args: any[]) => string | Promise<string>))[]
+				| null
+				| undefined,
+				undefined
+			>;
+		},
+		InferInput<typeof fnOptionsSchema>
+	>;
+
 /** Per-mount cacheOptions with soft-typed `cache.name` from defaults keys. */
-export function cacheOptionsFor<Aliases extends string = string>() {
+export function cacheOptionsFor<
+	Aliases extends string = string,
+>(): CacheOptionsExtension<Aliases> {
 	return v.extend(fnOptions, {
 		cache: cachePolicyOptionSchemaFor<Aliases>(),
 		invalidateTags: v.array(cacheKeySchema, { optional: true }),
-	});
+	}) as CacheOptionsExtension<Aliases>;
 }

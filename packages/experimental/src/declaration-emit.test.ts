@@ -252,6 +252,103 @@ describe("declaration emit (TS2883 / package entry)", () => {
 		}
 	});
 
+	it("exports http()/cache() wrappers through package subpaths under node16", () => {
+		expect(
+			existsSync(join(root, "dist/http.d.mts")),
+			"dist/http.d.mts missing - run pnpm build in packages/experimental",
+		).toBe(true);
+		expect(
+			existsSync(join(root, "dist/cache.d.mts")),
+			"dist/cache.d.mts missing - run pnpm build in packages/experimental",
+		).toBe(true);
+		// Soft option schemas + module shapes must be public so emit can name
+		// http()/cache() returns portably (TS2742 / TS2883).
+		expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
+			/\bHttpModuleOf\b/,
+		);
+		expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
+			/\bSoftCookieCacheOptionSchema\b/,
+		);
+		expect(readFileSync(join(root, "dist/cache.d.mts"), "utf8")).toMatch(
+			/\bCacheModuleOf\b/,
+		);
+		expect(readFileSync(join(root, "dist/cache.d.mts"), "utf8")).toMatch(
+			/\bSoftCacheOptionSchema\b/,
+		);
+
+		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-http-cache-"));
+		try {
+			mkdirSync(join(consumerDir, "node_modules"));
+			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
+			symlinkSync(
+				join(consumerFixtureDir, "http-cache.ts"),
+				join(consumerDir, "http-cache.ts"),
+			);
+			writeFileSync(
+				join(consumerDir, "tsconfig.json"),
+				JSON.stringify({
+					compilerOptions: {
+						strict: true,
+						declaration: true,
+						composite: true,
+						emitDeclarationOnly: true,
+						outDir: "./out",
+						module: "Node16",
+						moduleResolution: "Node16",
+						target: "ESNext",
+						skipLibCheck: true,
+						lib: ["esnext"],
+					},
+					include: ["./http-cache.ts"],
+				}),
+			);
+			writeFileSync(
+				join(consumerDir, "package.json"),
+				JSON.stringify({
+					name: "better-call-declaration-emit-http-cache",
+					private: true,
+					type: "module",
+				}),
+			);
+
+			try {
+				execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+					cwd: consumerDir,
+					stdio: "pipe",
+				});
+			} catch (err) {
+				const e = err as { stderr?: Buffer; stdout?: Buffer };
+				throw new Error(
+					[
+						"http/cache declaration emit failed:",
+						e.stderr?.toString("utf8"),
+						e.stdout?.toString("utf8"),
+					]
+						.filter(Boolean)
+						.join("\n"),
+				);
+			}
+
+			const dts = readFileSync(
+				join(consumerDir, "out/http-cache.d.ts"),
+				"utf8",
+			);
+			expect(dts).toMatch(/export declare const authHttp:/);
+			expect(dts).toMatch(/export declare const authCache:/);
+			// Portable via package subpaths - not deep plugins/.../options.mjs.
+			expect(dts).toMatch(/import\("better-call\/http"\)\.HttpModuleOf/);
+			expect(dts).toMatch(/import\("better-call\/cache"\)\.CacheModuleOf/);
+			expect(dts).not.toMatch(/plugins\/http\/cookie-cache\/options/);
+			expect(dts).not.toMatch(/plugins\/cache\/options/);
+			expect(dts).not.toMatch(/dist\/fn\.mjs/);
+			expect(dts).not.toMatch(/dist\/var\.mjs/);
+			expect(dts).not.toMatch(/dist\/module\.mjs/);
+			expect(dts).not.toMatch(/dist\/types\.mjs/);
+		} finally {
+			rmSync(consumerDir, { recursive: true, force: true });
+		}
+	});
+
 	it("emits db schema under the serialize limit", () => {
 		const dtsPath = join(root, "dist/db.d.mts");
 		expect(existsSync(dtsPath), "dist/db.d.mts missing - run pnpm build").toBe(
