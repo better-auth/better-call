@@ -10,11 +10,25 @@ export type OpenAPISchemaType =
 	| "array"
 	| "object";
 
+export interface OpenAPIExample {
+	summary?: string;
+	description?: string;
+	value?: any;
+	externalValue?: string;
+}
+
+export interface OpenAPIRef {
+	$ref: string;
+	summary?: string;
+	description?: string;
+}
+
 export interface OpenAPIParameter {
 	in: "query" | "path" | "header" | "cookie";
 	name?: string;
 	description?: string;
 	required?: boolean;
+	examples?: Record<string, OpenAPIExample | OpenAPIRef>;
 	schema?: {
 		type: OpenAPISchemaType;
 		format?: string | undefined;
