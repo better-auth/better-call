@@ -1,4 +1,3 @@
-import type { CookieCacheFnOptionObject } from "./cookie-cache/options";
 import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
 import { v } from "../../index";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -146,85 +145,5 @@ describe("httpOptions — path on fn options", () => {
 		);
 		expect(echo.$schema?.input).toBeDefined();
 		expectTypeOf(echo).toBeFunction();
-	});
-
-	it("cookieCache option infers sub-keys", () => {
-		const e = v.fn({ use: [http] });
-		const get = e.fn(
-			"session.get",
-			{
-				cookieCache: {
-					cookieName: "session_data",
-					maxAge: 300,
-					strategy: "jwe",
-					secret: "x",
-					version: "1",
-					refreshCache: { updateAge: 60 },
-					jwe: { salt: "s", info: "i" },
-					validate: (payload) => payload != null,
-					enabled: () => true,
-					prepare: (value) => value,
-					onHit: (value) => value,
-				},
-			},
-			async () => null,
-		);
-		expect(get.$cookieCache).toMatchObject({
-			cookieName: "session_data",
-			strategy: "jwe",
-		});
-		// Empty object stays assignable so `{ | }` keeps contextual IntelliSense.
-		e.fn("scratch", { cookieCache: {} }, async () => null);
-
-		expectTypeOf<CookieCacheFnOptionObject>().toMatchTypeOf<{
-			name?: string | null;
-			cookieName?: string | null;
-			strategy?: "compact" | "jwt" | "jwe" | null;
-			validate?: ((...args: any[]) => boolean | Promise<boolean>) | null;
-		}>();
-	});
-
-	it("cookieCache.name soft-types preset aliases", () => {
-		const mod = http({
-			cookieCache: {
-				secret: "x",
-				policies: {
-					session: {
-						cookieName: "better-auth.session_data",
-						maxAge: 300,
-					},
-					account: {
-						cookieName: "account_data",
-						maxAge: 60,
-					},
-				},
-			},
-		});
-		const e = v.fn({ use: [mod] });
-		e.fn("ok", { cookieCache: { name: "session" } }, async () => null);
-		e.fn("ok2", { cookieCache: { name: "account" } }, async () => null);
-		// Ad-hoc alias still assignable (soft typing).
-		e.fn(
-			"adhoc",
-			{
-				cookieCache: {
-					name: "other",
-					cookieName: "other_cookie",
-					maxAge: 60,
-					secret: "x",
-				},
-			},
-			async () => null,
-		);
-
-		type ExtArgs = import("../../module").VarExtensionArgsFor<
-			[typeof mod],
-			"fnOptions"
-		>;
-		type CookieOpt = NonNullable<ExtArgs["cookieCache"]>;
-		type ObjectBranch = Extract<CookieOpt, { name?: unknown }>;
-		expectTypeOf<ObjectBranch["name"]>().toEqualTypeOf<
-			"session" | "account" | (string & {}) | null | undefined
-		>();
 	});
 });

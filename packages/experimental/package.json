@@ -38,8 +38,7 @@
 		}
 	},
 	"dependencies": {
-		"@better-fetch/fetch": "^1.1.21",
-		"jose": "^6.0.11"
+		"@better-fetch/fetch": "^1.1.21"
 	},
 	"exports": {
 		".": {
@@ -130,17 +129,6 @@
 				"default": "./dist/db.cjs"
 			}
 		},
-		"./cache": {
-			"dev-source": "./src/plugins/cache/index.ts",
-			"import": {
-				"types": "./dist/cache.d.mts",
-				"default": "./dist/cache.mjs"
-			},
-			"require": {
-				"types": "./dist/cache.d.cts",
-				"default": "./dist/cache.cjs"
-			}
-		},
 		"./otel": {
 			"dev-source": "./src/plugins/otel/index.ts",
 			"import": {
@@ -172,17 +160,6 @@
 			"require": {
 				"types": "./dist/capability.d.cts",
 				"default": "./dist/capability.cjs"
-			}
-		},
-		"./grant": {
-			"dev-source": "./src/grant.ts",
-			"import": {
-				"types": "./dist/grant.d.mts",
-				"default": "./dist/grant.mjs"
-			},
-			"require": {
-				"types": "./dist/grant.d.cts",
-				"default": "./dist/grant.cjs"
 			}
 		}
 	},

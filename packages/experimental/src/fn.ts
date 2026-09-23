@@ -20,7 +20,6 @@ import {
 } from "./event";
 import type { OptionType } from "./fn-options";
 import { isFnOutField } from "./fn-output";
-import { evaluateGates, findGrantDefault, type GateEntry } from "./grant";
 import {
 	type ApplyOns,
 	collectMergeSeeds,
@@ -319,7 +318,7 @@ type FnOptsBound<PL, C> = BindOptCtx<FnOptsExt<PL>, C>;
  * optional `use` on any arg widens context; {@link CtxBound} fields
  * become real callbacks against that context. Return-side
  * {@link CtxBound}s widen to `(c: any) => …` so the result can be stored
- * and later passed into another fn's options (e.g. `gate`) whose
+ * and later passed into another fn's options whose
  * {@link CallCtx} instantiation differs.
  */
 type BindFnOutRet<T> = T extends { readonly $ctxBound: infer R }
@@ -519,20 +518,6 @@ export interface FnDefination<
 		/** Declared success status when not the default 200. */
 		status?: number;
 	};
-	/**
-	 * Store-cache policy when `cache` was set on options (requires the
-	 * cache plugin in `use`). Stamped at definition for introspection.
-	 */
-	readonly $cache?: unknown;
-	/**
-	 * Tag list to bust when `invalidateTags` was set on options.
-	 */
-	readonly $invalidateTags?: unknown;
-	/**
-	 * Cookie-cache policy when `cookieCache` was set on options (requires
-	 * http / cookie-cache in `use`).
-	 */
-	readonly $cookieCache?: unknown;
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
 	readonly provides: P;
@@ -1163,69 +1148,6 @@ const defineFn = (
 						...(status !== undefined ? { status } : {}),
 					};
 					return next();
-				}),
-			},
-		];
-	}
-	// `cookieCache` / `cache` on options synthesize exact-key wraps that
-	// delegate to `c.cookieCache.run` / `c.cache.run` (plugins mount those
-	// APIs). Cookie wrap is pushed first so reduceRight makes it outermost
-	// when both are set: cookie → store → body.
-	if (opts.cookieCache !== undefined) {
-		const policy = opts.cookieCache;
-		opts.use = [
-			...((opts.use ?? []) as Module[]),
-			{
-				$cookieCache: policy,
-				$cookieCacheWrap: onImpl(key, (c: any, next: any) => {
-					const api = c.cookieCache;
-					if (!api || typeof api.run !== "function") {
-						throw new ValidationError(
-							`${key}.cookieCache`,
-							`cookieCache is set but c.cookieCache.run is missing — mount http (use: [http])`,
-						);
-					}
-					return api.run(c, policy, next);
-				}),
-			},
-		];
-	}
-	if (opts.cache !== undefined || opts.invalidateTags !== undefined) {
-		const policy = opts.cache;
-		const invalidateTags = opts.invalidateTags;
-		opts.use = [
-			...((opts.use ?? []) as Module[]),
-			{
-				...(policy !== undefined ? { $cache: policy } : {}),
-				...(invalidateTags !== undefined
-					? { $invalidateTags: invalidateTags }
-					: {}),
-				$cacheWrap: onImpl(key, (c: any, next: any) => {
-					const api = c.cache;
-					if (!api || typeof api.run !== "function") {
-						throw new ValidationError(
-							`${key}.cache`,
-							`cache/invalidateTags is set but c.cache.run is missing — mount cache({ store })`,
-						);
-					}
-					return api.run(c, policy, invalidateTags, next);
-				}),
-			},
-		];
-	}
-	if (Array.isArray(opts.gate) && opts.gate.length > 0) {
-		const gates = opts.gate as GateEntry[];
-		const defaultGrant = findGrantDefault(opts.use as Module[] | undefined);
-		opts.use = [
-			...((opts.use ?? []) as Module[]),
-			{
-				$gate: gates,
-				$gateWrap: onImpl(key, (c: any, next: any) => {
-					const cells = c[STORE] as Cells;
-					return thenMaybe(
-						evaluateGates(c, cells, gates, key, defaultGrant),
-						() => next(),
-					);
 				}),
 			},
 		];
@@ -1968,13 +1890,6 @@ const defineFn = (
 			...(options.deprecated === true ? { deprecated: true } : {}),
 		},
 		...(routeMeta ? { $route: routeMeta } : {}),
-		...(opts.cache !== undefined ? { $cache: opts.cache } : {}),
-		...(opts.invalidateTags !== undefined
-			? { $invalidateTags: opts.invalidateTags }
-			: {}),
-		...(opts.cookieCache !== undefined
-			? { $cookieCache: opts.cookieCache }
-			: {}),
 	});
 };
 
@@ -2174,8 +2089,7 @@ type BoundCallFrom<F> =
  * `PL` is the accumulated `use` chain ({@link ChainPL}) - child `.fn`
  * must see it as `BasePL` so `FnOptsExt` (e.g. http `path`/`method`) and
  * `VarExtension` model merges resolve. Overloads return
- * {@link InstanceResult} so `fnOutput` unlocks (e.g. `grant`) stay
- * emit-portable too.
+ * {@link InstanceResult} so `fnOutput` unlocks stay emit-portable too.
  */
 export interface Instance<
 	Base = unknown,
@@ -2224,8 +2138,7 @@ export interface Instance<
 }
 
 /**
- * {@link Instance} plus `fnOutput` methods unlocked by `use` mounts
- * (e.g. `grant` from `better-call/grant`).
+ * {@link Instance} plus `fnOutput` methods unlocked by `use` mounts.
  *
  * Exported from the package entry so declaration emit can name
  * `InstanceResult<…>` instead of expanding `FnOutBound` / `CallCtx`
@@ -2258,10 +2171,6 @@ const mergeOptions = (
 	use: [...(base.use ?? []), ...(child.use ?? [])],
 	requires: [...(base.requires ?? []), ...(child.requires ?? [])],
 	provides: [...(base.provides ?? []), ...(child.provides ?? [])],
-	// Grant gates accumulate like `use` so scoped builders keep parent gates.
-	...(base.gate || child.gate
-		? { gate: [...(base.gate ?? []), ...(child.gate ?? [])] }
-		: {}),
 	// Error declarations accumulate tag-wise, child wins per tag. Only
 	// materialized when declared somewhere - an empty `errors` would flip
 	// the defect-wrapping rule on for every fn.

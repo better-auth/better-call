@@ -1,5 +1,3 @@
-import { v } from "../../index";
-import type { VarDefination } from "../../var";
 import {
 	clientSchema,
 	fromJsonBody,
@@ -17,21 +15,6 @@ import {
 	serializeCookie,
 	setCookie,
 } from "./cookie";
-import {
-	type CookieCacheApi,
-	type CookieCacheMountConfig,
-	type CookieCachePreset,
-	codecFor,
-	compactCodec,
-	createChunkedCookieStore,
-	createCookieCacheApi,
-	getChunkedCookie,
-	getCookieCache,
-	jweCodec,
-	jwtCodec,
-	MAX_COOKIE_CHUNKS,
-	MAX_COOKIE_SIZE,
-} from "./cookie-cache";
 import { applyError, encodeError, err, errorStatus, statusOf } from "./error";
 import { createHandler, handler } from "./handle";
 import {
@@ -86,39 +69,6 @@ export {
 	serializeCookie,
 	setCookie,
 } from "./cookie";
-export type {
-	ChunkCookie,
-	ChunkedCookieStore,
-	CookieCacheApi,
-	CookieCacheCodec,
-	CookieCacheFnOption,
-	CookieCacheFnOptionObject,
-	CookieCacheMountConfig,
-	CookieCachePolicy,
-	CookieCachePreset,
-	CookieCacheSigner,
-	CookieCacheStrategy,
-	DecodeResult,
-	GetCookieCacheConfig,
-	SoftAlias,
-	SoftCookieCacheOptionSchema,
-} from "./cookie-cache";
-export {
-	codecFor,
-	compactCodec,
-	cookieCacheApi,
-	cookieCacheOptionSchema,
-	cookieCacheOptionSchemaFor,
-	createChunkedCookieStore,
-	createCookieCacheApi,
-	getChunkedCookie,
-	getCookieCache,
-	jweCodec,
-	jwtCodec,
-	MAX_COOKIE_CHUNKS,
-	MAX_COOKIE_SIZE,
-	resolveCookieCachePolicy,
-} from "./cookie-cache";
 export type {
 	EncodedError,
 	EncodeErrorOptions,
@@ -207,18 +157,6 @@ export type {
 } from "./router";
 export { collectRoutes, createRouter, NOT_FOUND } from "./router";
 
-/** Options for {@link http} / {@link createHttp}. */
-export type HttpModuleOptions<
-	Policies extends Record<string, CookieCachePreset> = Record<
-		string,
-		CookieCachePreset
-	>,
-> = {
-	cookieCache?: CookieCacheMountConfig & {
-		policies?: Policies;
-	};
-};
-
 const httpModuleBase = {
 	req,
 	res,
@@ -262,97 +200,50 @@ const httpModuleBase = {
 	scalarHTML,
 	openapi,
 	isOpenAPIModule,
-	getCookieCache,
-	createChunkedCookieStore,
-	getChunkedCookie,
-	compactCodec,
-	jwtCodec,
-	jweCodec,
-	codecFor,
-	MAX_COOKIE_SIZE,
-	MAX_COOKIE_CHUNKS,
 } as const;
+
+/** Options for {@link http} / {@link createHttp}. */
+export type HttpModuleOptions = Record<string, never>;
 
 /**
  * Portable return of {@link createHttp} / {@link http}. Named so consumers
- * that export `http({ cookieCache: { policies } })` can emit declarations
- * via `better-call/http` without deep `plugins/.../options.mjs` paths
- * (TS2742 / TS2883).
+ * that export `http()` can emit declarations via `better-call/http`
+ * without deep `plugins/...` paths (TS2742 / TS2883).
  */
-export type HttpModuleOf<
-	Policies extends Record<string, CookieCachePreset> = Record<
-		string,
-		CookieCachePreset
-	>,
-> = typeof httpModuleBase & {
-	httpOptions: HttpOptionsExtension<Extract<keyof Policies, string>>;
-	cookieCache: VarDefination<"cookieCache", CookieCacheApi, undefined, never>;
+export type HttpModuleOf = typeof httpModuleBase & {
+	httpOptions: HttpOptionsExtension;
 };
 
 /**
- * Build an HTTP plugin module. Pass `cookieCache.policies` for named presets
- * and optional `cookieCache.secret` as the mount-wide codec default.
+ * Build an HTTP plugin module.
  *
  * @example
  * ```ts
- * use: [http({
- *   cookieCache: {
- *     secret: secrets,
- *     policies: {
- *       session: { cookieName: "session_data", maxAge: 300 },
- *     },
- *   },
- * })]
+ * use: [http()]
  * ```
  */
-export function createHttp<
-	const Policies extends Record<string, CookieCachePreset> = Record<
-		string,
-		CookieCachePreset
-	>,
->(options?: HttpModuleOptions<Policies>): HttpModuleOf<Policies> {
-	type Aliases = Extract<keyof Policies, string>;
-	const mount: CookieCacheMountConfig = {
-		secret: options?.cookieCache?.secret,
-		policies: options?.cookieCache?.policies,
-	};
-	const api = createCookieCacheApi(mount);
+export function createHttp(_options?: HttpModuleOptions): HttpModuleOf {
 	return {
 		...httpModuleBase,
-		httpOptions: createHttpOptions<Aliases>(),
-		cookieCache: v.var("cookieCache", {
-			default: api,
-		}),
-	} as HttpModuleOf<Policies>;
+		httpOptions: createHttpOptions(),
+	};
 }
 
 export type HttpModule = HttpModuleOf;
 
 /**
- * HTTP plugin: callable for presets (`http({ cookieCache: … })`) and usable
- * bare (`use: [http]`) via assigned default module members.
+ * HTTP plugin: callable (`http()`) and usable bare (`use: [http]`) via
+ * assigned default module members.
  *
- * Prefer `use: [http()]` (or `use: [createHttp({…})]`) when the bare
+ * Prefer `use: [http()]` (or `use: [createHttp()]`) when the bare
  * callable intersection fails to unlock http fn-options under tsc.
  */
 export type Http = import("../../module").Module &
 	HttpModule &
-	(<
-		const Policies extends Record<string, CookieCachePreset> = Record<
-			string,
-			CookieCachePreset
-		>,
-	>(
-		options?: HttpModuleOptions<Policies>,
-	) => HttpModuleOf<Policies>);
+	(() => HttpModuleOf);
 
-function httpFn<
-	const Policies extends Record<string, CookieCachePreset> = Record<
-		string,
-		CookieCachePreset
-	>,
->(options?: HttpModuleOptions<Policies>): HttpModuleOf<Policies> {
-	return createHttp(options);
+function httpFn(_options?: HttpModuleOptions): HttpModuleOf {
+	return createHttp();
 }
 
 const defaultHttp = createHttp();

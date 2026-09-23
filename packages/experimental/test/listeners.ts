@@ -8,15 +8,7 @@ import { http } from "../src/plugins/http";
  * `use` / `requires` (stamped as `$use` / `$requires`).
  */
 const app = v.fn({
-	use: [
-		http({
-			cookieCache: {
-				policies: {
-					session: {},
-				},
-			},
-		}),
-	],
+	use: [http()],
 });
 
 const getSession = app.fn(
@@ -24,7 +16,6 @@ const getSession = app.fn(
 	{
 		path: "/get-session",
 		method: "GET",
-		cookieCache: { name: "session" },
 		use: [
 			{
 				test: v.var(

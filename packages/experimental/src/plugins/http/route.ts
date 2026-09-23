@@ -3,13 +3,6 @@ import { v } from "../../index";
 import { isFn, type Module, type VarExtension } from "../../module";
 import type { InferInput, TypeDefination } from "../../schema";
 import type { LiteralString } from "../../types";
-import {
-	cookieCacheOptionSchema,
-	cookieCacheOptionSchemaFor,
-	type CookieCacheFnOption,
-	type SoftCookieCacheOptionSchema,
-} from "./cookie-cache/options";
-
 /** HTTP methods the router / client understand. */
 export type RouteMethod =
 	| "GET"
@@ -165,14 +158,12 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
 /**
  * Extra `v.fn` option keys unlocked when `http` (or this marker) is in `use`.
  * Prefer `{ path }` over `use: [route({ path, method })]` for new code.
- * `Aliases` soft-types `cookieCache.name` from mount `policies` keys.
  */
-export type HttpOptions<Aliases extends string = string> = {
+export type HttpOptions = {
 	path?: LiteralString;
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
-	cookieCache?: CookieCacheFnOption<Aliases>;
 };
 
 /**
@@ -190,52 +181,43 @@ export const httpOptions = v.extend(fnOptions, {
 	}),
 	invalidate: v.array(v.string(), { optional: true }),
 	status: v.number({ optional: true }),
-	cookieCache: cookieCacheOptionSchema,
 });
 
 /**
  * Portable return of {@link createHttpOptions}. Named so consumers that
- * export `http({ cookieCache: { policies } })` (or the options extension
- * itself) can emit declarations via `better-call/http` without referencing
- * deep `plugins/.../options.mjs` paths (TS2742 / TS2883).
+ * export `http()` (or the options extension itself) can emit declarations
+ * via `better-call/http` without referencing deep `plugins/...` paths
+ * (TS2742 / TS2883).
  */
-export type HttpOptionsExtension<Aliases extends string = string> =
-	VarExtension<
-		"fnOptions",
-		{
-			readonly path: TypeDefination<
-				LiteralString,
-				LiteralString | null | undefined,
-				undefined
-			>;
-			readonly method: TypeDefination<
-				RouteMethod,
-				RouteMethod | null | undefined,
-				undefined
-			>;
-			readonly invalidate: TypeDefination<
-				string[],
-				string[] | null | undefined,
-				undefined
-			>;
-			readonly status: TypeDefination<
-				number,
-				number | null | undefined,
-				undefined
-			>;
-			readonly cookieCache: SoftCookieCacheOptionSchema<Aliases>;
-		},
-		InferInput<typeof fnOptionsSchema>
-	>;
+export type HttpOptionsExtension = VarExtension<
+	"fnOptions",
+	{
+		readonly path: TypeDefination<
+			LiteralString,
+			LiteralString | null | undefined,
+			undefined
+		>;
+		readonly method: TypeDefination<
+			RouteMethod,
+			RouteMethod | null | undefined,
+			undefined
+		>;
+		readonly invalidate: TypeDefination<
+			string[],
+			string[] | null | undefined,
+			undefined
+		>;
+		readonly status: TypeDefination<
+			number,
+			number | null | undefined,
+			undefined
+		>;
+	},
+	InferInput<typeof fnOptionsSchema>
+>;
 
-/**
- * Per-mount httpOptions when `http({ cookieCache: { policies } })` is used.
- * Brands `cookieCache` so `InferArgs` / fn-option IntelliSense soft-types
- * `name` as mount policy aliases (still accepts any string).
- */
-export function createHttpOptions<
-	Aliases extends string = string,
->(): HttpOptionsExtension<Aliases> {
+/** Per-mount httpOptions stamped by {@link createHttp} / {@link http}. */
+export function createHttpOptions(): HttpOptionsExtension {
 	return v.extend(fnOptions, {
 		path: v.string({ literal: true, optional: true }),
 		method: v.string({
@@ -244,6 +226,5 @@ export function createHttpOptions<
 		}),
 		invalidate: v.array(v.string(), { optional: true }),
 		status: v.number({ optional: true }),
-		cookieCache: cookieCacheOptionSchemaFor<Aliases>(),
-	}) as HttpOptionsExtension<Aliases>;
+	}) as HttpOptionsExtension;
 }

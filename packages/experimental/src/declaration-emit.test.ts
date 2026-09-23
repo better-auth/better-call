@@ -167,13 +167,13 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			existsSync(join(root, "dist/index.d.mts")),
 			"dist/index.d.mts missing - run pnpm build in packages/experimental",
 		).toBe(true);
-		// InstanceOn / InstanceResult must be public so emit can name
-		// builders portably (TS2883), including when grant unlocks fnOutput.
+		// Instance / InstanceOn must be public so emit can name
+		// builders portably (TS2883).
 		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
-			/\bInstanceOn\b/,
+			/\bInstance\b/,
 		);
 		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
-			/\bInstanceResult\b/,
+			/\bInstanceOn\b/,
 		);
 
 		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-app-"));
@@ -230,17 +230,16 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			}
 
 			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
-			// Builders carry Base/BaseFns/PL plus stamped $use/$requires (http +
-			// grant use is large) but must stay under TS7056 (~1e6). Soft ceiling
+			// Builders carry Base/BaseFns/PL plus stamped $use/$requires (http
+			// use is large) but must stay under TS7056 (~1e6). Soft ceiling
 			// tracks realistic auth apps (~620KB today).
 			expect(dts.length).toBeLessThan(750_000);
 			expect(dts).toMatch(/export declare const app:/);
-			expect(dts).toMatch(/export declare const adminGrant:/);
 			expect(dts).toMatch(/export declare const signIn:/);
 			// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
-			// With grant mounted, emit must name InstanceResult (not expand
-			// FnOutBound / FnsFrom / Members / UnionToIntersection).
-			expect(dts).toMatch(/import\("better-call"\)\.InstanceResult/);
+			// Emit must name Instance (not expand FnOutBound / FnsFrom /
+			// Members / UnionToIntersection).
+			expect(dts).toMatch(/import\("better-call"\)\.Instance</);
 			expect(dts).not.toMatch(/dist\/fn\.mjs/);
 			expect(dts).not.toMatch(/dist\/module\.mjs/);
 			expect(dts).not.toMatch(/dist\/types\.mjs/);
@@ -252,31 +251,18 @@ describe("declaration emit (TS2883 / package entry)", () => {
 		}
 	});
 
-	it("exports http()/cache() wrappers through package subpaths under node16", () => {
+	it("exports http() wrappers through package subpaths under node16", () => {
 		expect(
 			existsSync(join(root, "dist/http.d.mts")),
 			"dist/http.d.mts missing - run pnpm build in packages/experimental",
 		).toBe(true);
-		expect(
-			existsSync(join(root, "dist/cache.d.mts")),
-			"dist/cache.d.mts missing - run pnpm build in packages/experimental",
-		).toBe(true);
-		// Soft option schemas + module shapes must be public so emit can name
-		// http()/cache() returns portably (TS2742 / TS2883).
+		// Module shape must be public so emit can name http() returns portably
+		// (TS2742 / TS2883).
 		expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
 			/\bHttpModuleOf\b/,
 		);
-		expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
-			/\bSoftCookieCacheOptionSchema\b/,
-		);
-		expect(readFileSync(join(root, "dist/cache.d.mts"), "utf8")).toMatch(
-			/\bCacheModuleOf\b/,
-		);
-		expect(readFileSync(join(root, "dist/cache.d.mts"), "utf8")).toMatch(
-			/\bSoftCacheOptionSchema\b/,
-		);
 
-		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-http-cache-"));
+		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-http-"));
 		try {
 			mkdirSync(join(consumerDir, "node_modules"));
 			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
@@ -305,7 +291,7 @@ describe("declaration emit (TS2883 / package entry)", () => {
 			writeFileSync(
 				join(consumerDir, "package.json"),
 				JSON.stringify({
-					name: "better-call-declaration-emit-http-cache",
+					name: "better-call-declaration-emit-http",
 					private: true,
 					type: "module",
 				}),
@@ -320,7 +306,7 @@ describe("declaration emit (TS2883 / package entry)", () => {
 				const e = err as { stderr?: Buffer; stdout?: Buffer };
 				throw new Error(
 					[
-						"http/cache declaration emit failed:",
+						"http declaration emit failed:",
 						e.stderr?.toString("utf8"),
 						e.stdout?.toString("utf8"),
 					]
@@ -334,12 +320,9 @@ describe("declaration emit (TS2883 / package entry)", () => {
 				"utf8",
 			);
 			expect(dts).toMatch(/export declare const authHttp:/);
-			expect(dts).toMatch(/export declare const authCache:/);
-			// Portable via package subpaths - not deep plugins/.../options.mjs.
+			// Portable via package subpath - not deep plugins/... paths.
 			expect(dts).toMatch(/import\("better-call\/http"\)\.HttpModuleOf/);
-			expect(dts).toMatch(/import\("better-call\/cache"\)\.CacheModuleOf/);
-			expect(dts).not.toMatch(/plugins\/http\/cookie-cache\/options/);
-			expect(dts).not.toMatch(/plugins\/cache\/options/);
+			expect(dts).not.toMatch(/plugins\/http\/cookie-cache/);
 			expect(dts).not.toMatch(/dist\/fn\.mjs/);
 			expect(dts).not.toMatch(/dist\/var\.mjs/);
 			expect(dts).not.toMatch(/dist\/module\.mjs/);
