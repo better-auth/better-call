@@ -161,6 +161,58 @@ describe("$transaction", () => {
 		expect(await store.item.count({ tag: "late" })).toBe(1);
 	});
 
+	it("the commit check uses the same equality as ordinary writes", async () => {
+		const loose = schema("tx_loose", {
+			id: db.id(v.string()),
+			key: db.unique(v.any()),
+		});
+		// What ordinary writes accept: bigints, and values that are
+		// distinct under `===` even when they serialize alike.
+		const accepted = () => [
+			1n,
+			{ a: 1 },
+			{ a: 1 },
+			Number.NaN,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+		];
+		const plain = v.storage(memoryAdapter(), { loose });
+		for (const key of accepted()) await plain.loose.create({ key });
+		expect(await plain.loose.count()).toBe(6);
+		const store = v.storage(memoryAdapter(), { loose });
+		await store.$transaction(async (tx) => {
+			for (const key of accepted()) await tx.loose.create({ key });
+		});
+		expect(await store.loose.count()).toBe(6);
+
+		// What ordinary writes reject, the commit rejects: an equal bigint,
+		// or the very same object, written outside while the block ran.
+		const shared = { b: 1 };
+		for (const [inBlock, outside] of [
+			[2n, 2n],
+			[shared, shared],
+		] as const) {
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let entered!: () => void;
+			const inside = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const running = store.$transaction(async (tx) => {
+				await tx.loose.create({ key: inBlock });
+				entered();
+				await gate;
+			});
+			await inside;
+			await store.loose.create({ key: outside });
+			release();
+			await expect(running).rejects.toBeInstanceOf(UniqueConstraintError);
+		}
+		expect(await store.loose.count()).toBe(8);
+	});
+
 	it("a finished transaction's view refuses further use", async () => {
 		const store = make();
 		let kept!: typeof store;

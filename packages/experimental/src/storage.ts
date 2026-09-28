@@ -330,16 +330,33 @@ const memoryOver = (tables: Tables, meta: Map<string, ModelMeta>) => {
 			if (clash) throw new UniqueConstraintError(model, fields, index);
 		}
 	};
-	/** Throw when two rows of a planned table share a unique tuple. */
+	/** Throw when two rows of a planned table share a unique tuple -
+	 * the SAME equality as {@link checkUnique} (`equals`, i.e. `===` on
+	 * `rawValue`), in one pass: nested Maps key on raw values, and Map's
+	 * SameValueZero matches `===` except for NaN, which `===` never
+	 * equates - so a NaN member, like a null one, never clashes. */
 	const assertUnique = (model: string, list: readonly Row[]) => {
 		for (const { fields, index } of uniqueConstraints(meta.get(model))) {
-			const seen = new Set<string>();
+			const seen = new Map<unknown, unknown>();
 			for (const row of list) {
-				if (fields.some((field) => row[field] == null)) continue;
-				const key = JSON.stringify(fields.map((field) => rawValue(row[field])));
-				if (seen.has(key))
+				const tuple = fields.map((field) => rawValue(row[field]));
+				if (tuple.some((value) => value == null || Number.isNaN(value))) {
+					continue;
+				}
+				let level = seen;
+				for (const value of tuple.slice(0, -1)) {
+					let next = level.get(value) as Map<unknown, unknown> | undefined;
+					if (!next) {
+						next = new Map();
+						level.set(value, next);
+					}
+					level = next;
+				}
+				const last = tuple[tuple.length - 1];
+				if (level.has(last)) {
 					throw new UniqueConstraintError(model, fields, index);
-				seen.add(key);
+				}
+				level.set(last, true);
 			}
 		}
 	};
