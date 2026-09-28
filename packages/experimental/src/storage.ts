@@ -212,7 +212,9 @@ export type Collection<R, N extends string = string, CreateIn = R> = {
  * schema. A unique violation should surface as {@link UniqueConstraintError}.
  */
 export type StorageAdapter = {
-	/** Receive model metadata - called again as storages add models. */
+	/** Receive model metadata - called again as storages add models, and
+	 * possibly more than once per name: merge ({@link mergeModelMeta}),
+	 * don't replace. */
 	setup?: (models: Record<string, ModelMeta>) => void;
 	create: (model: string, data: Record<string, unknown>) => unknown;
 	findOne: (model: string, where: Record<string, unknown>) => unknown;
@@ -328,9 +330,26 @@ const memoryOver = (tables: Tables, meta: Map<string, ModelMeta>) => {
 			if (clash) throw new UniqueConstraintError(model, fields, index);
 		}
 	};
+	/** Throw when two rows of a planned table share a unique tuple. */
+	const assertUnique = (model: string, list: readonly Row[]) => {
+		for (const { fields, index } of uniqueConstraints(meta.get(model))) {
+			const seen = new Set<string>();
+			for (const row of list) {
+				if (fields.some((field) => row[field] == null)) continue;
+				const key = JSON.stringify(fields.map((field) => rawValue(row[field])));
+				if (seen.has(key))
+					throw new UniqueConstraintError(model, fields, index);
+				seen.add(key);
+			}
+		}
+	};
 	const self: StorageAdapter = {
 		setup: (models) => {
-			for (const [name, model] of Object.entries(models)) meta.set(name, model);
+			// Merged, never replaced: two storages (or two extensions of one
+			// model) sharing this adapter must not drop each other's rules.
+			for (const [name, model] of Object.entries(models)) {
+				meta.set(name, mergeModelMeta(meta.get(name), model));
+			}
 		},
 		create: (model, data) => {
 			const row = { ...data };
@@ -403,26 +422,49 @@ const memoryOver = (tables: Tables, meta: Map<string, ModelMeta>) => {
 			const baseRows = new Set(origin.values());
 			// A throw propagates here and the clone is simply dropped.
 			const result = await run(memoryOver(clone, meta));
+			// Commit in two phases: plan every table's final rows, check the
+			// unique constraints against them - writes that landed outside
+			// while the block ran can clash with the block's own - and only
+			// then apply. A clash rolls the whole block back.
+			const plans: {
+				model: string;
+				rows: Row[];
+				changed: [live: Row, copy: Row][];
+			}[] = [];
 			for (const [model, list] of clone) {
-				const kept = new Set<Row>();
+				const kept = new Map<Row, Row>();
 				const appended: Row[] = [];
+				const changed: [Row, Row][] = [];
 				for (const copy of list) {
 					const live = origin.get(copy);
 					if (!live) {
 						appended.push(copy);
 						continue;
 					}
-					kept.add(live);
-					if (rowChanged(start.get(copy) as Row, copy)) {
-						for (const key of Object.keys(live)) delete live[key];
-						Object.assign(live, copy);
-					}
+					const isChanged = rowChanged(start.get(copy) as Row, copy);
+					kept.set(live, isChanged ? copy : live);
+					if (isChanged) changed.push([live, copy]);
 				}
 				// Drop rows the block removed; keep rows created meanwhile.
-				const merged = rows(model).filter(
-					(live) => !baseRows.has(live) || kept.has(live),
+				const planned = rows(model)
+					.filter((live) => !baseRows.has(live) || kept.has(live))
+					.map((live) => kept.get(live) ?? live);
+				plans.push({ model, rows: [...planned, ...appended], changed });
+			}
+			for (const plan of plans) assertUnique(plan.model, plan.rows);
+			for (const { model, rows: planned, changed } of plans) {
+				// Changed rows are rewritten IN PLACE, so references held to
+				// live rows stay valid.
+				const inPlace = new Map<Row, Row>();
+				for (const [live, copy] of changed) {
+					for (const key of Object.keys(live)) delete live[key];
+					Object.assign(live, copy);
+					inPlace.set(copy, live);
+				}
+				tables.set(
+					model,
+					planned.map((row) => inPlace.get(row) ?? row),
 				);
-				tables.set(model, [...merged, ...appended]);
 			}
 			return result;
 		},
@@ -608,6 +650,40 @@ export const resolveModelIndexes = (model: ModelInput): ModelIndex[] => {
 	if (isVar(input)) return indexesFromSchema(input as AnyVar);
 	const config = input as ModelConfig<AnyVar>;
 	return mergeIndexes(indexesFromSchema(config.schema), config.indexes);
+};
+
+/**
+ * Combine two registrations of one model name - two extensions of a
+ * model, or two storages over one adapter. Constraints only ACCUMULATE:
+ * field facts merge per field (a later explicit `false` still wins), the
+ * indexes are combined, and object schemas combine their fields, so no
+ * view's unique rule is dropped by another's. Adapters whose `setup` runs
+ * more than once for a name should merge with this too.
+ */
+export const mergeModelMeta = (
+	previous: ModelMeta | undefined,
+	next: ModelMeta,
+): ModelMeta => {
+	if (!previous || previous === next) return next;
+	const fields: Record<string, FieldMeta> = { ...previous.fields };
+	for (const [field, meta] of Object.entries(next.fields)) {
+		fields[field] = { ...fields[field], ...meta };
+	}
+	const shapeOf = (schema: unknown) => {
+		const type = asType(schema ?? {});
+		return type.name === "object" && type.shape !== undefined
+			? (type.shape as Record<string, unknown>)
+			: undefined;
+	};
+	const before = shapeOf(previous.schema);
+	const after = shapeOf(next.schema);
+	return {
+		name: next.name,
+		schema:
+			before && after ? vTypes.object({ ...before, ...after }) : next.schema,
+		fields,
+		indexes: mergeIndexes(previous.indexes, next.indexes),
+	};
 };
 
 /** Everything {@link StorageAdapter.setup} receives for one model. */
@@ -813,7 +889,7 @@ const metaByName = (models: StorageModels): Record<string, ModelMeta> => {
 				(input as ModelConfig).indexes ?? [],
 			);
 		}
-		out[meta.name] = meta;
+		out[meta.name] = mergeModelMeta(out[meta.name], meta);
 	}
 	return out;
 };
@@ -1012,6 +1088,8 @@ type StorageState = {
 type TxFrame = {
 	adapter: StorageAdapter;
 	afterCommit: (() => Promise<void>)[];
+	/** Set once the block settles - the frame never routes ops again. */
+	done?: boolean;
 };
 
 /* ------------------------------- transactions ------------------------------- */
@@ -1116,10 +1194,31 @@ const isThenable = (value: unknown): value is Promise<unknown> =>
 	value !== null &&
 	typeof (value as { then?: unknown } | undefined)?.then === "function";
 
-/** The adapter a view's ops hit right now: its own transaction, the
- * ambient one, else the storage's. */
-const activeFrame = (state: StorageState, frame: TxFrame | undefined) =>
-	frame ?? ambientFrame(state);
+/** A `$transaction` view was used after its block settled. */
+export class TransactionClosedError extends Error {
+	constructor() {
+		super(
+			"storage: this transaction has already committed or rolled back - use the storage, not the finished transaction's view",
+		);
+		this.name = "TransactionClosedError";
+	}
+}
+
+/** The transaction a view's ops run in right now: its own - which must
+ * still be open - else the ambient one while it is open. A task that
+ * outlives its block (started inside, still running after) falls back to
+ * the live adapter instead of writing to a finished transaction. */
+const activeFrame = (
+	state: StorageState,
+	frame: TxFrame | undefined,
+): TxFrame | undefined => {
+	if (frame) {
+		if (frame.done) throw new TransactionClosedError();
+		return frame;
+	}
+	const ambient = ambientFrame(state);
+	return ambient?.done ? undefined : ambient;
+};
 
 const buildStorage = <M extends StorageModels>(
 	state: StorageState,
@@ -1140,10 +1239,11 @@ const buildStorage = <M extends StorageModels>(
 		prepare?: (data: Row) => Row | Promise<Row>,
 	) => {
 		const base = () => {
-			const adapter = activeFrame(state, frame)?.adapter ?? state.adapter;
-			// A sync adapter's throw (a unique violation) still rejects.
+			// A sync throw here (a unique violation, a finished
+			// transaction) still rejects.
 			const call = (list: unknown[]) => {
 				try {
+					const adapter = activeFrame(state, frame)?.adapter ?? state.adapter;
 					return Promise.resolve(rawOp(adapter, name, op, list));
 				} catch (thrown) {
 					return Promise.reject(thrown);
@@ -1271,8 +1371,17 @@ const buildStorage = <M extends StorageModels>(
 			// (and mount) inside exactly as outside.
 			const inside = (adapter: StorageAdapter): Promise<T> => {
 				const txFrame: TxFrame = { adapter, afterCommit };
-				const body = () =>
-					Promise.resolve(fn(buildStorage(state, models, txFrame)));
+				const body = () => {
+					let settled: Promise<T>;
+					try {
+						settled = Promise.resolve(fn(buildStorage(state, models, txFrame)));
+					} catch (thrown) {
+						settled = Promise.reject(thrown);
+					}
+					return settled.finally(() => {
+						txFrame.done = true;
+					});
+				};
 				if (!als) return body();
 				const store: TxStore = new Map(als.getStore());
 				store.set(state, txFrame);
@@ -1312,7 +1421,8 @@ const buildStorage = <M extends StorageModels>(
 			if (!active) return execute();
 			active.afterCommit.push(execute);
 		},
-		$inTransaction: () => activeFrame(state, frame) !== undefined,
+		$inTransaction: () =>
+			frame ? !frame.done : activeFrame(state, undefined) !== undefined,
 		$models: resolveModels(models),
 	} as StorageApi<M>) as Storage<M>;
 	return self;
@@ -1320,8 +1430,11 @@ const buildStorage = <M extends StorageModels>(
 
 /** Record models on the state and tell the adapter. */
 const declareModels = (state: StorageState, models: StorageModels) => {
-	const added = metaByName(models);
-	Object.assign(state.meta, added);
+	const added: Record<string, ModelMeta> = {};
+	for (const [name, meta] of Object.entries(metaByName(models))) {
+		added[name] = mergeModelMeta(state.meta[name], meta);
+		state.meta[name] = added[name];
+	}
 	state.adapter.setup?.(added);
 };
 

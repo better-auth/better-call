@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { memoryAdapter, type StorageAdapter, v } from "./index";
+import {
+	memoryAdapter,
+	type StorageAdapter,
+	TransactionClosedError,
+	UniqueConstraintError,
+	v,
+} from "./index";
 import { db, schema } from "./plugins/db";
 
 const item = schema("tx_item", {
@@ -99,6 +105,122 @@ describe("$transaction", () => {
 			}),
 		).rejects.toMatchObject({ name: "UniqueConstraintError" });
 		expect(await store.item.count()).toBe(0);
+	});
+
+	it("a commit that would clash with a concurrent write rolls back", async () => {
+		const store = make();
+		await store.item.create({ tag: "free" });
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let entered!: () => void;
+		const inside = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const running = store.$transaction(async (tx) => {
+			await tx.item.create({ tag: "taken" });
+			await tx.item.update({ tag: "free" }, { tag: "renamed" });
+			await tx.item.create({ tag: "other" });
+			entered();
+			await gate;
+		});
+		await inside;
+		// Both unique values are free on the live table while the block
+		// is paused, so these land.
+		await store.item.create({ tag: "taken" });
+		await store.item.create({ tag: "renamed" });
+		release();
+		await expect(running).rejects.toBeInstanceOf(UniqueConstraintError);
+		// Nothing of the block applied - no duplicates, no partial commit.
+		expect((await store.item.findMany()).map((row) => row.tag).sort()).toEqual([
+			"free",
+			"renamed",
+			"taken",
+		]);
+
+		// The clash can also come from the block's UPDATE alone.
+		let go!: () => void;
+		const wait = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		let paused!: () => void;
+		const atGate = new Promise<void>((resolve) => {
+			paused = resolve;
+		});
+		const updating = store.$transaction(async (tx) => {
+			await tx.item.update({ tag: "free" }, { tag: "late" });
+			paused();
+			await wait;
+		});
+		await atGate;
+		await store.item.create({ tag: "late" });
+		go();
+		await expect(updating).rejects.toMatchObject({ fields: ["tag"] });
+		expect(await store.item.findOne({ tag: "free" })).not.toBeNull();
+		expect(await store.item.count({ tag: "late" })).toBe(1);
+	});
+
+	it("a finished transaction's view refuses further use", async () => {
+		const store = make();
+		let kept!: typeof store;
+		await store.$transaction(async (tx) => {
+			kept = tx;
+			expect(tx.$inTransaction()).toBe(true);
+			await tx.item.create({ tag: "in" });
+		});
+		expect(kept.$inTransaction()).toBe(false);
+		await expect(kept.item.create({ tag: "after" })).rejects.toBeInstanceOf(
+			TransactionClosedError,
+		);
+		await expect(kept.item.findMany()).rejects.toBeInstanceOf(
+			TransactionClosedError,
+		);
+		await expect(kept.$afterCommit(() => {})).rejects.toBeInstanceOf(
+			TransactionClosedError,
+		);
+		await expect(kept.$transaction(async () => {})).rejects.toBeInstanceOf(
+			TransactionClosedError,
+		);
+		// Nothing was lost to a dead clone: only the committed row exists.
+		expect((await store.item.findMany()).map((row) => row.tag)).toEqual(["in"]);
+
+		// Same after a rollback.
+		let rolled!: typeof store;
+		await expect(
+			store.$transaction(async (tx) => {
+				rolled = tx;
+				throw new Error("undo");
+			}),
+		).rejects.toThrow("undo");
+		await expect(rolled.item.count()).rejects.toBeInstanceOf(
+			TransactionClosedError,
+		);
+	});
+
+	it("a task that outlives its block writes to the live adapter", async () => {
+		const store = make();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let late!: Promise<unknown>;
+		await store.$transaction(async (tx) => {
+			await tx.item.create({ tag: "in" });
+			// Fire-and-forget: carries the block's ambient context, but runs
+			// its write after the commit.
+			late = (async () => {
+				await gate;
+				expect(store.$inTransaction()).toBe(false);
+				return store.item.create({ tag: "late" });
+			})();
+		});
+		release();
+		await late;
+		expect((await store.item.findMany()).map((row) => row.tag).sort()).toEqual([
+			"in",
+			"late",
+		]);
 	});
 
 	it("ops on the OUTER storage inside the block join the transaction", async () => {

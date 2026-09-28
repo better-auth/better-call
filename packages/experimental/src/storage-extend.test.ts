@@ -2,7 +2,9 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	type Collection,
 	isVarExtension,
+	type ModelMeta,
 	memoryAdapter,
+	mergeModelMeta,
 	resolveModelFields,
 	resolveModelIndexes,
 	UniqueConstraintError,
@@ -203,6 +205,85 @@ describe("v.extend carries the model's attrs", () => {
 				{ indexes: [{ fields: ["nick"], unique: true }] },
 			),
 		).toThrow(/required fields/);
+	});
+
+	it("a second extension of a model adds constraints, never drops them", async () => {
+		const withHandle = v.extend(user, { handle: db.unique(v.string()) });
+		const withEmail = v.extend(user, { email: db.unique(v.string()) });
+		const first = v.storage(memoryAdapter(), { user: withHandle });
+		// Same model name, different extension: registering it must not
+		// replace the handle rule the first view relies on.
+		const both = first.$extend({ alt: withEmail });
+		await first.user.create({ name: "A", handle: "h" });
+		await expect(
+			first.user.create({ name: "B", handle: "h" }),
+		).rejects.toMatchObject({ fields: ["handle"] });
+		await both.alt.create({ name: "C", email: "c@x.dev" });
+		await expect(
+			both.alt.create({ name: "D", email: "c@x.dev" }),
+		).rejects.toMatchObject({ fields: ["email"] });
+
+		// Two keys naming one model in a single storage merge as well.
+		const twin = v.storage(memoryAdapter(), {
+			user: withHandle,
+			alt: withEmail,
+		});
+		await twin.user.create({ name: "A", handle: "h" });
+		await expect(
+			twin.user.create({ name: "B", handle: "h" }),
+		).rejects.toBeInstanceOf(UniqueConstraintError);
+	});
+
+	it("storages sharing an adapter keep each other's constraints", async () => {
+		const adapter = memoryAdapter();
+		const withHandle = v.extend(user, { handle: db.unique(v.string()) });
+		const withEmail = v.extend(user, { email: db.unique(v.string()) });
+		const a = v.storage(adapter, { user: withHandle });
+		v.storage(adapter, { user: withEmail });
+		await a.user.create({ name: "A", handle: "h" });
+		await expect(
+			a.user.create({ name: "B", handle: "h" }),
+		).rejects.toMatchObject({ fields: ["handle"] });
+	});
+
+	it("mergeModelMeta unions fields, indexes and schema shapes", () => {
+		const meta = (over: Partial<ModelMeta>): ModelMeta => ({
+			name: "m",
+			schema: v.object({ a: v.string() }),
+			fields: {},
+			indexes: [],
+			...over,
+		});
+		const merged = mergeModelMeta(
+			meta({
+				fields: { a: { unique: true } },
+				indexes: [{ fields: ["a"] }],
+			}),
+			meta({
+				schema: v.object({ b: v.string() }),
+				fields: { a: { index: true }, b: { unique: true } },
+				indexes: [{ fields: ["a"] }, { fields: ["b"], unique: true }],
+			}),
+		);
+		expect(merged.fields).toEqual({
+			a: { unique: true, index: true },
+			b: { unique: true },
+		});
+		expect(merged.indexes).toEqual([
+			{ fields: ["a"] },
+			{ fields: ["b"], unique: true },
+		]);
+		expect(Object.keys((merged.schema as { shape: object }).shape)).toEqual([
+			"a",
+			"b",
+		]);
+		// An explicit later `false` still wins for that fact.
+		expect(
+			mergeModelMeta(
+				meta({ fields: { a: { unique: true } } }),
+				meta({ fields: { a: { unique: false } } }),
+			).fields.a,
+		).toEqual({ unique: false });
 	});
 
 	it("a mounted extension with attrs still widens a base storage in scope", async () => {
