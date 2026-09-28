@@ -737,6 +737,28 @@ export type VarExtensionArgsFor<PL, K extends string> = [
 	? unknown
 	: UnionToIntersection<VarExtArgsEntry<Members<PL>, K>>;
 
+type VarExtCreateEntry<M, K extends string> =
+	M extends VarExtension<K, infer S>
+		? InferArgs<S>
+		: M extends unknown
+			? {
+					[P in keyof M]: M[P] extends VarExtension<K, infer S>
+						? InferArgs<S>
+						: never;
+				}[keyof M]
+			: never;
+
+/**
+ * What a STORAGE `create` takes for the fields extensions mount on model
+ * `K`: args (defaulted fields omittable), but server-side - `noInput`
+ * fields stay, since only wire callers are barred from sending them.
+ */
+export type VarExtensionCreateArgsFor<PL, K extends string> = [
+	VarExtCreateEntry<Members<PL>, K>,
+] extends [never]
+	? unknown
+	: UnionToIntersection<VarExtCreateEntry<Members<PL>, K>>;
+
 /** The args side of every VAR named `K` a module set declares - a
  * `customize`d re-export shadows by NAME, so mounting it counts as a
  * declaration about the same var. Schema-less vars contribute nothing. */

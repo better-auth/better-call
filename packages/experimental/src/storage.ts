@@ -606,7 +606,7 @@ export const indexesFromSchema = (sv: AnyVar): ModelIndex[] => [
 export const resolveModelIndexes = (model: ModelInput): ModelIndex[] => {
 	const input = asModelInput(model);
 	if (isVar(input)) return indexesFromSchema(input as AnyVar);
-	const config = input as ModelConfig;
+	const config = input as ModelConfig<AnyVar>;
 	return mergeIndexes(indexesFromSchema(config.schema), config.indexes);
 };
 
@@ -650,7 +650,7 @@ export const resolveModelFields = (
 		const fromSchema = fieldsFromSchema(input as AnyVar);
 		return Object.keys(fromSchema).length > 0 ? fromSchema : undefined;
 	}
-	const config = input as ModelConfig;
+	const config = input as ModelConfig<AnyVar>;
 	const fromSchema = fieldsFromSchema(config.schema);
 	const override = config.fields ?? {};
 	const merged: Record<string, FieldMeta> = { ...fromSchema };
@@ -762,13 +762,13 @@ export const modelOfExtension = (
 };
 
 /** Extensions become model vars - bare or as a `ModelConfig.schema`. */
-const asModelInput = (input: ModelInput): AnyVar | ModelConfig => {
+const asModelInput = (input: ModelInput): AnyVar | ModelConfig<AnyVar> => {
 	if (isVarExtension(input)) return modelOfExtension(input);
 	const schema = (input as { schema?: unknown }).schema;
 	if (!isVar(input) && isVarExtension(schema)) {
 		return { ...(input as ModelConfig), schema: modelOfExtension(schema) };
 	}
-	return input as AnyVar | ModelConfig;
+	return input as AnyVar | ModelConfig<AnyVar>;
 };
 
 const normalizeModels = <M extends StorageModels>(models: M): M =>
@@ -828,39 +828,47 @@ type SubscriptionEntries = OnEntry<string> | readonly OnEntry<string>[];
  * entries that mount wherever the storage does (`use: [db]`). An
  * already-built entry works in place of the fn.
  */
-export type ModelConfig<SV extends AnyVar = AnyVar> = {
+export type ModelConfig<SV extends ModelVarLike = ModelVarLike> = {
+	/** The model var - or a `v.extend` of one (its fields plus the
+	 * extension's). */
 	schema: SV;
 	fields?: {
-		[F in keyof NonNullable<ValueOfVar<SV>>]?: FieldMeta;
+		[F in keyof RowOfModel<SV>]?: FieldMeta;
 	};
 	/** Table-level indexes, added to those the var declares. */
 	indexes?: readonly ModelIndex[];
 } & {
 	[Op in StorageOp]?:
-		| ((
-				action: Collection<NonNullable<ValueOfVar<SV>>>[Op],
-		  ) => SubscriptionEntries)
+		| ((action: Collection<RowOfModel<SV>>[Op]) => SubscriptionEntries)
 		| SubscriptionEntries;
 };
 
 type AnyExtension = VarExtension<string, any, any, any>;
 
-/** A model is a bare var, a `v.extend` of one (its fields plus the
- * extension's), or a config carrying the var as `schema`. */
-type ModelInput = AnyVar | AnyExtension | ModelConfig;
+/** What can stand for a model's shape: a var, or a `v.extend` of one. */
+type ModelVarLike = AnyVar | AnyExtension;
 
-/** The var behind a model input. Checked through `$var`, never `schema` -
- * a bare var also HAS a `schema` property (its type shape). */
+/** A model is a bare var, a `v.extend` of one (its fields plus the
+ * extension's), or a config carrying either as `schema`. */
+type ModelInput = ModelVarLike | ModelConfig;
+
+/** The var (or extension) behind a model input. Checked through `$var` /
+ * `$varExtend`, never `schema` - both ALSO have a `schema` property. */
 type SchemaOf<T> = T extends { $var: true }
 	? T
-	: T extends { schema: infer SV }
-		? SV
-		: never;
+	: T extends { $varExtend: true }
+		? T
+		: T extends { schema: infer SV }
+			? SV
+			: never;
 
-type RowOf<T> =
-	T extends VarExtension<any, infer S, infer B, any>
+/** The row a var or extension describes. */
+type RowOfModel<V> =
+	V extends VarExtension<any, infer S, infer B, any>
 		? Prettify<NonNullable<B> & InferInput<S>>
-		: NonNullable<ValueOfVar<SchemaOf<T>>>;
+		: NonNullable<ValueOfVar<V>>;
+
+type RowOf<T> = RowOfModel<SchemaOf<T>>;
 
 /** The var's object schema - what create validates / default-fills against. */
 type ModelSchemaOf<T> =
@@ -868,7 +876,7 @@ type ModelSchemaOf<T> =
 
 /** Create payload: InferArgs so `db.id` / other defaults are omittable. */
 type CreateInputOf<T> =
-	T extends VarExtension<any, infer S, any, infer BS>
+	SchemaOf<T> extends VarExtension<any, infer S, any, infer BS>
 		? Prettify<InferArgs<NonNullable<BS>> & InferArgs<S>>
 		: [ModelSchemaOf<T>] extends [never]
 			? RowOf<T>
@@ -876,7 +884,7 @@ type CreateInputOf<T> =
 
 /** Declared name of the var behind a model input - brands the collection. */
 type ModelVarName<T> =
-	T extends VarExtension<infer N, any, any, any>
+	SchemaOf<T> extends VarExtension<infer N, any, any, any>
 		? N
 		: NameOfVar<SchemaOf<T>> & string;
 

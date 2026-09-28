@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+	type Collection,
 	isVarExtension,
 	memoryAdapter,
 	resolveModelFields,
@@ -100,12 +101,30 @@ describe("v.extend carries the model's attrs", () => {
 			bare.user.create({ name: "B", email: "same@x.dev" }),
 		).rejects.toBeInstanceOf(UniqueConstraintError);
 		const configured = v.storage(memoryAdapter(), {
-			user: { schema: userWithEmail as never },
+			user: {
+				schema: userWithEmail,
+				// Keyed by the combined row - base and extension fields.
+				fields: { name: { index: true } },
+			},
 		});
-		await configured.user.create({ name: "A", email: "same@x.dev" } as never);
+		expect(resolveModelFields(configured.$models.user)).toMatchObject({
+			name: { index: true },
+			email: { unique: true },
+		});
+		const made = await configured.user.create({
+			name: "A",
+			email: "same@x.dev",
+		});
+		expectTypeOf(made.email).toEqualTypeOf<string>();
+		expectTypeOf(made.emailVerified).toEqualTypeOf<boolean>();
 		await expect(
-			configured.user.create({ name: "B", email: "same@x.dev" } as never),
+			configured.user.create({ name: "B", email: "same@x.dev" }),
 		).rejects.toBeInstanceOf(UniqueConstraintError);
+		// Op subscriptions mount off an extension model too.
+		const subscribed = v.storage(memoryAdapter(), {
+			user: { schema: userWithEmail, create: () => [] },
+		});
+		expect(subscribed.user).toBeDefined();
 	});
 
 	it("composite indexes survive an extend", async () => {
@@ -193,14 +212,30 @@ describe("v.extend carries the model's attrs", () => {
 		const run = v.fn(
 			{ use: [{ user, userWithEmail, db: store }] },
 			async (c) => {
-				// Scope widening types extension fields as INPUT, so the
-				// defaulted `emailVerified` is still required here.
+				// Defaulted extension fields (`emailVerified`) are omittable;
+				// required ones (`email`) are not - even though both are
+				// `noInput`, which only bars wire callers.
 				const created = await c.db.user.create({
 					name: "Ada",
 					email: "a@x.dev",
-					emailVerified: false,
 				});
 				expectTypeOf(created.email).toEqualTypeOf<string>();
+				expectTypeOf(created.emailVerified).toEqualTypeOf<boolean>();
+				type CreateIn =
+					typeof c.db.user extends Collection<any, any, infer C> ? C : never;
+				expectTypeOf<CreateIn>().toEqualTypeOf<{
+					id?: string | undefined;
+					name: string;
+					image?: string | null | undefined;
+					createdAt?: Date | undefined;
+					updatedAt?: Date | undefined;
+					email: string;
+					emailVerified?: boolean | undefined;
+				}>();
+				if (false as boolean) {
+					// @ts-expect-error - `email` has no default.
+					await c.db.user.create({ name: "No email" });
+				}
 				return c.db.user.findOne({ email: "a@x.dev" });
 			},
 		);
