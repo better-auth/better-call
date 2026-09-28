@@ -14,10 +14,10 @@ import {
 } from "./var";
 
 /** `v.extend`: vars gain fields; events gain kinds. */
-function extend<N extends LiteralString, S, BaseT>(
-	target: VarDefination<N, BaseT, any, any>,
+function extend<N extends LiteralString, S, BaseT, BaseS>(
+	target: VarDefination<N, BaseT, BaseS, any>,
 	schema: S,
-): import("./module").VarExtension<N, S, BaseT>;
+): import("./module").VarExtension<N, S, BaseT, BaseS>;
 function extend<N extends LiteralString, S>(
 	target: N,
 	schema: S,
@@ -224,9 +224,9 @@ export {
 	type Module,
 	type ModuleFns,
 	type ModuleVars,
-	type UseEntry,
 	type OnDefaultContext,
 	type OnEntry,
+	type UseEntry,
 	type VarExtension,
 	type VarExtensionArgsFor,
 	type VarExtensionsFor,
@@ -273,15 +273,24 @@ export type {
 export {
 	type Collection,
 	type Condition,
+	checkModelIndexes,
 	conditionsOf,
 	type FieldMeta,
 	type FindManyOptions,
 	fieldsFromSchema,
+	indexesFromSchema,
 	isStorage,
 	type ModelConfig,
+	type ModelIndex,
+	type ModelMeta,
 	matchesWhere,
 	memoryAdapter,
+	mergeModelMeta,
+	modelIndexName,
+	modelOfExtension,
 	resolveModelFields,
+	resolveModelIndexes,
+	resolveModelMeta,
 	type Storage,
 	type StorageAdapter,
 	type StorageApi,
@@ -290,6 +299,8 @@ export {
 	type StorageModels,
 	type StorageOp,
 	type StorageTarget,
+	TransactionClosedError,
+	UniqueConstraintError,
 	type Where,
 	type WhereOp,
 	type WhereOps,

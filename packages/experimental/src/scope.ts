@@ -1,4 +1,9 @@
-import type { ModuleVars, VarArgsInScope, VarExtensionsFor } from "./module";
+import type {
+	ModuleVars,
+	VarArgsInScope,
+	VarExtensionCreateArgsFor,
+	VarExtensionsFor,
+} from "./module";
 import type { Collection } from "./storage";
 import type { Prettify } from "./types";
 import type { VarDefination } from "./var";
@@ -59,9 +64,17 @@ type WidenCollection<T, PL> =
 			: Collection<
 					RowInScope<R, PL, N & string>,
 					N & string,
-					// Keep omittable defaults (e.g. db.id); require only newly
-					// extended keys the scope added on top of R.
-					Prettify<CreateIn & Omit<RowInScope<R, PL, N & string>, keyof R>>
+					// Keep omittable defaults (e.g. db.id). Extension fields
+					// come in as args, so their defaults are omittable too;
+					// other keys the scope adds (customize shadows) are required.
+					Prettify<
+						CreateIn &
+							VarExtensionCreateArgsFor<PL, N & string> &
+							Omit<
+								RowInScope<R, PL, N & string>,
+								keyof R | keyof VarExtensionCreateArgsFor<PL, N & string>
+							>
+					>
 				>
 		: T;
 

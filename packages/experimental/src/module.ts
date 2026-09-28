@@ -647,12 +647,16 @@ export function on(
 
 /* ----------------------------- var extension ------------------------------ */
 
-export type VarExtension<N extends string, S, BaseT = unknown> = {
+export type VarExtension<N extends string, S, BaseT = unknown, BaseS = any> = {
 	$varExtend: true;
 	name: N;
 	schema: S;
 	/** The var being extended, when handed by reference. */
-	base?: VarDefination<N, BaseT, any, any>;
+	base?: VarDefination<N, BaseT, BaseS, any>;
+	/** The base var's whole-var attrs (`db.model`, `db.indexes`, ...),
+	 * carried over so plugins read an extension like the var it widens.
+	 * `withAttrs(extension, ns, attrs)` merges more in. */
+	$attrs?: Record<string, Record<string, unknown>>;
 };
 
 export const isVarExtension = (
@@ -669,10 +673,10 @@ export const isVarExtension = (
  * the extension brings the var itself, merged by its declared key - no
  * need to also mount the base var.
  */
-export function extendVar<N extends LiteralString, S, BaseT>(
-	target: VarDefination<N, BaseT, any, any>,
+export function extendVar<N extends LiteralString, S, BaseT, BaseS>(
+	target: VarDefination<N, BaseT, BaseS, any>,
 	schema: S,
-): VarExtension<N, S, BaseT>;
+): VarExtension<N, S, BaseT, BaseS>;
 export function extendVar<N extends LiteralString, S>(
 	target: N,
 	schema: S,
@@ -681,9 +685,17 @@ export function extendVar(
 	target: VarDefination<string, any, any, any> | string,
 	schema: any,
 ): VarExtension<string, any, any> {
-	return typeof target === "string"
-		? { $varExtend: true, name: target, schema }
-		: { $varExtend: true, name: target.name, schema, base: target };
+	if (typeof target === "string")
+		return { $varExtend: true, name: target, schema };
+	const attrs = (target as { $attrs?: VarExtension<string, any>["$attrs"] })
+		.$attrs;
+	return {
+		$varExtend: true,
+		name: target.name,
+		schema,
+		base: target,
+		...(attrs ? { $attrs: attrs } : {}),
+	};
 }
 
 type VarExtEntry<M, K extends string> =
@@ -724,6 +736,28 @@ export type VarExtensionArgsFor<PL, K extends string> = [
 ] extends [never]
 	? unknown
 	: UnionToIntersection<VarExtArgsEntry<Members<PL>, K>>;
+
+type VarExtCreateEntry<M, K extends string> =
+	M extends VarExtension<K, infer S>
+		? InferArgs<S>
+		: M extends unknown
+			? {
+					[P in keyof M]: M[P] extends VarExtension<K, infer S>
+						? InferArgs<S>
+						: never;
+				}[keyof M]
+			: never;
+
+/**
+ * What a STORAGE `create` takes for the fields extensions mount on model
+ * `K`: args (defaulted fields omittable), but server-side - `noInput`
+ * fields stay, since only wire callers are barred from sending them.
+ */
+export type VarExtensionCreateArgsFor<PL, K extends string> = [
+	VarExtCreateEntry<Members<PL>, K>,
+] extends [never]
+	? unknown
+	: UnionToIntersection<VarExtCreateEntry<Members<PL>, K>>;
 
 /** The args side of every VAR named `K` a module set declares - a
  * `customize`d re-export shadows by NAME, so mounting it counts as a
