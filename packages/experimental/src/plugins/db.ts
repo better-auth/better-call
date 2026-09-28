@@ -1,5 +1,6 @@
 import { v } from "..";
 import { createRandomStringGenerator } from "../helpers/random";
+import type { VarExtension } from "../module";
 import {
 	attrsOf,
 	type DefineOutput,
@@ -11,7 +12,12 @@ import {
 	type TypeDefination,
 	withAttrs,
 } from "../schema";
-import { checkModelIndexes, type ModelIndex } from "../storage";
+import {
+	checkModelIndexes,
+	indexesFromSchema,
+	type ModelIndex,
+	modelOfExtension,
+} from "../storage";
 import type { LiteralString } from "../types";
 import type { VarDefination } from "../var";
 
@@ -123,11 +129,42 @@ export const schema = <N extends LiteralString, S>(
 	}) as ModelVar<N, S>;
 };
 
+/**
+ * `v.extend(model, fields)` plus model-level facts the extension adds -
+ * Better Auth plugins adding an index over fields they contribute. Indexes
+ * may name base and extension fields; they are validated against the
+ * combined shape and APPENDED to the base model's. The result is a plain
+ * `v.extend` value: mount it to widen the model, or hand it to
+ * `v.storage` as the model itself.
+ */
+export const extend = <N extends LiteralString, BaseT, BaseS, S>(
+	model: VarDefination<N, BaseT, BaseS, any>,
+	fields: S,
+	options?: {
+		indexes?: readonly (Omit<ModelIndex, "fields"> & {
+			fields: readonly [ExtendField<BaseT, S>, ...ExtendField<BaseT, S>[]];
+		})[];
+	},
+): VarExtension<N, S, BaseT, BaseS> => {
+	const extension = v.extend(model, fields);
+	const added = (options?.indexes ?? []) as readonly ModelIndex[];
+	if (added.length === 0) return extension;
+	checkModelIndexes(model.name, modelOfExtension(extension).schema, added);
+	return withAttrs(extension, "db", {
+		indexes: [...indexesFromSchema(model), ...added],
+	});
+};
+
+type ExtendField<BaseT, S> =
+	| (keyof NonNullable<BaseT> & string)
+	| (S extends TypeDefination<any, any, any> ? string : keyof S & string);
+
 export const db = {
 	unique,
 	indexed,
 	references,
 	id,
 	schema,
+	extend,
 	isModel,
 };

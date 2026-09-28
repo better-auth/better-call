@@ -1,9 +1,29 @@
 import { captureCallerStack, ValidationError } from "./error";
 import { createRandomStringGenerator } from "./helpers/random";
-import { matchesTarget, type OnEntry } from "./module";
-import { asType, attrsOf, type InferArgs, isVar, validate } from "./schema";
+import {
+	isVarExtension,
+	matchesTarget,
+	type OnEntry,
+	type VarExtension,
+} from "./module";
+import {
+	asType,
+	attrsOf,
+	type InferArgs,
+	type InferInput,
+	isType,
+	isVar,
+	validate,
+	vTypes,
+	withAttrs,
+} from "./schema";
 import type { Prettify } from "./types";
-import type { NameOfVar, ValueOfVar, VarDefination } from "./var";
+import {
+	makeVar,
+	type NameOfVar,
+	type ValueOfVar,
+	type VarDefination,
+} from "./var";
 
 const mintStorageId = createRandomStringGenerator("a-z", "A-Z", "0-9");
 
@@ -583,14 +603,16 @@ export const indexesFromSchema = (sv: AnyVar): ModelIndex[] => [
 ];
 
 /** The var's indexes plus `ModelConfig.indexes`, deduplicated. */
-export const resolveModelIndexes = (input: ModelInput): ModelIndex[] => {
+export const resolveModelIndexes = (model: ModelInput): ModelIndex[] => {
+	const input = asModelInput(model);
 	if (isVar(input)) return indexesFromSchema(input as AnyVar);
 	const config = input as ModelConfig;
 	return mergeIndexes(indexesFromSchema(config.schema), config.indexes);
 };
 
 /** Everything {@link StorageAdapter.setup} receives for one model. */
-export const resolveModelMeta = (input: ModelInput): ModelMeta => {
+export const resolveModelMeta = (model: ModelInput): ModelMeta => {
+	const input = asModelInput(model);
 	const def = (isVar(input) ? input : (input as ModelConfig).schema) as {
 		name: string;
 	};
@@ -621,8 +643,9 @@ export const fieldsFromSchema = (sv: AnyVar): Record<string, FieldMeta> => {
  * when present (compat override).
  */
 export const resolveModelFields = (
-	input: ModelInput,
+	model: ModelInput,
 ): Record<string, FieldMeta> | undefined => {
+	const input = asModelInput(model);
 	if (isVar(input)) {
 		const fromSchema = fieldsFromSchema(input as AnyVar);
 		return Object.keys(fromSchema).length > 0 ? fromSchema : undefined;
@@ -700,6 +723,59 @@ const schemaOfModel = (input: ModelInput): unknown => {
 	return (def as { schema?: unknown }).schema;
 };
 
+/** One model var per extension, so every read of it sees the same var. */
+const extensionModels = new WeakMap<object, AnyVar>();
+
+/**
+ * A `v.extend(model, fields)` value as a model: ONE var named like the
+ * base, whose object schema is the base's fields plus the extension's
+ * (extension wins on a clash), carrying the extension's whole-var attrs -
+ * the base's `db.model` / `db.indexes` plus whatever `db.extend` added.
+ * Per-field attrs (`db.unique`, `db.indexed`, ...) ride on the fields.
+ */
+export const modelOfExtension = (
+	extension: VarExtension<string, any, any, any>,
+): AnyVar => {
+	const cached = extensionModels.get(extension);
+	if (cached) return cached;
+	const shapeOf = (schema: unknown): Record<string, unknown> => {
+		if (schema === undefined || schema === null) return {};
+		if (!isType(schema)) return schema as Record<string, unknown>;
+		const type = asType(schema);
+		return type.name === "object"
+			? ((type.shape ?? {}) as Record<string, unknown>)
+			: {};
+	};
+	const base = extension.base as { schema?: unknown } | undefined;
+	let model = makeVar(extension.name, {
+		default: null,
+		schema: vTypes.object({
+			...shapeOf(base?.schema),
+			...shapeOf(extension.schema),
+		}),
+	}) as AnyVar;
+	for (const [namespace, attrs] of Object.entries(extension.$attrs ?? {})) {
+		model = withAttrs(model, namespace, attrs);
+	}
+	extensionModels.set(extension, model);
+	return model;
+};
+
+/** Extensions become model vars - bare or as a `ModelConfig.schema`. */
+const asModelInput = (input: ModelInput): AnyVar | ModelConfig => {
+	if (isVarExtension(input)) return modelOfExtension(input);
+	const schema = (input as { schema?: unknown }).schema;
+	if (!isVar(input) && isVarExtension(schema)) {
+		return { ...(input as ModelConfig), schema: modelOfExtension(schema) };
+	}
+	return input as AnyVar | ModelConfig;
+};
+
+const normalizeModels = <M extends StorageModels>(models: M): M =>
+	Object.fromEntries(
+		Object.entries(models).map(([key, input]) => [key, asModelInput(input)]),
+	) as M;
+
 /** Normalize `$models` entries so adapters always see merged `fields`.
  * Bare vars stay bare vars (identity preserved); use
  * {@link resolveModelFields} to read schema attrs off them. ModelConfig
@@ -767,8 +843,11 @@ export type ModelConfig<SV extends AnyVar = AnyVar> = {
 		| SubscriptionEntries;
 };
 
-/** A model is a bare var, or a config carrying the var as `schema`. */
-type ModelInput = AnyVar | ModelConfig;
+type AnyExtension = VarExtension<string, any, any, any>;
+
+/** A model is a bare var, a `v.extend` of one (its fields plus the
+ * extension's), or a config carrying the var as `schema`. */
+type ModelInput = AnyVar | AnyExtension | ModelConfig;
 
 /** The var behind a model input. Checked through `$var`, never `schema` -
  * a bare var also HAS a `schema` property (its type shape). */
@@ -778,19 +857,28 @@ type SchemaOf<T> = T extends { $var: true }
 		? SV
 		: never;
 
-type RowOf<T> = NonNullable<ValueOfVar<SchemaOf<T>>>;
+type RowOf<T> =
+	T extends VarExtension<any, infer S, infer B, any>
+		? Prettify<NonNullable<B> & InferInput<S>>
+		: NonNullable<ValueOfVar<SchemaOf<T>>>;
 
 /** The var's object schema - what create validates / default-fills against. */
 type ModelSchemaOf<T> =
 	SchemaOf<T> extends { schema?: infer S } ? NonNullable<S> : never;
 
 /** Create payload: InferArgs so `db.id` / other defaults are omittable. */
-type CreateInputOf<T> = [ModelSchemaOf<T>] extends [never]
-	? RowOf<T>
-	: InferArgs<ModelSchemaOf<T>>;
+type CreateInputOf<T> =
+	T extends VarExtension<any, infer S, any, infer BS>
+		? Prettify<InferArgs<NonNullable<BS>> & InferArgs<S>>
+		: [ModelSchemaOf<T>] extends [never]
+			? RowOf<T>
+			: InferArgs<ModelSchemaOf<T>>;
 
 /** Declared name of the var behind a model input - brands the collection. */
-type ModelVarName<T> = NameOfVar<SchemaOf<T>> & string;
+type ModelVarName<T> =
+	T extends VarExtension<infer N, any, any, any>
+		? N
+		: NameOfVar<SchemaOf<T>> & string;
 
 export type StorageModels = Record<string, ModelInput>;
 
@@ -1152,7 +1240,8 @@ const buildStorage = <M extends StorageModels>(
 				) as StorageModels,
 				frame,
 			),
-		$extend: (more: StorageModels) => {
+		$extend: (added: StorageModels) => {
+			const more = normalizeModels(added);
 			declareModels(state, more);
 			return buildStorage(state, { ...models, ...more }, frame);
 		},
@@ -1244,6 +1333,11 @@ const declareModels = (state: StorageState, models: StorageModels) => {
  * mountable `v.on` entries - `use: [db]` wires them into the app. The same
  * config carries `fields` metadata (unique, index, references) for schema
  * generators to consume.
+ *
+ * A `v.extend(model, fields)` value works as a model too: the storage gets
+ * the base's fields plus the extension's, attrs included - so
+ * `v.storage(adapter, { user: userWithEmail })` enforces the extension's
+ * `db.unique(email)`. See {@link modelOfExtension}.
  */
 export const makeStorage = <const M extends StorageModels>(
 	adapter: StorageAdapter,
@@ -1255,6 +1349,7 @@ export const makeStorage = <const M extends StorageModels>(
 		subscriptions: new Map(),
 		meta: {},
 	};
-	declareModels(state, models);
-	return buildStorage(state, models);
+	const normalized = normalizeModels(models);
+	declareModels(state, normalized);
+	return buildStorage(state, normalized);
 };

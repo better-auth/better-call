@@ -14,10 +14,10 @@ import {
 } from "./var";
 
 /** `v.extend`: vars gain fields; events gain kinds. */
-function extend<N extends LiteralString, S, BaseT>(
-	target: VarDefination<N, BaseT, any, any>,
+function extend<N extends LiteralString, S, BaseT, BaseS>(
+	target: VarDefination<N, BaseT, BaseS, any>,
 	schema: S,
-): import("./module").VarExtension<N, S, BaseT>;
+): import("./module").VarExtension<N, S, BaseT, BaseS>;
 function extend<N extends LiteralString, S>(
 	target: N,
 	schema: S,
@@ -286,6 +286,7 @@ export {
 	matchesWhere,
 	memoryAdapter,
 	modelIndexName,
+	modelOfExtension,
 	resolveModelFields,
 	resolveModelIndexes,
 	resolveModelMeta,

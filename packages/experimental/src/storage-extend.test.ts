@@ -1,0 +1,209 @@
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+	isVarExtension,
+	memoryAdapter,
+	resolveModelFields,
+	resolveModelIndexes,
+	UniqueConstraintError,
+	v,
+} from "./index";
+import { db, schema } from "./plugins/db";
+import { attrsOf, withAttrs } from "./schema";
+
+const defaultNow = () => new Date(0);
+
+/** v2's user table and its email extension, verbatim in shape. */
+const user = schema("ext_user", {
+	id: db.id(v.string({ description: "The user's ID" })),
+	name: v.string({ description: "The user's name" }),
+	image: v.string({ optional: true }),
+	createdAt: v.noInput(v.date({ default: defaultNow })),
+	updatedAt: v.noInput(v.date({ default: defaultNow })),
+});
+
+const userWithEmail = v.extend(user, {
+	email: v.noInput(db.unique(v.string({ format: "email" }))),
+	emailVerified: v.noInput(v.boolean({ default: false })),
+});
+
+const account = schema(
+	"ext_account",
+	{
+		id: db.id(v.string()),
+		issuer: v.string(),
+		accountId: v.string(),
+		userId: db.indexed(v.string()),
+	},
+	{ indexes: [{ fields: ["issuer", "accountId"], unique: true }] },
+);
+
+describe("v.extend carries the model's attrs", () => {
+	it("keeps db.model and db.indexes from the base var", () => {
+		const extended = v.extend(account, { scope: v.string({ optional: true }) });
+		expect(isVarExtension(extended)).toBe(true);
+		expect(attrsOf(extended, "db")).toEqual({
+			model: true,
+			indexes: [{ fields: ["issuer", "accountId"], unique: true }],
+		});
+		// Extending a var without attrs adds none.
+		const plain = v.var("ext_plain", { default: null });
+		expect("$attrs" in v.extend(plain, { a: v.string() })).toBe(false);
+	});
+
+	it("withAttrs on an extension merges and keeps it an extension", () => {
+		const tagged = withAttrs(userWithEmail, "db", { extra: 1 });
+		expect(isVarExtension(tagged)).toBe(true);
+		expect(tagged.base).toBe(user);
+		expect(attrsOf(tagged, "db")).toEqual({ model: true, extra: 1 });
+		// The original is untouched.
+		expect(attrsOf(userWithEmail, "db")).toEqual({ model: true });
+	});
+
+	it("a storage built from userWithEmail enforces the unique email", async () => {
+		const store = v.storage(memoryAdapter(), { user: userWithEmail });
+		expect(resolveModelFields(store.$models.user)?.email).toEqual({
+			unique: true,
+		});
+		const first = await store.user.create({ name: "Ada", email: "a@x.dev" });
+		expect(first).toMatchObject({
+			name: "Ada",
+			email: "a@x.dev",
+			emailVerified: false,
+			createdAt: new Date(0),
+		});
+		expect(typeof first.id).toBe("string");
+		expectTypeOf(first.email).toEqualTypeOf<string>();
+		expectTypeOf(first.name).toEqualTypeOf<string>();
+
+		const clash = store.user.create({ name: "Eve", email: "a@x.dev" });
+		await expect(clash).rejects.toBeInstanceOf(UniqueConstraintError);
+		await expect(clash).rejects.toMatchObject({
+			model: "ext_user",
+			fields: ["email"],
+		});
+		await store.user.create({ name: "Bob", email: "b@x.dev" });
+		await expect(
+			store.user.update({ email: "b@x.dev" }, { email: "a@x.dev" }),
+		).rejects.toBeInstanceOf(UniqueConstraintError);
+		// Base-field facts survive too: the id is still unique.
+		await expect(
+			store.user.create({ id: first.id, name: "Dup", email: "c@x.dev" }),
+		).rejects.toMatchObject({ fields: ["id"] });
+		expect(await store.user.count()).toBe(2);
+
+		// Extensions go through $extend and ModelConfig.schema the same way.
+		const bare = v
+			.storage(memoryAdapter(), {})
+			.$extend({ user: userWithEmail });
+		await bare.user.create({ name: "A", email: "same@x.dev" });
+		await expect(
+			bare.user.create({ name: "B", email: "same@x.dev" }),
+		).rejects.toBeInstanceOf(UniqueConstraintError);
+		const configured = v.storage(memoryAdapter(), {
+			user: { schema: userWithEmail as never },
+		});
+		await configured.user.create({ name: "A", email: "same@x.dev" } as never);
+		await expect(
+			configured.user.create({ name: "B", email: "same@x.dev" } as never),
+		).rejects.toBeInstanceOf(UniqueConstraintError);
+	});
+
+	it("composite indexes survive an extend", async () => {
+		const extended = v.extend(account, { scope: v.string({ optional: true }) });
+		const store = v.storage(memoryAdapter(), { account: extended });
+		expect(resolveModelIndexes(store.$models.account)).toEqual([
+			{ fields: ["issuer", "accountId"], unique: true },
+		]);
+		expect(resolveModelFields(store.$models.account)?.userId).toEqual({
+			index: true,
+		});
+		await store.account.create({
+			issuer: "local:credential",
+			accountId: "1",
+			userId: "u",
+			scope: "openid",
+		});
+		await expect(
+			store.account.create({
+				issuer: "local:credential",
+				accountId: "1",
+				userId: "u2",
+			}),
+		).rejects.toMatchObject({
+			name: "UniqueConstraintError",
+			fields: ["issuer", "accountId"],
+		});
+	});
+
+	it("an extension can add its own index over base and added fields", async () => {
+		const tenanted = db.extend(
+			account,
+			{ tenantId: v.string(), handle: v.string() },
+			{
+				indexes: [
+					{ fields: ["tenantId", "handle"], unique: true },
+					{ fields: ["tenantId", "userId"] },
+				],
+			},
+		);
+		expect(isVarExtension(tenanted)).toBe(true);
+		// Appended to the base's; the base var itself is unchanged.
+		expect(resolveModelIndexes(tenanted)).toEqual([
+			{ fields: ["issuer", "accountId"], unique: true },
+			{ fields: ["tenantId", "handle"], unique: true },
+			{ fields: ["tenantId", "userId"] },
+		]);
+		expect(resolveModelIndexes(account)).toHaveLength(1);
+
+		const store = v.storage(memoryAdapter(), { account: tenanted });
+		const row = { issuer: "i", userId: "u", tenantId: "t1", handle: "h" };
+		await store.account.create({ ...row, accountId: "1" });
+		// The extension's own index.
+		await expect(
+			store.account.create({ ...row, accountId: "2" }),
+		).rejects.toMatchObject({ fields: ["tenantId", "handle"] });
+		// The base's index is still enforced.
+		await expect(
+			store.account.create({ ...row, accountId: "1", tenantId: "t2" }),
+		).rejects.toMatchObject({ fields: ["issuer", "accountId"] });
+		await store.account.create({ ...row, accountId: "3", tenantId: "t2" });
+		expect(await store.account.count()).toBe(2);
+
+		// Validated against the combined shape.
+		expect(() =>
+			db.extend(
+				account,
+				{ tenantId: v.string() },
+				{ indexes: [{ fields: ["tenantId", "nope" as "tenantId"] }] },
+			),
+		).toThrow(/unknown field "nope"/);
+		expect(() =>
+			db.extend(
+				account,
+				{ nick: v.string({ optional: true }) },
+				{ indexes: [{ fields: ["nick"], unique: true }] },
+			),
+		).toThrow(/required fields/);
+	});
+
+	it("a mounted extension with attrs still widens a base storage in scope", async () => {
+		// v2's pattern: the storage holds the BASE var; modules mount the
+		// extension. Carrying $attrs must not change how it mounts.
+		const store = v.storage(memoryAdapter(), { user });
+		const run = v.fn(
+			{ use: [{ user, userWithEmail, db: store }] },
+			async (c) => {
+				// Scope widening types extension fields as INPUT, so the
+				// defaulted `emailVerified` is still required here.
+				const created = await c.db.user.create({
+					name: "Ada",
+					email: "a@x.dev",
+					emailVerified: false,
+				});
+				expectTypeOf(created.email).toEqualTypeOf<string>();
+				return c.db.user.findOne({ email: "a@x.dev" });
+			},
+		);
+		expect(await run()).toMatchObject({ name: "Ada", email: "a@x.dev" });
+	});
+});

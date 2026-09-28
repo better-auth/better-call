@@ -477,12 +477,21 @@ export const asType = (value: any): TypeDefination<any, any> =>
 								} as TypeDefination<any, any>)
 							: { name: "object", shape: value };
 
+/** A `v.extend` var extension (`$varExtend`) - checked by brand so this
+ * module needn't import module.ts. */
+const isExtensionValue = (value: unknown): boolean =>
+	typeof value === "object" &&
+	value !== null &&
+	(value as { $varExtend?: unknown }).$varExtend === true;
+
 /**
  * Replace the whole `$attrs` bag. On a var, rebinds `customize` so a later
  * customize keeps these attrs (the original closure closes over pre-attr
  * options and would otherwise drop them).
  */
 const withAttrBag = <S>(schema: S, bag: AttrBag): S => {
+	// A `v.extend` value carries whole-var attrs on itself, like a var.
+	if (isExtensionValue(schema)) return { ...schema, $attrs: bag } as S;
 	if (isVar(schema)) {
 		const v = schema as {
 			$attrs?: AttrBag;
@@ -534,10 +543,12 @@ export function attrsOf(
 	if (schema === null || schema === undefined) return undefined;
 	// Vars carry whole-var attrs on themselves; field attrs live on the
 	// schema type def. Do not unwrap through asType or var identity is
-	// lost and whole-var attrs become invisible.
-	const bag = isVar(schema)
-		? (schema as { $attrs?: AttrBag }).$attrs
-		: asType(schema).$attrs;
+	// lost and whole-var attrs become invisible. `v.extend` values carry
+	// the extended var's attrs the same way.
+	const bag =
+		isVar(schema) || isExtensionValue(schema)
+			? (schema as { $attrs?: AttrBag }).$attrs
+			: asType(schema).$attrs;
 	if (!bag) return undefined;
 	return namespace === undefined ? bag : bag[namespace];
 }
