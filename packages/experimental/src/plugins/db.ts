@@ -11,6 +11,7 @@ import {
 	type TypeDefination,
 	withAttrs,
 } from "../schema";
+import { checkModelIndexes, type ModelIndex } from "../storage";
 import type { LiteralString } from "../types";
 import type { VarDefination } from "../var";
 
@@ -89,22 +90,38 @@ export const id = <T, O>(
 export const isModel = (value: unknown): boolean =>
 	isVar(value) && attrsOf(value, "db")?.model === true;
 
+/** Model-level persistence facts - what one field can't declare. */
+export type SchemaOptions<S = unknown> = {
+	/** Table-level indexes, composite ones included - Better Auth's
+	 * `indexes: [{ fields: ["issuer", "accountId"], unique: true }]`.
+	 * Stored as `$attrs.db.indexes`; read with `resolveModelIndexes`. */
+	indexes?: readonly (Omit<ModelIndex, "fields"> & {
+		fields: readonly [FieldName<S>, ...FieldName<S>[]];
+	})[];
+};
+
+/** Field keys of a plain field object (any string for a prebuilt type). */
+type FieldName<S> =
+	S extends TypeDefination<any, any, any> ? string : keyof S & string;
+
 /** A model var from a type or a plain field object. Default is always null.
  * Stamped `$attrs.db.model` so tooling (OpenAPI, …) can tell models from
- * option / session vars. Import from the db plugin:
- * `import { schema } from "better-call/db"`. */
+ * option / session vars; `options.indexes` rides along as
+ * `$attrs.db.indexes`, validated against the fields. Import from the db
+ * plugin: `import { schema } from "better-call/db"`. */
 export const schema = <N extends LiteralString, S>(
 	name: N,
 	schema: SchemaArg<S>,
-): ModelVar<N, S> =>
-	withAttrs(
-		v.var(name, {
-			default: null,
-			schema: isType(schema) ? schema : v.object(schema),
-		}),
-		"db",
-		{ model: true },
-	) as ModelVar<N, S>;
+	options?: SchemaOptions<S>,
+): ModelVar<N, S> => {
+	const type = isType(schema) ? schema : v.object(schema);
+	const indexes = (options?.indexes ?? []) as readonly ModelIndex[];
+	checkModelIndexes(name, type, indexes);
+	return withAttrs(v.var(name, { default: null, schema: type }), "db", {
+		model: true,
+		...(indexes.length > 0 ? { indexes: [...indexes] } : {}),
+	}) as ModelVar<N, S>;
+};
 
 export const db = {
 	unique,

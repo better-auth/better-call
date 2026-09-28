@@ -34,6 +34,9 @@
 		"dedups",
 		"deriveds",
 		"omittable",
+		// database vocabulary (Better Auth's unique-index name suffix)
+		"savepoints",
+		"uidx",
 		"renamer",
 		"traceparent",
 		"uncallable",
