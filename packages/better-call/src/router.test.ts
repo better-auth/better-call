@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getRequest } from "./adapters/node/request";
 import type { Endpoint } from "./endpoint";
@@ -1093,7 +1093,153 @@ describe("error handling", () => {
 	});
 });
 
-describe("onRequest and onResponse callbacks", () => {
+describe("router HTTP lifecycle", () => {
+	it("runs onResponse once for an onRequest response", async () => {
+		const earlyResponse = Response.json(
+			{ message: "limited" },
+			{ status: 429 },
+		);
+		const finalResponse = new Response("handled", { status: 418 });
+		const endpointHandler = vi.fn(async () => "ok");
+		const endpoint = createEndpoint("/", { method: "GET" }, endpointHandler);
+		const onError = vi.fn();
+		const onResponse = vi.fn(() => finalResponse);
+		const request = new Request("http://localhost");
+		const router = createRouter(
+			{ endpoint },
+			{
+				onRequest: () => earlyResponse,
+				onError,
+				onResponse,
+			},
+		);
+
+		expect(await router.handler(request)).toBe(finalResponse);
+		expect(endpointHandler).not.toHaveBeenCalled();
+		expect(onError).not.toHaveBeenCalled();
+		expect(onResponse).toHaveBeenCalledExactlyOnceWith(earlyResponse, request);
+	});
+
+	it("handles onRequest errors before running onResponse", async () => {
+		const request = new Request("http://localhost");
+		const error = new APIError("BAD_REQUEST", { message: "blocked" });
+		const errorResponse = Response.json(
+			{ message: "handled" },
+			{ status: 422 },
+		);
+		const calls: string[] = [];
+		const onError = vi.fn(() => {
+			calls.push("error");
+			return errorResponse;
+		});
+		const onResponse = vi.fn(() => {
+			calls.push("response");
+		});
+		const router = createRouter(
+			{
+				endpoint: createEndpoint("/", { method: "GET" }, async () => "ok"),
+			},
+			{
+				onRequest: () => {
+					throw error;
+				},
+				onError,
+				onResponse,
+			},
+		);
+
+		expect(await router.handler(request)).toBe(errorResponse);
+		expect(onError).toHaveBeenCalledExactlyOnceWith(error, request);
+		expect(onResponse).toHaveBeenCalledExactlyOnceWith(errorResponse, request);
+		expect(calls).toEqual(["error", "response"]);
+	});
+
+	it("converts an onRequest APIError before running onResponse", async () => {
+		const error = new APIError("BAD_REQUEST", { message: "blocked" });
+		const onResponse = vi.fn();
+		const request = new Request("http://localhost");
+		const router = createRouter(
+			{ endpoint: createEndpoint("/", { method: "GET" }, async () => "ok") },
+			{
+				onRequest: () => {
+					throw error;
+				},
+				onResponse,
+			},
+		);
+
+		const response = await router.handler(request);
+		expect(response.status).toBe(400);
+		expect(onResponse).toHaveBeenCalledExactlyOnceWith(response, request);
+	});
+
+	it("passes a modified request to the endpoint and onResponse", async () => {
+		let modifiedRequest: Request | undefined;
+		const onResponse = vi.fn();
+		const router = createRouter(
+			{
+				endpoint: createEndpoint("/", { method: "GET" }, async (ctx) => ({
+					value: ctx.request?.headers.get("x-request-hook"),
+				})),
+			},
+			{
+				onRequest: (request) => {
+					modifiedRequest = new Request(request, {
+						headers: { "x-request-hook": "set" },
+					});
+					return modifiedRequest;
+				},
+				onResponse,
+			},
+		);
+
+		const response = await router.handler(new Request("http://localhost"));
+		expect(await response.json()).toEqual({ value: "set" });
+		expect(onResponse).toHaveBeenCalledExactlyOnceWith(
+			response,
+			modifiedRequest,
+		);
+	});
+
+	it("preserves throwError for onRequest errors", async () => {
+		const error = new Error("request hook failed");
+		const onResponse = vi.fn();
+		const router = createRouter(
+			{ endpoint: createEndpoint("/", { method: "GET" }, async () => "ok") },
+			{
+				throwError: true,
+				onRequest: () => {
+					throw error;
+				},
+				onResponse,
+			},
+		);
+
+		await expect(router.handler(new Request("http://localhost"))).rejects.toBe(
+			error,
+		);
+		expect(onResponse).not.toHaveBeenCalled();
+	});
+
+	it("propagates onResponse errors without reentering onError", async () => {
+		const error = new Error("response hook failed");
+		const onError = vi.fn();
+		const router = createRouter(
+			{ endpoint: createEndpoint("/", { method: "GET" }, async () => "ok") },
+			{
+				onError,
+				onResponse: () => {
+					throw error;
+				},
+			},
+		);
+
+		await expect(router.handler(new Request("http://localhost"))).rejects.toBe(
+			error,
+		);
+		expect(onError).not.toHaveBeenCalled();
+	});
+
 	it("should pass request to onRequest callback", async () => {
 		const endpoint = createEndpoint(
 			"/",

@@ -626,7 +626,11 @@ const router = createRouter({
 
 **basePath**: The base path for the router. All paths will be relative to this path.
 
-**onError**: The router will call this function if an error occurs in the middleware or the endpoint. This function receives the error as a parameter and can return different types of values:
+**onRequest**: Runs before routing. Return a `Request` to continue with that request, or a `Response` to skip the endpoint. An early `Response` still goes through `onResponse`.
+
+**onResponse**: Runs once for each HTTP response before `router.handler` returns it, including early `onRequest` responses and responses created after errors. Return a `Response` to replace it. An error thrown from `onResponse` propagates without calling `onError` again. Calling an endpoint directly does not run router hooks.
+
+**onError**: The router calls this function if `onRequest`, router middleware, or an endpoint throws. This function receives the error as a parameter and can return different types of values:
 
 - If it returns a `Response` object, the router will use it as the HTTP response.
 - If it throws a new error, the router will handle it based on its type (if it's an `APIError`, it will be converted to a response; otherwise, it will be re-thrown).
@@ -650,7 +654,7 @@ const router = createRouter({
 });
 ```
 
-**throwError**: If true, the router will throw an error if an error occurs in the middleware or the endpoint. If false (default), the router will handle errors internally. This setting is still relevant even when `onError` is provided, as it determines the behavior when:
+**throwError**: If true, the router will throw an error from `onRequest`, router middleware, or an endpoint. If false (default), the router will handle errors internally. This setting is still relevant even when `onError` is provided, as it determines the behavior when:
 
 1. No `onError` handler is provided, or
 2. The `onError` handler returns void (doesn't return a Response or throw an error)
