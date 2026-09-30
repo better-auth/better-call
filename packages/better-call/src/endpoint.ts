@@ -597,7 +597,7 @@ export function createEndpoint<
 					})?,
 				]
 	): Promise<ResultType<AsResponse, ReturnHeaders, ReturnStatus>> => {
-		const context = (inputCtx[0] || {}) as InputContext<any, any>;
+		const context = inputCtx[0] ?? ({} as Context);
 		const { data: internalContext, error: validationError } = await tryCatch(
 			createInternalContext(context, {
 				options,
@@ -786,7 +786,11 @@ export type StrictEndpoint<
 	): Promise<{ status: number; response: Awaited<R> }>;
 
 	// default case
-	(context?: InputContext<Path, Options>): Promise<R>;
+	(
+		...args: HasRequiredKeys<InputContext<Path, Options>> extends true
+			? [context: InputContext<Path, Options>]
+			: [context?: InputContext<Path, Options>]
+	): Promise<R>;
 
 	options: Options;
 	path: Path;
