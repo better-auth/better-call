@@ -1,3 +1,5 @@
+export type Awaitable<T> = T | Promise<T>;
+
 export type RequiredKeysOf<BaseType extends object> = Exclude<
 	{
 		[Key in keyof BaseType]: BaseType extends Record<Key, BaseType[Key]>

@@ -6,6 +6,7 @@ import {
 } from "rou3";
 import type { Endpoint } from "./endpoint";
 import { createEndpoint } from "./endpoint";
+import type { Awaitable } from "./helper";
 import type { MiddlewareHandler } from "./middleware";
 import { generator, getHTML } from "./openapi";
 import { toResponse } from "./to-response";
@@ -27,21 +28,21 @@ export interface RouterConfig {
 	/**
 	 * A callback to run before any response
 	 */
-	onResponse?: (response: Response, request: Request) => any | Promise<any>;
+	onResponse?: (
+		response: Response,
+		request: Request,
+	) => Awaitable<Response | void>;
 	/**
 	 * A callback to run before any request
 	 */
-	onRequest?: (request: Request) => any | Promise<any>;
+	onRequest?: (request: Request) => Awaitable<Request | Response | void>;
 	/**
 	 * A callback to run when an error is thrown in the router or middleware.
 	 *
 	 * @param error - the error that was thrown in the router or middleware.
 	 * @returns a Response object that will be returned to the client.
 	 */
-	onError?: (
-		error: unknown,
-		request: Request,
-	) => void | Promise<void> | Response | Promise<Response>;
+	onError?: (error: unknown, request: Request) => Awaitable<Response | void>;
 	/**
 	 * List of allowed media types (MIME types) for the router
 	 *

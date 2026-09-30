@@ -2,6 +2,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import type { InferParam } from "./context";
 import type { EndpointContext, EndpointOptions } from "./endpoint";
 import type { InferParamPath, InferParamWildCard } from "./helper";
+import type { RouterConfig } from "./router";
 
 describe("infer param", () => {
 	it("empty path", () => {
@@ -98,5 +99,28 @@ describe("endpoint context", () => {
 		): EndpointContext<string, Options, Context, InferParam<string>> => context;
 
 		expectTypeOf(widenContext).toBeFunction();
+	});
+});
+
+describe("router hook return types", () => {
+	it("accepts synchronous and asynchronous hook results", () => {
+		const hooks = {
+			onRequest: (request: Request) => request,
+			onResponse: async (response: Response) => response,
+			onError: async () => (Math.random() > 0.5 ? new Response() : undefined),
+		} satisfies RouterConfig;
+
+		expectTypeOf(hooks.onRequest).toBeFunction();
+	});
+
+	it("rejects return values ignored by the router", () => {
+		const hooks = {
+			// @ts-expect-error onRequest accepts a Request, Response, or void
+			onRequest: () => ({ response: new Response() }),
+			// @ts-expect-error onResponse accepts a Response or void
+			onResponse: () => "ignored",
+		} satisfies RouterConfig;
+
+		void hooks;
 	});
 });
