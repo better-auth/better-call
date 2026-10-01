@@ -25,8 +25,10 @@ export type AttrBag = Record<string, Record<string, unknown>>;
 
 /**
  * Built-in OpenAPI / JSON Schema `format` values offered for autocomplete.
- * `"email"` and `"url"` are validated; the rest are docs-only.
- * Arbitrary strings still type-check via {@link Format}.
+ * `"email"` and `"url"` are validated; the rest are docs-only. A
+ * `better-call.validator.<name>` fn mounted in a scope overrides (or
+ * adds) the check there - see {@link VALIDATOR_PREFIX}. Arbitrary strings
+ * still type-check via {@link Format}.
  */
 export type KnownFormat =
 	| "email"
@@ -49,6 +51,30 @@ export type KnownFormat =
 
 /** `format` option: known values autocomplete; any other string is allowed. */
 export type Format = KnownFormat | (string & {});
+
+/** A format check's verdict - the same contract as `check`: `true`
+ * passes, a string fails with that message, `false` fails generically.
+ * Validator fns return a boolean; messages come from their declared
+ * errors (see {@link VALIDATOR_PREFIX}). */
+export type FormatResult = boolean | string;
+
+/** Validates a string field's `format`. May be async. */
+export type FormatCheck = (
+	value: string,
+) => FormatResult | Promise<FormatResult>;
+
+/** Format checks in force, by format name - shadowing the built-ins. */
+export type Formats = Readonly<Record<string, FormatCheck>>;
+
+/**
+ * Fn keys under this prefix are VALIDATORS: a fn keyed
+ * `better-call.validator.email` (`.url`, `.uuid`, any format name)
+ * replaces that format's check for every fn defined under the scope that
+ * mounts it - inner scopes shadow outer ones, fns outside keep the
+ * built-in. Input is the string, output `v.boolean()`; a declared error
+ * fails with its payload's `message` when it has one.
+ */
+export const VALIDATOR_PREFIX = "better-call.validator.";
 
 /**
  * Docs / OpenAPI annotations on a field. Most are ignored by
@@ -1081,6 +1107,33 @@ export const isVar = (value: any): boolean => value?.$var === true;
 const EMAIL =
 	/^(?!\.)(?!.*\.\.)([a-z0-9_'+\-.]*)[a-z0-9_+-]@([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}$/;
 
+/** The default checks; every other format is docs-only until a scope
+ * overrides it. */
+const BUILTIN_FORMATS: Formats = {
+	email: (value) =>
+		EMAIL.test(value) ||
+		`expected an email address, received ${preview(value)}`,
+	url: (value) => {
+		try {
+			new URL(value);
+			return true;
+		} catch {
+			return `expected a URL, received ${preview(value)}`;
+		}
+	},
+};
+
+const formatCheck = (
+	format: string | undefined,
+	formats: Formats | undefined,
+): FormatCheck | undefined => {
+	if (format === undefined) return undefined;
+	if (formats && Object.hasOwn(formats, format)) return formats[format];
+	return Object.hasOwn(BUILTIN_FORMATS, format)
+		? BUILTIN_FORMATS[format]
+		: undefined;
+};
+
 const PREVIEW_MAX = 80;
 
 /** Truncated, JSON-safe preview of a value for validation messages. */
@@ -1137,12 +1190,32 @@ const typeError = (
 	return new ValidationError(path, message, [{ path, message, received }]);
 };
 
-/** Constraint checks, run after the value's type is known to be right. */
+const failFormat = (
+	path: string,
+	format: string,
+	value: string,
+	result: FormatResult,
+) => {
+	if (result === true) return;
+	fail(
+		path,
+		typeof result === "string"
+			? result
+			: `expected format "${format}", received ${preview(value)}`,
+		value,
+	);
+};
+
+/** Constraint checks, run after the value's type is known to be right.
+ * Sync unless an async format check is in force - then the rest of the
+ * rules still fail fast and the Promise settles the format verdict. */
 const applyRules = (
 	def: Rules & { format?: string },
 	value: any,
 	path: string,
-) => {
+	formats?: Formats,
+): void | Promise<void> => {
+	let pending: Promise<FormatResult> | undefined;
 	if (def.enum && !def.enum.includes(value)) {
 		fail(
 			path,
@@ -1179,19 +1252,14 @@ const applyRules = (
 				value,
 			);
 		}
-		if (def.format === "email" && !EMAIL.test(value)) {
-			fail(
-				path,
-				`expected an email address, received ${preview(value)}`,
-				value,
-			);
-		}
-		if (def.format === "url") {
-			try {
-				new URL(value);
-			} catch {
-				fail(path, `expected a URL, received ${preview(value)}`, value);
-			}
+		const check = formatCheck(def.format, formats);
+		if (check) {
+			const result = check(value);
+			if (isThenable(result)) {
+				// Handled here so a later sync failure never leaves it unhandled.
+				result.catch(() => {});
+				pending = result;
+			} else failFormat(path, def.format as string, value, result);
 		}
 		if (def.startsWith !== undefined && !value.startsWith(def.startsWith)) {
 			fail(
@@ -1254,6 +1322,9 @@ const applyRules = (
 			);
 		}
 	}
+	return pending?.then((result) =>
+		failFormat(path, def.format as string, value, result),
+	);
 };
 
 /** Sync when every entry is sync; Promise when any is thenable. */
@@ -1269,9 +1340,10 @@ const attemptValidate = (
 	def: TypeDefination<any, any, any>,
 	value: unknown,
 	path: string,
+	formats: Formats | undefined,
 ): Attempt<unknown> | Promise<Attempt<unknown>> => {
 	try {
-		const result = validate(def, value, path);
+		const result = validate(def, value, path, formats);
 		if (isThenable(result)) {
 			return result.then(
 				(resolved): Attempt<unknown> => ({ ok: true, value: resolved }),
@@ -1298,6 +1370,8 @@ export const validate = (
 	def: TypeDefination<any, any, any>,
 	value: unknown,
 	path: string,
+	/** Format checks in force for this scope - shadow the built-ins. */
+	formats?: Formats,
 	/** Internal: skip default resolution after an async factory settled. */
 	settled = false,
 ): any => {
@@ -1320,7 +1394,9 @@ export const validate = (
 			// field type (a string schema's null default is still null).
 			if (value === null) return null;
 			if (isThenable(value)) {
-				return value.then((resolved) => validate(def, resolved, path, true));
+				return value.then((resolved) =>
+					validate(def, resolved, path, formats, true),
+				);
 			}
 		} else if (def.optional) return value;
 		else if (def.name === "object" && def.shape !== undefined) value = {};
@@ -1330,7 +1406,9 @@ export const validate = (
 	if (isVar(def)) {
 		if (value === undefined) return undefined;
 		const schema = (def as any).schema;
-		return schema === undefined ? value : validate(schema, value, path);
+		return schema === undefined
+			? value
+			: validate(schema, value, path, formats);
 	}
 	if (def.name === "any") {
 		return def.transform ? def.transform(value) : value;
@@ -1354,7 +1432,7 @@ export const validate = (
 		const innerType = asType(inner);
 		return (input?: unknown, parent?: unknown) =>
 			(value as (i: unknown, p: unknown) => unknown)(
-				validate(innerType, input, `${path}()`),
+				validate(innerType, input, `${path}()`, formats),
 				parent,
 			);
 	}
@@ -1372,7 +1450,7 @@ export const validate = (
 		// just the first, mirroring object fields.
 		const elementType = asType(def.shape);
 		const attempts = value.map((item, index) =>
-			attemptValidate(elementType, item, `${path}[${index}]`),
+			attemptValidate(elementType, item, `${path}[${index}]`, formats),
 		);
 		const assemble = (settledAttempts: Attempt<unknown>[]) => {
 			const items: unknown[] = [];
@@ -1412,6 +1490,7 @@ export const validate = (
 				asType(child),
 				(value as Record<string, unknown>)[field],
 				`${path}.${field}`,
+				formats,
 			);
 			if (isThenable(result)) {
 				return result.then((attempt) => ({ field, attempt }));
@@ -1466,13 +1545,20 @@ export const validate = (
 					summary.message,
 				);
 			}
-			const attempt = attemptValidate(asType(options[index]), value, path);
+			const attempt = attemptValidate(
+				asType(options[index]),
+				value,
+				path,
+				formats,
+			);
 			const next = (settledAttempt: Attempt<unknown>) => {
 				if (settledAttempt.ok) {
-					applyRules(def, settledAttempt.value, path);
-					return def.transform
-						? def.transform(settledAttempt.value)
-						: settledAttempt.value;
+					const finish = () =>
+						def.transform
+							? def.transform(settledAttempt.value)
+							: settledAttempt.value;
+					const checked = applyRules(def, settledAttempt.value, path, formats);
+					return checked ? checked.then(finish) : finish();
 				}
 				const labeled = settledAttempt.issues.map((issue) => ({
 					...issue,
@@ -1492,8 +1578,9 @@ export const validate = (
 	if (def.format === "email" && typeof value === "string") {
 		value = value.trim().toLowerCase();
 	}
-	applyRules(def, value, path);
-	return def.transform ? def.transform(value) : value;
+	const checked = applyRules(def, value, path, formats);
+	const finish = () => (def.transform ? def.transform(value) : value);
+	return checked ? checked.then(finish) : finish();
 };
 
 /** Builds the runtime object; the declared return type is the contract.

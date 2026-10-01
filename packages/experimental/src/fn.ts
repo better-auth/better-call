@@ -29,6 +29,7 @@ import {
 	isFn,
 	isNamespace,
 	isOn,
+	isValidator,
 	isVarExtension,
 	type Module,
 	type ModuleFns,
@@ -52,6 +53,8 @@ export { fnOut, fnOutput, fnOutputSchema, isFnOutField } from "./fn-output";
 
 import {
 	asType,
+	type FormatResult,
+	type Formats,
 	type InferArgs,
 	type InferInput,
 	isNoInput,
@@ -60,12 +63,14 @@ import {
 	type MetaOptions,
 	type OutputSchemaOf,
 	outputContract,
+	preview,
 	rejectFields,
 	type SchemaInputOf,
 	type SchemaOutputOf,
 	type TypeDefination,
 	toInputSchema,
 	toOutputSchema,
+	VALIDATOR_PREFIX,
 	validate,
 	vTypes,
 } from "./schema";
@@ -1110,6 +1115,36 @@ const thenMaybe = <T, R>(
 	next: (value: T) => R | Promise<R>,
 ): R | Promise<R> => (isThenable(value) ? value.then(next) : next(value as T));
 
+/**
+ * One validator verdict: `true` passes, `false` fails generically. Run
+ * through `.try` so a DECLARED error fails the field too - with its
+ * payload's `message` when it has one. Anything else it throws still
+ * throws (a defect, or the validator's own contract violation).
+ */
+type ValidatorTry =
+	| { ok: true; value: unknown }
+	| { ok: false; error: FnError };
+
+/** The slice of a validator fn {@link runValidator} calls. */
+type Validator = {
+	try: (value: string, parent: unknown) => ValidatorTry | Promise<ValidatorTry>;
+};
+
+const runValidator = (
+	validator: Validator,
+	format: string,
+	value: string,
+	parent: unknown,
+): FormatResult | Promise<FormatResult> =>
+	thenMaybe(validator.try(value, parent), (result): FormatResult => {
+		if (result.ok) return result.value === true;
+		const message = (result.error.data as { message?: unknown } | null)
+			?.message;
+		return typeof message === "string"
+			? message
+			: `expected format "${format}" (${result.error.tag}), received ${preview(value)}`;
+	});
+
 const STORE = Symbol("var-store");
 const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
@@ -1160,13 +1195,20 @@ const defineFn = (
 	// dedup, like inheritance. Same-name `customize` re-exports are
 	// folded in as synthetic extensions so var-bound input re-validates
 	// against the shadowed schema (matching {@link VarArgsInScope}).
+	//
+	// Validator fns override a format's check LEXICALLY: only for fns
+	// defined under the scope that mounts them. Builder `use` lists run
+	// outer-first, so the innermost mount of a format wins.
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
+	const formatFns = new Map<string, Validator>();
 	const seenVarShadows = new Set<unknown>();
 	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
 			if (isOn(value) && !own.includes(value)) own.push(value);
-			else if (isVarExtension(value)) ownExts.push(value);
+			else if (isValidator(value)) {
+				formatFns.set(value.key.slice(VALIDATOR_PREFIX.length), value as never);
+			} else if (isVarExtension(value)) ownExts.push(value);
 			else if (isEventOn(value)) mountEventOn(value);
 			else if (isEventExtension(value)) mountEventExtension(value);
 			else if (isEvent(value)) mountEvent(value);
@@ -1184,6 +1226,11 @@ const defineFn = (
 		}
 	};
 	for (const mod of modules) scanMembers(mod);
+	// A validator never checks its own format through an override - its
+	// input / output see the built-in, so it cannot recurse into itself.
+	if (key.startsWith(VALIDATOR_PREFIX)) {
+		formatFns.delete(key.slice(VALIDATOR_PREFIX.length));
+	}
 
 	const usable = collectUsable(modules);
 	const mergeSeeds = collectMergeSeeds(modules);
@@ -1296,6 +1343,29 @@ const defineFn = (
 					];
 
 		let ctx: any;
+		// Validators run as fns joined to THIS frame - its vars, active
+		// set, and lock - even while input parses, before `ctx` exists.
+		const formats: Formats | undefined =
+			formatFns.size === 0
+				? undefined
+				: Object.fromEntries(
+						[...formatFns].map(([name, validator]) => [
+							name,
+							(value: string) =>
+								runValidator(
+									validator,
+									name,
+									value,
+									ctx ?? {
+										[STORE]: cells,
+										[ACTIVE]: active,
+										[EXTS]: exts,
+										[READONLY]: lockedBy,
+										[WITH]: withFns,
+									},
+								),
+						]),
+					);
 		const frame: Frame = {
 			cells,
 			key,
@@ -1311,7 +1381,7 @@ const defineFn = (
 				if (ext.name !== name) continue;
 				merged = thenMaybe(merged, (current) =>
 					thenMaybe(
-						validate(asType(ext.schema), raw, `${key}.${name}`),
+						validate(asType(ext.schema), raw, `${key}.${name}`, formats),
 						(extra) => ({
 							...(current as Record<string, unknown>),
 							...(extra as Record<string, unknown>),
@@ -1343,7 +1413,7 @@ const defineFn = (
 									"noInput field is not allowed",
 								);
 						const runValidate = () =>
-							validate(asType(toInputSchema(def)), raw, path);
+							validate(asType(toInputSchema(def)), raw, path, formats);
 						const result = isThenable(gate)
 							? gate.then(runValidate)
 							: runValidate();
@@ -1410,6 +1480,7 @@ const defineFn = (
 								asType(toInputSchema(options.input)),
 								input,
 								`${key}.input`,
+								formats,
 							),
 					);
 		};
@@ -1421,7 +1492,7 @@ const defineFn = (
 				if (!extendInput || tupleInput) continue;
 				next = thenMaybe(next, (current) =>
 					thenMaybe(
-						validate(asType(extendInput), input, `${key}.on`),
+						validate(asType(extendInput), input, `${key}.on`, formats),
 						(extra) => ({
 							...((current as Record<string, unknown>) ?? {}),
 							...(extra as Record<string, unknown>),
@@ -1484,7 +1555,7 @@ const defineFn = (
 				)?.[Symbol.for("better-call:http.err")];
 				const err = new FnError(
 					tag,
-					validate(schema, data ?? {}, `${key}.errors.${tag}`),
+					validate(schema, data ?? {}, `${key}.errors.${tag}`, formats),
 					key,
 					meta?.status,
 					meta?.message,
@@ -1667,7 +1738,7 @@ const defineFn = (
 				};
 				if (outputValidation === undefined) return afterOutput(result);
 				return thenMaybe(
-					validate(asType(outputValidation), result, `${key}.output`),
+					validate(asType(outputValidation), result, `${key}.output`, formats),
 					afterOutput,
 				);
 			};
@@ -2217,6 +2288,13 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 		const handler = typeof first === "function" ? first : rest[1];
 		const childOptions = typeof first === "function" ? {} : (first ?? {});
 		const key = baseKey + childKey;
+		// Validator keys are global: under a prefixed builder the key would
+		// silently stop matching, so fail at definition instead.
+		if (key.includes(VALIDATOR_PREFIX) && !key.startsWith(VALIDATOR_PREFIX)) {
+			throw new Error(
+				`"${key}": validator keys are global - define "${childKey}" with v.fn(...) and mount it in this scope's use`,
+			);
+		}
 		const options = mergeOptions(base, childOptions);
 		if (typeof handler !== "function") {
 			const instance: Record<string, unknown> = {
@@ -2229,12 +2307,13 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 				},
 				on: (target: any, a?: any, b?: any) =>
 					(onImpl as any)(
-						// var, scope, and event categories live in a global
-						// namespace - no builder key prefix.
+						// var, scope, event categories, and validators live in
+						// a global namespace - no builder key prefix.
 						typeof target === "string" &&
 							!target.startsWith("var.") &&
 							!target.startsWith("scope.") &&
-							!target.startsWith("event.")
+							!target.startsWith("event.") &&
+							!target.startsWith(VALIDATOR_PREFIX)
 							? key + target
 							: target,
 						a,

@@ -214,12 +214,14 @@ export {
 	collectFns,
 	collectUsable,
 	type ExtendedArgs,
+	type FormatValidator,
 	type InputVarExtra,
 	type InputVarExtraOut,
 	type Interceptor,
 	isFn,
 	isNamespace,
 	isOn,
+	isValidator,
 	isVarExtension,
 	type Module,
 	type ModuleFns,
@@ -261,6 +263,7 @@ export {
 	type TypeOptions,
 	toInputSchema,
 	toOutputSchema,
+	VALIDATOR_PREFIX,
 	withAttrs,
 } from "./schema";
 export type {

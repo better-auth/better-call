@@ -15,6 +15,7 @@ import {
 	isVar,
 	type SchemaInputOf,
 	type TypeDefination,
+	VALIDATOR_PREFIX,
 	type vTypes,
 } from "./schema";
 import type { WidenSchemaFns } from "./scope";
@@ -131,10 +132,24 @@ export type Module = Record<string, unknown> & {
 };
 
 /**
- * A mountable `use` entry: a plain {@link Module}, or a bare
- * {@link VarExtension} (auto-wrapped by {@link resolveModules}).
+ * A format validator fn (see `VALIDATOR_PREFIX`): string in, boolean out.
+ * Mountable bare - it contributes its check to the scope, nothing to `c`.
  */
-export type UseEntry = Module | VarExtension<string, any, any>;
+export type FormatValidator = {
+	(...args: any[]): boolean | Promise<boolean>;
+	readonly $fn: true;
+	readonly key: `${typeof VALIDATOR_PREFIX}${string}`;
+};
+
+/**
+ * A mountable `use` entry: a plain {@link Module}, a bare
+ * {@link VarExtension} (auto-wrapped by {@link resolveModules}), or a bare
+ * {@link FormatValidator}.
+ */
+export type UseEntry =
+	| Module
+	| VarExtension<string, any, any>
+	| FormatValidator;
 
 /** A module member that can NEST other members: a plain record that is
  * not itself branded. Fn defs are callable, so they never match. Storage
@@ -236,6 +251,9 @@ export type ModuleFns<PL> = UnionToIntersection<FnsFrom<Members<PL>>>;
 export const isFn = (value: any): value is FnDefination<any, any> =>
 	typeof value === "function" && value?.$fn === true;
 
+export const isValidator = (value: unknown): value is FnDefination<any, any> =>
+	isFn(value) && value.key.startsWith(VALIDATOR_PREFIX);
+
 /**
  * Guard the module list: modules are plain records, and passing a bare
  * fn/var/`on` entry is almost always a mistake (a bare fn would otherwise
@@ -243,7 +261,9 @@ export const isFn = (value: any): value is FnDefination<any, any> =>
  *
  * Bare {@link VarExtension}s are the exception — `use: [httpOptions]` is
  * wrapped as `{ [name]: extension }` so plugins can mount an options
- * extend without an extra object literal.
+ * extend without an extra object literal. So are bare validators -
+ * wrapped under their own key, which {@link collectUsable} skips: a bare
+ * validator only checks formats, it does not land on `c`.
  */
 export const resolveModules = (
 	modules: readonly unknown[],
@@ -251,6 +271,9 @@ export const resolveModules = (
 	modules.map((mod) => {
 		if (isVarExtension(mod)) {
 			return { [mod.name]: mod };
+		}
+		if (isValidator(mod)) {
+			return { [mod.key]: mod };
 		}
 		if (
 			isFn(mod) ||
@@ -360,6 +383,8 @@ export const collectUsable = (
 	const walk = (mod: Record<string, unknown>): Record<string, unknown> => {
 		const out: Record<string, unknown> = {};
 		for (const [name, value] of Object.entries(mod)) {
+			// A bare validator, as wrapped by `resolveModules`.
+			if (isValidator(value) && name === value.key) continue;
 			if (
 				isFn(value) ||
 				isVar(value) ||
