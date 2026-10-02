@@ -9,6 +9,7 @@ import {
 import {
 	asType,
 	attrsOf,
+	type FormatLookup,
 	type InferArgs,
 	type InferInput,
 	isType,
@@ -788,13 +789,14 @@ const prepareCreate = (
 	modelSchema: unknown,
 	data: Record<string, unknown>,
 	path: string,
+	formats: FormatLookup | undefined,
 ): Record<string, unknown> | Promise<Record<string, unknown>> => {
 	const schema = asType(modelSchema ?? {});
 	if (schema.name !== "object" || schema.shape === undefined) {
 		return data;
 	}
 	const shape = schema.shape as Record<string, unknown>;
-	const validated = validate(schema, data, path);
+	const validated = validate(schema, data, path, formats);
 	const finish = (parsed: Record<string, unknown>) => {
 		// Validate only materializes declared fields - put EXTENDED keys back.
 		const extras = Object.fromEntries(
@@ -1237,11 +1239,16 @@ const activeFrame = (
 	return ambient?.done ? undefined : ambient;
 };
 
+const IN_SCOPE = Symbol("storage-in-scope");
+
 const buildStorage = <M extends StorageModels>(
 	state: StorageState,
 	models: M,
 	/** Set on a `$transaction` view: its ops always use this transaction. */
 	frame?: TxFrame,
+	/** Set on a fn's view (see {@link storageInScope}): the format checks
+	 * `create` validates with. */
+	formats?: FormatLookup,
 ): Storage<M> => {
 	// Every op funnels here: matching hooks compose around the adapter
 	// call, first mounted outermost - the `v.on` rules, one layer down.
@@ -1294,7 +1301,12 @@ const buildStorage = <M extends StorageModels>(
 		// `create(bad)` still throws at the call site with no hooks mounted.
 		const prepare = (data: Row) => {
 			try {
-				const row = prepareCreate(schemaOfModel(input), data, `${key}.create`);
+				const row = prepareCreate(
+					schemaOfModel(input),
+					data,
+					`${key}.create`,
+					formats,
+				);
 				return isThenable(row) ? row.catch(stamp) : row;
 			} catch (thrown) {
 				return stamp(thrown);
@@ -1356,6 +1368,7 @@ const buildStorage = <M extends StorageModels>(
 					Object.entries(models).filter(([key]) => !keys.includes(key)),
 				) as StorageModels,
 				frame,
+				formats,
 			),
 		$pick: (...keys: string[]) =>
 			buildStorage(
@@ -1364,11 +1377,12 @@ const buildStorage = <M extends StorageModels>(
 					keys.map((key) => [key, models[key]]),
 				) as StorageModels,
 				frame,
+				formats,
 			),
 		$extend: (added: StorageModels) => {
 			const more = normalizeModels(added);
 			declareModels(state, more);
-			return buildStorage(state, { ...models, ...more }, frame);
+			return buildStorage(state, { ...models, ...more }, frame, formats);
 		},
 		$transaction: async <T>(
 			fn: (tx: Storage<M>) => Promise<T> | T,
@@ -1379,7 +1393,7 @@ const buildStorage = <M extends StorageModels>(
 			// Already inside one: join it (Better Auth's
 			// `isTransactionActive` short-circuit).
 			const active = activeFrame(state, frame);
-			if (active) return fn(buildStorage(state, models, active));
+			if (active) return fn(buildStorage(state, models, active, formats));
 
 			const als = await loadAmbient();
 			const afterCommit: TxFrame["afterCommit"] = [];
@@ -1391,7 +1405,9 @@ const buildStorage = <M extends StorageModels>(
 				const body = () => {
 					let settled: Promise<T>;
 					try {
-						settled = Promise.resolve(fn(buildStorage(state, models, txFrame)));
+						settled = Promise.resolve(
+							fn(buildStorage(state, models, txFrame, formats)),
+						);
 					} catch (thrown) {
 						settled = Promise.reject(thrown);
 					}
@@ -1442,8 +1458,18 @@ const buildStorage = <M extends StorageModels>(
 			frame ? !frame.done : activeFrame(state, undefined) !== undefined,
 		$models: resolveModels(models),
 	} as StorageApi<M>) as Storage<M>;
+	Object.defineProperty(self, IN_SCOPE, {
+		value: (scoped: FormatLookup) => buildStorage(state, models, frame, scoped),
+	});
 	return self;
 };
+
+/** A storage as one fn scope sees it: same state, its `create`s checking
+ * the scope's formats. Anything else passes through. */
+export const storageInScope = (storage: unknown, formats: FormatLookup) =>
+	(storage as { [IN_SCOPE]?: (formats: FormatLookup) => unknown } | null)?.[
+		IN_SCOPE
+	]?.(formats) ?? storage;
 
 /** Record models on the state and tell the adapter. */
 const declareModels = (state: StorageState, models: StorageModels) => {

@@ -147,6 +147,50 @@ const createSession = v.fn(
 
 There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
 
+#### Formats
+
+`v.string({ format: "email" | "url" })` checks with the built-in `checkEmail` / `checkUrl` — nothing to configure. Emails are trimmed and lowercased before the check.
+
+Each format's check is a var: `emailFormat` (`format.email`), `urlFormat` (`format.url`), or any `formatVarName(name)`. It resolves from the calling fn's vars when it runs, so a `.with` seed at the root covers the whole call tree, and one on a single call covers just that call — the parent and siblings keep theirs.
+
+```ts
+// library: format fields, no format setup
+const blockedDomains = v.var("blockedDomains", { default: [] as string[] });
+const signUp = v.fn("auth.signUp", { input: { email: v.string({ format: "email" }) } }, (c) => c.input.email);
+const handler = v.fn(
+  "auth.handler",
+  { input: { email: v.string() }, use: [{ signUp, blockedDomains }] },
+  (c) => c.signUp({ email: c.input.email }),
+);
+
+// app: one rule on top of the default
+const noDisposable: FormatCheck = (value, c) => {
+  const base = checkEmail(value);
+  if (base !== true) return base;
+  const domain = value.split("@")[1];
+  return !c.blockedDomains.includes(domain) || `${domain} is not allowed`;
+};
+
+// global: seed once at the root
+const auth = handler.with({ "format.email": noDisposable, blockedDomains: ["throwaway.dev"] });
+auth({ email: "a@throwaway.dev" }); // ValidationError: "throwaway.dev is not allowed"
+
+// scoped: stricter for one call only
+const corpOnly: FormatCheck = (value) => value.endsWith("@corp.com") || "corp addresses only";
+v.fn((c) => signUp.with({ "format.email": corpOnly })({ email: "ada@corp.com" }, c));
+```
+
+A `FormatCheck` is `(value, c) => boolean | string`, sync or async: a string or a throw is the message, `false` the generic `expected format "<name>"`. `c` reads the scope's vars and passes as a fn's parent. Calling `checkEmail(value)` reuses the default without recursing — inside a check, its own format reads the default. `use: [{ emailFormat }]` is optional: it only types `Instance.with(fn, { emailFormat })` and `c["format.email"]`.
+
+Overrides apply to fn input, output and errors, to storage writes through `c.<storage>`, and to event payloads published from `c`. Direct `parseFields` calls use the built-ins unless given `{ formats }`.
+
+Limits:
+
+- storage called directly, or wrapped in a merge var, keeps the built-ins
+- union-arm selection uses the built-ins
+- `c["format.email"] = x` is a plain var write — shared across the call tree, not scoped like `.with`
+- `"format.*"` keys in `.with` are plain strings, not type-checked yet
+
 ### modules
 
 A module is the unit of composition: a plain record of members — fns, vars, `on` entries — usually just what a file exports. "Plugin" is not a concept, only a usage: mounting someone else's module with `use`.

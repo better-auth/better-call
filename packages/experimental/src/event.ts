@@ -1,6 +1,7 @@
 import { ValidationError } from "./error";
 import {
 	asType,
+	type FormatLookup,
 	type InferArgs,
 	type InferInput,
 	isFnSchema,
@@ -256,6 +257,7 @@ const applyPatch = (
 	current: unknown,
 	patch: Record<string, unknown>,
 	path: string,
+	formats: FormatLookup | undefined,
 ): unknown | Promise<unknown> => {
 	const def = asType(schema);
 	const shape = def.shape as Record<string, unknown> | undefined;
@@ -264,6 +266,7 @@ const applyPatch = (
 			def,
 			{ ...(current as Record<string, unknown>), ...patch },
 			path,
+			formats,
 		);
 	}
 	const keys = Object.keys(patch);
@@ -281,7 +284,7 @@ const applyPatch = (
 		}
 		const key = keys[index] as string;
 		return thenMaybe(
-			validate(asType(shape[key]), patch[key], `${path}.${key}`),
+			validate(asType(shape[key]), patch[key], `${path}.${key}`, formats),
 			(parsed) => walk(index + 1, { ...acc, [key]: parsed }),
 		);
 	};
@@ -300,6 +303,7 @@ const runHandlers = (
 	initial: unknown,
 	schema: unknown,
 	path: string,
+	formats: FormatLookup | undefined,
 ): unknown | Promise<unknown> => {
 	const run = (i: number, current: unknown): unknown | Promise<unknown> => {
 		if (i >= handlers.length) return current;
@@ -314,7 +318,13 @@ const runHandlers = (
 				typeof mutate === "object"
 			) {
 				downstream = thenMaybe(
-					applyPatch(schema, current, mutate as Record<string, unknown>, path),
+					applyPatch(
+						schema,
+						current,
+						mutate as Record<string, unknown>,
+						path,
+						formats,
+					),
 					continueChain,
 				);
 				return downstream;
@@ -474,6 +484,7 @@ const publishOn = (
 	type: string,
 	data: unknown,
 	varExts: readonly EventVarExt[] = [],
+	formats?: FormatLookup,
 ):
 	| [unknown, () => Promise<unknown>]
 	| Promise<[unknown, () => Promise<unknown>]> => {
@@ -500,10 +511,18 @@ const publishOn = (
 						path,
 						"noInput field is not allowed",
 					),
-			() => validate(asType(toInputSchema(doors.inputSchema)), data, path),
+			() =>
+				validate(asType(toInputSchema(doors.inputSchema)), data, path, formats),
 		);
 	return thenMaybe(parseInput(), (parsed) => {
-		const done = runHandlers(handlers, type, parsed, doors.patchSchema, path);
+		const done = runHandlers(
+			handlers,
+			type,
+			parsed,
+			doors.patchSchema,
+			path,
+			formats,
+		);
 		return [
 			parsed,
 			() =>
@@ -514,6 +533,7 @@ const publishOn = (
 									asType(toOutputSchema(doors.outputSchema)),
 									final,
 									path,
+									formats,
 								)
 							: projectValue(doors.outputSchema, final, isNoOutput),
 					),
@@ -525,16 +545,17 @@ const publishOn = (
 /** Publish against a named bus, folding mounted var extensions into
  * kinds whose payload infers from those vars. Used by a fn context so
  * `c.bus.publish` matches the same `v.extend` / customize the handler
- * already sees on `c.input`. */
+ * already sees on `c.input` - and checks formats the way its fn does. */
 export const publishEvent = (
 	name: string,
 	type: string,
 	data: unknown,
 	varExts: readonly EventVarExt[] = [],
+	formats?: FormatLookup,
 ):
 	| [unknown, () => Promise<unknown>]
 	| Promise<[unknown, () => Promise<unknown>]> =>
-	publishOn(name, type, data, varExts);
+	publishOn(name, type, data, varExts, formats);
 
 /** Register a module-mounted event listener (no-op if already present). */
 export const mountEventOn = (entry: EventOnEntry<string>) => {

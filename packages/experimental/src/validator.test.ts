@@ -1,28 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./error";
-import { v } from "./index";
+import {
+	checkEmail,
+	emailFormat,
+	type FormatCheck,
+	memoryAdapter,
+	parseFields,
+	urlFormat,
+	v,
+} from "./index";
 
 const emailInput = { input: { email: v.string({ format: "email" }) } };
 
-const corpEmail = v.fn(
-	"better-call.validator.email",
-	{
-		input: v.string(),
-		output: v.boolean(),
-		errors: { invalid: { message: v.string() } },
-	},
-	(c) => {
-		if (!c.input.endsWith("@corp.com")) {
-			throw c.error("invalid", { message: "corp addresses only" });
-		}
-		return true;
-	},
-);
-const labsEmail = v.fn(
-	"better-call.validator.email",
-	{ input: v.string(), output: v.boolean() },
-	(c) => c.input.endsWith("@labs.corp.com"),
-);
+const corpOnly: FormatCheck = (value) =>
+	value.endsWith("@corp.com") || "corp addresses only";
+const labsOnly: FormatCheck = (value) => value.endsWith("@labs.corp.com");
 const labsFailure = 'expected format "email", received ';
 
 const issueOf = (run: () => unknown): string | undefined => {
@@ -35,18 +27,28 @@ const issueOf = (run: () => unknown): string | undefined => {
 	return undefined;
 };
 
-describe("validators: defaults", () => {
-	it("no validator keeps the built-in email check and normalization", () => {
-		const f = v.fn("val.plain", emailInput, (c) => c.input.email);
+const asyncIssueOf = async (run: () => unknown) => {
+	try {
+		await run();
+	} catch (thrown) {
+		if (thrown instanceof ValidationError) return thrown.issues[0]?.message;
+		throw thrown;
+	}
+	return undefined;
+};
+
+describe("format vars: defaults", () => {
+	it("unset, email keeps the built-in check and normalization", () => {
+		const f = v.fn("fmt.plain", emailInput, (c) => c.input.email);
 		expect(f({ email: "  Ada@Example.com " })).toBe("ada@example.com");
 		expect(issueOf(() => f({ email: "nope" }))).toMatch(
 			/expected an email address/,
 		);
 	});
 
-	it("no validator keeps the built-in url check; uuid stays docs-only", () => {
+	it("unset, url keeps the built-in check; uuid stays docs-only", () => {
 		const f = v.fn(
-			"val.plainUrl",
+			"fmt.plainUrl",
 			{
 				input: {
 					url: v.string({ format: "url" }),
@@ -60,328 +62,313 @@ describe("validators: defaults", () => {
 			/expected a URL/,
 		);
 	});
-});
 
-describe("validators: scoping", () => {
-	const app = v.fn("app.", { use: [corpEmail] });
-	const inner = app.fn("inner.", { use: [labsEmail] });
-	const sibling = app.fn("sibling.");
-
-	const rootSignup = app.fn("signup", emailInput, (c) => c.input.email);
-	const innerSignup = inner.fn("signup", emailInput, (c) => c.input.email);
-	const siblingSignup = sibling.fn("signup", emailInput, (c) => c.input.email);
-	const outside = v.fn("outside.signup", emailInput, (c) => c.input.email);
-
-	it("a validator at the root scope applies to every fn below it", () => {
-		expect(rootSignup({ email: "ada@corp.com" })).toBe("ada@corp.com");
-		expect(issueOf(() => rootSignup({ email: "ada@example.com" }))).toBe(
-			"corp addresses only",
-		);
-		expect(siblingSignup({ email: "ada@corp.com" })).toBe("ada@corp.com");
-		expect(issueOf(() => siblingSignup({ email: "ada@example.com" }))).toBe(
-			"corp addresses only",
-		);
-	});
-
-	it("fns outside the validating scope keep the default", () => {
-		expect(outside({ email: "ada@example.com" })).toBe("ada@example.com");
-	});
-
-	it("a nested validator applies inside its scope, not its parent or siblings", () => {
-		expect(innerSignup({ email: "ada@labs.corp.com" })).toBe(
-			"ada@labs.corp.com",
-		);
-		expect(issueOf(() => innerSignup({ email: "ada@corp.com" }))).toBe(
-			`${labsFailure}"ada@corp.com"`,
-		);
-		// Parent and sibling still run the outer validator.
-		expect(rootSignup({ email: "ada@corp.com" })).toBe("ada@corp.com");
-		expect(siblingSignup({ email: "ada@corp.com" })).toBe("ada@corp.com");
-	});
-
-	it("a deeper validator shadows an outer one", () => {
-		const anyEmail = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			() => true,
-		);
-		const deep = inner.fn("deep.", { use: [anyEmail] });
-		const deepSignup = deep.fn("signup", emailInput, (c) => c.input.email);
-		expect(deepSignup({ email: "not-an-email" })).toBe("not-an-email");
-		expect(issueOf(() => innerSignup({ email: "not-an-email" }))).toBe(
-			`${labsFailure}"not-an-email"`,
-		);
-	});
-
-	it("a fn's own use overrides its builder scope", () => {
-		const own = app.fn(
-			"own",
-			{ ...emailInput, use: [labsEmail] },
-			(c) => c.input.email,
-		);
-		expect(issueOf(() => own({ email: "ada@corp.com" }))).toBe(
-			`${labsFailure}"ada@corp.com"`,
-		);
-	});
-
-	it("is lexical: a fn keeps its own scope when called from another", () => {
-		const callsOutside = inner.fn(
-			"callsOutside",
-			{ use: [{ outside, rootSignup }] },
-			(c) => [
-				c.outside({ email: "ada@example.com" }),
-				c.rootSignup({ email: "ada@corp.com" }),
-			],
-		);
-		expect(callsOutside()).toEqual(["ada@example.com", "ada@corp.com"]);
-	});
-
-	it("a validator can also be mounted inside a module record", () => {
-		const f = v.fn(
-			"val.grouped",
-			{ ...emailInput, use: [{ formats: { corpEmail } }] },
-			(c) => c.input.email,
-		);
-		expect(issueOf(() => f({ email: "ada@example.com" }))).toBe(
-			"corp addresses only",
-		);
+	it("the vars are ordinary vars defaulting to the built-ins", () => {
+		expect(emailFormat.name).toBe("format.email");
+		expect(emailFormat.default).toBe(checkEmail);
+		expect(urlFormat.name).toBe("format.url");
+		const f = v.fn({ use: [{ emailFormat }] }, (c) => c["format.email"]);
+		expect(f()).toBe(checkEmail);
 	});
 });
 
-describe("validators: behavior", () => {
-	it("validates url and docs-only formats like uuid", () => {
-		const httpsOnly = v.fn(
-			"better-call.validator.url",
-			{ input: v.string(), output: v.boolean() },
-			(c) => c.input.startsWith("https://"),
+describe("format vars: scoping", () => {
+	const signUp = v.fn("fmt.signUp", emailInput, (c) => c.input.email);
+	const invite = v.fn("fmt.invite", emailInput, (c) => c.input.email);
+
+	it("set at the root, applies to everything the call tree reaches", () => {
+		const root = v.fn(
+			"fmt.root",
+			{ input: { email: v.string() }, use: [{ signUp, invite }] },
+			(c) => [c.signUp({ email: c.input.email }), c.invite(c.input)],
 		);
-		const uuid = v.fn(
-			"better-call.validator.uuid",
-			{ input: v.string(), output: v.boolean() },
-			(c) =>
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-					c.input,
+		const scoped = root.with({ "format.email": corpOnly });
+		expect(scoped({ email: "ada@corp.com" })).toEqual([
+			"ada@corp.com",
+			"ada@corp.com",
+		]);
+		expect(issueOf(() => scoped({ email: "ada@example.com" }))).toBe(
+			"corp addresses only",
+		);
+		// The unbound fn is untouched.
+		expect(root({ email: "ada@example.com" })).toEqual([
+			"ada@example.com",
+			"ada@example.com",
+		]);
+	});
+
+	it("an instance seeds it under its use key, type-checked", () => {
+		const app = v.fn("fmt.app.", { use: [{ emailFormat }] });
+		const join = app.fn("join", emailInput, (c) => c.input.email);
+		const scoped = app.with(join, { emailFormat: corpOnly });
+		expect(scoped({ email: "Ada@Corp.com" })).toBe("ada@corp.com");
+		expect(issueOf(() => scoped({ email: "ada@example.com" }))).toBe(
+			"corp addresses only",
+		);
+		expect(join({ email: "ada@example.com" })).toBe("ada@example.com");
+		// @ts-expect-error - a format check, not a string
+		app.with(join, { emailFormat: "nope" });
+	});
+
+	it("set via .with on an inner call, it leaves the parent and siblings alone", () => {
+		const parent = v.fn(
+			"fmt.parent",
+			{
+				output: v.object({
+					inner: v.string(),
+					sibling: v.string(),
+					own: v.string({ format: "email" }),
+				}),
+			},
+			(c) => ({
+				inner: signUp.with({ "format.email": corpOnly })(
+					{ email: "ada@corp.com" },
+					c,
 				),
+				// After the scoped call, a sibling and the parent's own output
+				// still see the default.
+				sibling: invite({ email: "eve@example.com" }, c),
+				own: "own@example.com",
+			}),
 		);
-		const f = v.fn(
-			"val.urls",
-			{
-				input: {
-					url: v.string({ format: "url" }),
-					id: v.string({ format: "uuid" }),
-				},
-				use: [httpsOnly, uuid],
-			},
-			(c) => c.input,
-		);
-		const id = "123e4567-e89b-12d3-a456-426614174000";
-		expect(f({ url: "https://a.dev", id }).url).toBe("https://a.dev");
-		expect(issueOf(() => f({ url: "http://a.dev", id }))).toBe(
-			'expected format "url", received "http://a.dev"',
-		);
-		expect(issueOf(() => f({ url: "https://a.dev", id: "nope" }))).toBe(
-			'expected format "uuid", received "nope"',
-		);
-	});
-
-	it("a declared error without a message fails with its tag", () => {
-		const tagged = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean(), errors: { blocked: {} } },
-			(c) => {
-				throw c.error("blocked");
-			},
-		);
-		const f = v.fn(
-			"val.tagged",
-			{ ...emailInput, use: [tagged] },
-			(c) => c.input.email,
-		);
-		expect(issueOf(() => f({ email: "a@b.co" }))).toBe(
-			'expected format "email" (blocked), received "a@b.co"',
-		);
-	});
-
-	it("an undeclared throw is a defect, not a validation failure", () => {
-		const broken = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			() => {
-				throw new Error("dns down");
-			},
-		);
-		const f = v.fn(
-			"val.broken",
-			{ ...emailInput, use: [broken] },
-			(c) => c.input.email,
-		);
-		expect(() => f({ email: "a@b.co" })).toThrow("dns down");
-	});
-
-	it("still normalizes email before the validator runs", () => {
-		const seen: string[] = [];
-		const spy = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			(c) => {
-				seen.push(c.input);
-				return true;
-			},
-		);
-		const f = v.fn(
-			"val.normalized",
-			{ ...emailInput, use: [spy] },
-			(c) => c.input.email,
-		);
-		expect(f({ email: " Ada@Corp.com" })).toBe("ada@corp.com");
-		expect(seen).toEqual(["ada@corp.com"]);
-	});
-
-	it("applies to output too", () => {
-		const f = v.fn(
-			"val.output",
-			{ output: { email: v.string({ format: "email" }) }, use: [corpEmail] },
-			() => ({ email: "ada@example.com" }),
-		);
-		expect(issueOf(() => f())).toBe("corp addresses only");
-	});
-
-	it("supports async validators", async () => {
-		const slow = v.fn(
-			"better-call.validator.email",
-			{
-				input: v.string({ description: "email" }),
-				output: v.boolean(),
-			},
-			async (c) => c.input.endsWith("@corp.com"),
-		);
-		const f = v.fn(
-			"val.async",
-			{ ...emailInput, use: [slow] },
-			(c) => c.input.email,
-		);
-		await expect(f({ email: "ada@corp.com" })).resolves.toBe("ada@corp.com");
-		await expect(f({ email: "ada@example.com" })).rejects.toThrow(
-			'expected format "email"',
-		);
-	});
-
-	it("a sync rule failing after an async validator still throws sync", () => {
-		const slow = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			async () => true,
-		);
-		const f = v.fn(
-			"val.asyncThenSync",
-			{
-				input: {
-					email: v.string({ format: "email", endsWith: "@corp.com" }),
-				},
-				use: [slow],
-			},
-			(c) => c.input.email,
-		);
-		expect(issueOf(() => f({ email: "ada@example.com" }))).toMatch(
-			/expected to end with "@corp.com"/,
-		);
-	});
-
-	it("the validator runs in the caller's var scope", () => {
-		const domain = v.var("val_domain", { default: "corp.com" });
-		const byDomain = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			(c) => c.input.endsWith(`@${c.val_domain}`),
-		);
-		const f = v.fn(
-			"val.vars",
-			{ ...emailInput, use: [{ domain }, byDomain] },
-			(c) => c.input.email,
-		);
-		expect(f.with({ val_domain: "labs.dev" })({ email: "a@labs.dev" })).toBe(
-			"a@labs.dev",
-		);
-		expect(issueOf(() => f({ email: "a@labs.dev" }))).toBe(
-			'expected format "email", received "a@labs.dev"',
-		);
-	});
-
-	it("a validator's own email input never runs an email override", () => {
-		const calls: string[] = [];
-		const outer = v.fn(
-			"better-call.validator.email",
-			{ input: v.string(), output: v.boolean() },
-			(c) => {
-				calls.push(`outer:${c.input}`);
-				return true;
-			},
-		);
-		// Its input is email-formatted and its scope mounts another email
-		// validator: neither that one nor itself checks its own input.
-		const selfChecking = v.fn(
-			"better-call.validator.email",
-			{
-				input: v.string({ format: "email" }),
-				output: v.boolean(),
-				use: [outer],
-			},
-			(c) => {
-				calls.push(`self:${c.input}`);
-				return c.input.endsWith("@corp.com");
-			},
-		);
-		const f = v.fn(
-			"val.selfChecking",
-			{ ...emailInput, use: [selfChecking] },
-			(c) => c.input.email,
-		);
-		expect(f({ email: "ada@corp.com" })).toBe("ada@corp.com");
-		expect(calls).toEqual(["self:ada@corp.com"]);
-	});
-
-	it("v.on targets a validator by its key, also from a builder", () => {
-		const log: string[] = [];
-		const app = v.fn("val.app.", { use: [labsEmail] });
-		const audit = app.on("better-call.validator.email", (c, next) => {
-			log.push(c.fnKey);
-			return next();
+		expect(parent()).toEqual({
+			inner: "ada@corp.com",
+			sibling: "eve@example.com",
+			own: "own@example.com",
 		});
-		const f = app.fn(
-			"signup",
-			{ ...emailInput, use: [{ audit }] },
-			(c) => c.input.email,
+		const rejected = v.fn("fmt.parentBad", (c) =>
+			signUp.with({ "format.email": corpOnly })(
+				{ email: "ada@example.com" },
+				c,
+			),
 		);
-		expect(f({ email: "a@labs.corp.com" })).toBe("a@labs.corp.com");
-		expect(log).toEqual(["better-call.validator.email"]);
+		expect(issueOf(() => rejected())).toBe("corp addresses only");
 	});
 
-	it("a validator under a prefixed builder fails at definition", () => {
-		const app = v.fn("val.app.");
-		expect(() =>
-			app.fn(
-				"better-call.validator.email",
-				{ input: v.string(), output: v.boolean() },
-				() => true,
+	it("an inner setting shadows an outer one for its call tree only", () => {
+		const outer = v.fn("fmt.outer", { use: [{ signUp }] }, (c) => [
+			c.signUp({ email: "ada@corp.com" }),
+			signUp.with({ "format.email": labsOnly })(
+				{ email: "ada@labs.corp.com" },
+				c,
 			),
-		).toThrow(/validator keys are global/);
+			issueOf(() =>
+				signUp.with({ "format.email": labsOnly })({ email: "ada@corp.com" }, c),
+			),
+			// Back in the outer scope, the outer setting holds again.
+			issueOf(() => c.signUp({ email: "ada@labs.example.com" })),
+		]);
+		const [outerOk, innerOk, innerIssue, outerIssue] = outer.with({
+			"format.email": corpOnly,
+		})();
+		expect(outerOk).toBe("ada@corp.com");
+		expect(innerOk).toBe("ada@labs.corp.com");
+		expect(innerIssue).toBe(`${labsFailure}"ada@corp.com"`);
+		expect(outerIssue).toBe("corp addresses only");
+	});
+
+	it("an assignment applies to what the fn calls after it", () => {
+		const f = v.fn("fmt.assign", { use: [{ signUp, emailFormat }] }, (c) => {
+			const before = c.signUp({ email: "ada@example.com" });
+			c["format.email"] = corpOnly;
+			return [before, issueOf(() => c.signUp({ email: "ada@example.com" }))];
+		});
+		expect(f()).toEqual(["ada@example.com", "corp addresses only"]);
+	});
+
+	it("any format name works - seeding format.<name> adds a check", () => {
+		const f = v.fn(
+			"fmt.slug",
+			{ input: { slug: v.string({ format: "slug" }) } },
+			(c) => c.input.slug,
+		);
+		expect(f({ slug: "Not A Slug" })).toBe("Not A Slug");
+		const strict = f.with({
+			"format.slug": (value: string) => /^[a-z-]+$/.test(value),
+		});
+		expect(strict({ slug: "a-slug" })).toBe("a-slug");
+		expect(issueOf(() => strict({ slug: "Not A Slug" }))).toBe(
+			'expected format "slug", received "Not A Slug"',
+		);
 	});
 });
 
-describe("validators: types", () => {
-	it("use takes a bare validator fn but no other bare fn", () => {
-		const plain = v.fn("val.plainFn", () => 1);
-		expect(() =>
-			// @ts-expect-error - only validator fns mount bare
-			v.fn("val.bareFn", { use: [plain] }, () => 1),
-		).toThrow(/modules are objects/);
-		const stringy = v.fn(
-			"better-call.validator.email",
-			{ input: v.string() },
-			() => "yes",
+describe("format vars: checks", () => {
+	it("a string is the message, false the generic one, a throw its message", () => {
+		const f = v.fn("fmt.messages", emailInput, (c) => c.input.email);
+		expect(
+			issueOf(() =>
+				f.with({ "format.email": () => "no thanks" })({ email: "a@b.co" }),
+			),
+		).toBe("no thanks");
+		expect(
+			issueOf(() =>
+				f.with({ "format.email": () => false })({ email: "a@b.co" }),
+			),
+		).toBe(`${labsFailure}"a@b.co"`);
+		expect(
+			issueOf(() =>
+				f.with({
+					"format.email": () => {
+						throw new Error("domain is blocked");
+					},
+				})({ email: "a@b.co" }),
+			),
+		).toBe("domain is blocked");
+	});
+
+	it("checks may be async - resolved verdicts and rejections both count", async () => {
+		const f = v.fn("fmt.async", emailInput, (c) => c.input.email);
+		const slowCorp = async (value: string) => {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			return value.endsWith("@corp.com") || "corp addresses only";
+		};
+		const scoped = f.with({ "format.email": slowCorp });
+		await expect(scoped({ email: " Ada@Corp.com" })).resolves.toBe(
+			"ada@corp.com",
 		);
-		// @ts-expect-error - a validator returns a boolean
-		v.fn("val.stringy", { use: [stringy] }, () => 1);
-		v.fn("val.ok", { use: [corpEmail, { plain }] }, (c) => c.plain());
+		expect(await asyncIssueOf(() => scoped({ email: "ada@example.com" }))).toBe(
+			"corp addresses only",
+		);
+		const rejecting = f.with({
+			"format.email": async () => {
+				throw new Error("lookup failed");
+			},
+		});
+		expect(await asyncIssueOf(() => rejecting({ email: "a@b.co" }))).toBe(
+			"lookup failed",
+		);
+	});
+
+	it("a check reads the scope's vars and calls fns with it as the parent", async () => {
+		const blocked = v.var("fmt_blocked", { default: [] as string[] });
+		const isDisposable = v.fn(
+			"fmt.isDisposable",
+			{ input: { domain: v.string() }, use: [{ blocked }] },
+			(c) => c.fmt_blocked.includes(c.input.domain),
+		);
+		const notDisposable: FormatCheck = (value, c) =>
+			!isDisposable({ domain: value.split("@")[1] ?? "" }, c) ||
+			`disposable domain (${c.fmt_blocked.length} blocked)`;
+		const f = v.fn("fmt.context", emailInput, (c) => c.input.email);
+		const scoped = f.with({
+			"format.email": notDisposable,
+			fmt_blocked: ["throwaway.com"],
+		});
+		expect(scoped({ email: "ada@corp.com" })).toBe("ada@corp.com");
+		expect(issueOf(() => scoped({ email: "ada@throwaway.com" }))).toBe(
+			"disposable domain (1 blocked)",
+		);
+	});
+
+	it("an override calls the default without looping back into itself", () => {
+		let calls = 0;
+		const stricter: FormatCheck = (value) => {
+			calls++;
+			const base = checkEmail(value);
+			if (base !== true) return base;
+			return !value.startsWith("admin@") || "reserved address";
+		};
+		const f = v.fn("fmt.default", emailInput, (c) => c.input.email);
+		const scoped = f.with({ "format.email": stricter });
+		expect(scoped({ email: "ada@corp.com" })).toBe("ada@corp.com");
+		expect(issueOf(() => scoped({ email: "admin@corp.com" }))).toBe(
+			"reserved address",
+		);
+		expect(issueOf(() => scoped({ email: "nope" }))).toMatch(
+			/expected an email address/,
+		);
+		expect(calls).toBe(3);
+	});
+
+	it("a fn the check calls sees the default for that format, not the check", () => {
+		const normalize = v.fn("fmt.normalize", emailInput, (c) => c.input.email);
+		let depth = 0;
+		const viaFn: FormatCheck = (value, c) => {
+			depth++;
+			return normalize({ email: value }, c).endsWith("@corp.com");
+		};
+		const f = v.fn("fmt.viaFn", emailInput, (c) => c.input.email);
+		expect(f.with({ "format.email": viaFn })({ email: "ada@corp.com" })).toBe(
+			"ada@corp.com",
+		);
+		expect(depth).toBe(1);
+	});
+});
+
+describe("format vars: storage and events", () => {
+	const account = v.var("fmt_account", {
+		default: null,
+		schema: v.object({ id: v.string(), email: v.string({ format: "email" }) }),
+	});
+
+	it("a storage write inside the call checks against the scope's var", async () => {
+		const db = v.storage(memoryAdapter(), { account });
+		const create = v.fn(
+			"fmt.storage",
+			{ input: { email: v.string() }, use: [{ db }] },
+			(c) => c.db.account.create({ id: c.input.email, email: c.input.email }),
+		);
+		await expect(create({ email: "Ada@Example.com" })).resolves.toMatchObject({
+			email: "ada@example.com",
+		});
+		const scoped = create.with({ "format.email": corpOnly });
+		expect(await asyncIssueOf(() => scoped({ email: "eve@example.com" }))).toBe(
+			"corp addresses only",
+		);
+		await expect(scoped({ email: "eve@corp.com" })).resolves.toMatchObject({
+			email: "eve@corp.com",
+		});
+		// The storage itself, outside any fn, keeps the built-in.
+		await expect(
+			db.account.create({ id: "x", email: "x@example.com" }),
+		).resolves.toMatchObject({ email: "x@example.com" });
+	});
+
+	it("an event payload published inside the call checks against it too", async () => {
+		const joined = v.event("fmt_joined", {
+			member: v.object({ email: v.string({ format: "email" }) }),
+		});
+		const announce = v.fn(
+			"fmt.event",
+			{ input: { email: v.string() }, use: [{ joined }] },
+			async (c) => {
+				const [payload] = await c.joined.publish("member", {
+					email: c.input.email,
+				});
+				return payload;
+			},
+		);
+		await expect(announce({ email: "eve@example.com" })).resolves.toEqual({
+			email: "eve@example.com",
+		});
+		const scoped = announce.with({ "format.email": corpOnly });
+		expect(await asyncIssueOf(() => scoped({ email: "eve@example.com" }))).toBe(
+			"corp addresses only",
+		);
+		await expect(scoped({ email: "eve@corp.com" })).resolves.toEqual({
+			email: "eve@corp.com",
+		});
+	});
+});
+
+describe("format checks outside a fn", () => {
+	const schema = v.object({ email: v.string({ format: "email" }) });
+
+	it("parseFields uses the built-ins unless given a lookup", () => {
+		expect(parseFields(schema, { email: " A@B.co " })).toEqual({
+			email: "a@b.co",
+		});
+		expect(
+			issueOf(() =>
+				parseFields(
+					schema,
+					{ email: "a@b.co" },
+					{
+						formats: (format) => (format === "email" ? corpOnly : undefined),
+					},
+				),
+			),
+		).toBe("corp addresses only");
 	});
 });

@@ -25,10 +25,10 @@ export type AttrBag = Record<string, Record<string, unknown>>;
 
 /**
  * Built-in OpenAPI / JSON Schema `format` values offered for autocomplete.
- * `"email"` and `"url"` are validated; the rest are docs-only. A
- * `better-call.validator.<name>` fn mounted in a scope overrides (or
- * adds) the check there - see {@link VALIDATOR_PREFIX}. Arbitrary strings
- * still type-check via {@link Format}.
+ * `"email"` and `"url"` are validated; the rest are docs-only. Setting
+ * the `format.<name>` var overrides (or adds) a check for that call tree
+ * - see `emailFormat`. Arbitrary strings still type-check via
+ * {@link Format}.
  */
 export type KnownFormat =
 	| "email"
@@ -53,28 +53,23 @@ export type KnownFormat =
 export type Format = KnownFormat | (string & {});
 
 /** A format check's verdict - the same contract as `check`: `true`
- * passes, a string fails with that message, `false` fails generically.
- * Validator fns return a boolean; messages come from their declared
- * errors (see {@link VALIDATOR_PREFIX}). */
+ * passes, a string fails with that message, `false` fails generically. */
 export type FormatResult = boolean | string;
 
-/** Validates a string field's `format`. May be async. */
+/**
+ * Checks a string field's `format`. May be async; a throw (or rejection)
+ * fails with the error's message. Inside a fn call `c` reads the calling
+ * scope's vars and passes as a fn's parent (`isListed(value, c)`).
+ */
 export type FormatCheck = (
 	value: string,
+	c?: any,
 ) => FormatResult | Promise<FormatResult>;
 
-/** Format checks in force, by format name - shadowing the built-ins. */
-export type Formats = Readonly<Record<string, FormatCheck>>;
-
-/**
- * Fn keys under this prefix are VALIDATORS: a fn keyed
- * `better-call.validator.email` (`.url`, `.uuid`, any format name)
- * replaces that format's check for every fn defined under the scope that
- * mounts it - inner scopes shadow outer ones, fns outside keep the
- * built-in. Input is the string, output `v.boolean()`; a declared error
- * fails with its payload's `message` when it has one.
- */
-export const VALIDATOR_PREFIX = "better-call.validator.";
+/** The check in force for a format, or `undefined` for docs-only. Fns
+ * resolve it from the `format.<name>` vars; omitted, {@link validate}
+ * uses {@link builtinFormats}. */
+export type FormatLookup = (format: string) => FormatCheck | undefined;
 
 /**
  * Docs / OpenAPI annotations on a field. Most are ignored by
@@ -986,6 +981,9 @@ export type ParseFieldsOptions = {
 	omit?: FieldPred;
 	/** Message used when {@link reject} fires. */
 	rejectMessage?: string;
+	/** Format checks in force - see {@link validate}. Omitted, the
+	 * {@link builtinFormats}. */
+	formats?: FormatLookup;
 };
 
 /**
@@ -1009,6 +1007,7 @@ export const parseFields = <S>(
 	const reject = options.reject;
 	const omit = options.omit;
 	const rejectMessage = options.rejectMessage ?? "field is not allowed";
+	const formats = options.formats;
 
 	const root = isVar(schema)
 		? ((schema as { schema?: unknown }).schema ?? schema)
@@ -1027,7 +1026,7 @@ export const parseFields = <S>(
 					const arm = arms[i];
 					if (arm === undefined) {
 						const projected = omit ? omitFields(schema, omit) : schema;
-						return validate(asType(projected), value, path);
+						return validate(asType(projected), value, path, formats);
 					}
 					const projected = omit ? omitFields(arm, omit) : arm;
 					const afterFit = (fitted: unknown): unknown => {
@@ -1038,7 +1037,7 @@ export const parseFields = <S>(
 					};
 					let fitted: unknown;
 					try {
-						fitted = validate(asType(projected), value, path);
+						fitted = validate(asType(projected), value, path, formats);
 					} catch (thrown) {
 						if (!(thrown instanceof ValidationError)) throw thrown;
 						return tryProjected(i + 1);
@@ -1063,7 +1062,7 @@ export const parseFields = <S>(
 			};
 			let matched: unknown;
 			try {
-				matched = validate(asType(option), value, path);
+				matched = validate(asType(option), value, path, formats);
 			} catch (thrown) {
 				if (!(thrown instanceof ValidationError)) throw thrown;
 				return tryArm(index + 1);
@@ -1080,7 +1079,7 @@ export const parseFields = <S>(
 	}
 
 	const projected = omit ? omitFields(schema, omit) : schema;
-	const finish = () => validate(asType(projected), value, path);
+	const finish = () => validate(asType(projected), value, path, formats);
 	if (!reject) return finish() as InferInput<S>;
 	const gated = rejectFields(schema, value, reject, path, rejectMessage);
 	return (isThenable(gated) ? gated.then(finish) : finish()) as InferInput<S>;
@@ -1107,31 +1106,46 @@ export const isVar = (value: any): boolean => value?.$var === true;
 const EMAIL =
 	/^(?!\.)(?!.*\.\.)([a-z0-9_'+\-.]*)[a-z0-9_+-]@([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}$/;
 
-/** The default checks; every other format is docs-only until a scope
- * overrides it. */
-const BUILTIN_FORMATS: Formats = {
-	email: (value) =>
-		EMAIL.test(value) ||
-		`expected an email address, received ${preview(value)}`,
-	url: (value) => {
-		try {
-			new URL(value);
-			return true;
-		} catch {
-			return `expected a URL, received ${preview(value)}`;
-		}
-	},
+/** The built-in email check - the `emailFormat` var's default. Callable
+ * from an override: `checkEmail(value) === true && ...`. */
+export const checkEmail = (value: string): FormatResult =>
+	EMAIL.test(value) || `expected an email address, received ${preview(value)}`;
+
+/** The built-in URL check - the `urlFormat` var's default. */
+export const checkUrl = (value: string): FormatResult => {
+	try {
+		new URL(value);
+		return true;
+	} catch {
+		return `expected a URL, received ${preview(value)}`;
+	}
 };
 
-const formatCheck = (
-	format: string | undefined,
-	formats: Formats | undefined,
-): FormatCheck | undefined => {
-	if (format === undefined) return undefined;
-	if (formats && Object.hasOwn(formats, format)) return formats[format];
-	return Object.hasOwn(BUILTIN_FORMATS, format)
-		? BUILTIN_FORMATS[format]
-		: undefined;
+/** The checks a {@link validate} without a lookup applies; every other
+ * format is docs-only. */
+export const builtinFormats: Readonly<Record<string, FormatCheck>> = {
+	email: checkEmail,
+	url: checkUrl,
+};
+
+const builtinFormat: FormatLookup = (format) =>
+	Object.hasOwn(builtinFormats, format) ? builtinFormats[format] : undefined;
+
+/** Runs a check; a throw or rejection becomes the failure message. */
+const runFormat = (
+	check: FormatCheck,
+	value: string,
+): FormatResult | Promise<FormatResult> => {
+	const message = (thrown: unknown) =>
+		thrown instanceof Error ? thrown.message : String(thrown);
+	try {
+		const result = check(value);
+		return isThenable(result)
+			? (result as Promise<FormatResult>).then(undefined, message)
+			: result;
+	} catch (thrown) {
+		return message(thrown);
+	}
 };
 
 const PREVIEW_MAX = 80;
@@ -1213,7 +1227,7 @@ const applyRules = (
 	def: Rules & { format?: string },
 	value: any,
 	path: string,
-	formats?: Formats,
+	formats: FormatLookup = builtinFormat,
 ): void | Promise<void> => {
 	let pending: Promise<FormatResult> | undefined;
 	if (def.enum && !def.enum.includes(value)) {
@@ -1252,9 +1266,9 @@ const applyRules = (
 				value,
 			);
 		}
-		const check = formatCheck(def.format, formats);
+		const check = def.format === undefined ? undefined : formats(def.format);
 		if (check) {
-			const result = check(value);
+			const result = runFormat(check, value);
 			if (isThenable(result)) {
 				// Handled here so a later sync failure never leaves it unhandled.
 				result.catch(() => {});
@@ -1340,7 +1354,7 @@ const attemptValidate = (
 	def: TypeDefination<any, any, any>,
 	value: unknown,
 	path: string,
-	formats: Formats | undefined,
+	formats: FormatLookup | undefined,
 ): Attempt<unknown> | Promise<Attempt<unknown>> => {
 	try {
 		const result = validate(def, value, path, formats);
@@ -1370,8 +1384,9 @@ export const validate = (
 	def: TypeDefination<any, any, any>,
 	value: unknown,
 	path: string,
-	/** Format checks in force for this scope - shadow the built-ins. */
-	formats?: Formats,
+	/** The format checks in force - a fn passes its scope's `format.*`
+	 * vars; omitted, the {@link builtinFormats}. */
+	formats?: FormatLookup,
 	/** Internal: skip default resolution after an async factory settled. */
 	settled = false,
 ): any => {
