@@ -1,6 +1,12 @@
 import type { FnDefination } from "../../fn";
 import { isFn, isNamespace } from "../../module";
-import { getRouteMeta } from "./route";
+import {
+	getRouteMeta,
+	isClientScope,
+	isServerScope,
+	type RouteScope,
+	type RouteScopeOf,
+} from "./route";
 
 /** `sign-up` → `signUp`; `:id` → `id`. */
 export type KebabToCamel<S extends string> = S extends `:${infer Param}`
@@ -65,6 +71,8 @@ export type PathRouteLeaf = {
 	invalidate: readonly string[];
 	/** Declared success status when set on the route. */
 	status?: number;
+	/** Endpoint scope when not the default `"rpc"`. */
+	scope?: RouteScope;
 	fn: FnDefination<any, any, any, any, any, any>;
 	/** Dotted export name (`signInEmail` or `auth.signInEmail`). */
 	name: string;
@@ -88,6 +96,7 @@ export function flattenRouteLeaves(
 					method: meta.method,
 					invalidate: meta.invalidate,
 					...(meta.status !== undefined ? { status: meta.status } : {}),
+					...(meta.scope !== undefined ? { scope: meta.scope } : {}),
 					fn: value as FnDefination<any, any, any, any, any, any>,
 					schema: (value as { $schema?: unknown }).$schema,
 				});
@@ -103,13 +112,15 @@ export function flattenRouteLeaves(
 
 /**
  * Nest leaves by HTTP path (`/sign-up/email` → `{ signUp: { email: leaf } }`).
- * Colliding paths overwrite (last wins).
+ * Colliding paths overwrite (last wins). Only client-visible (`"rpc"`)
+ * leaves are kept.
  */
 export function buildPathTree(
 	leaves: PathRouteLeaf[],
 ): Record<string, unknown> {
 	const root: Record<string, unknown> = {};
 	for (const leaf of leaves) {
+		if (!isClientScope(leaf.scope)) continue;
 		const keys = pathToClientKeys(leaf.path);
 		if (keys.length === 0) continue;
 		let node = root;
@@ -145,6 +156,7 @@ export function buildPathTree(
 /**
  * Server API: same shape as the routes module, only `$route` fns (and
  * namespaces that contain them). Keys are export names, not paths.
+ * `scope: "http"` fns are left out (router only).
  */
 export function buildServerApi(
 	module: Record<string, unknown>,
@@ -152,7 +164,8 @@ export function buildServerApi(
 	const out: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(module)) {
 		if (isFn(value)) {
-			if (getRouteMeta(value)) out[key] = value;
+			const meta = getRouteMeta(value);
+			if (meta && isServerScope(meta.scope)) out[key] = value;
 			continue;
 		}
 		if (isNamespace(value)) {
@@ -163,10 +176,12 @@ export function buildServerApi(
 	return out;
 }
 
-/** Type-level server API — export keys, route fns only. */
+/** Type-level server API — export keys, route fns only (no `"http"` scope). */
 export type InferServerAPI<M> = {
 	[K in keyof M as M[K] extends { $fn: true; $route: unknown }
-		? K
+		? RouteScopeOf<M[K]> extends "http"
+			? never
+			: K
 		: M[K] extends Record<string, unknown>
 			? keyof InferServerAPI<M[K]> extends never
 				? never

@@ -274,12 +274,14 @@ type ExtractHttpRoute<PL> = PL extends readonly unknown[]
 				readonly method: infer Method extends string;
 				readonly invalidate?: infer Inv;
 				readonly status?: infer Status;
+				readonly scope?: infer Scope;
 			}
 				? {
 						path: Path;
 						method: Method;
 						invalidate: Inv extends readonly string[] ? Inv : readonly [];
 						status?: Status extends number ? Status : never;
+						scope?: Scope extends HttpRouteScope ? Scope : never;
 					}
 				: never;
 		}[number]
@@ -426,6 +428,10 @@ type CallCtx<
 	ChainPL<BasePL, PL>
 >;
 
+/** HTTP endpoint scopes - structural mirror of `RouteScope` in the http
+ * plugin (no core→http import). */
+type HttpRouteScope = "rpc" | "server" | "http" | "internal";
+
 /** POST when input is declared, else GET (better-auth client default). */
 type DefaultRouteMethod<I> = [unknown] extends [I]
 	? "GET"
@@ -522,6 +528,8 @@ export interface FnDefination<
 		invalidate: readonly string[];
 		/** Declared success status when not the default 200. */
 		status?: number;
+		/** Endpoint scope when not the default `"rpc"`. */
+		scope?: HttpRouteScope;
 	};
 	/** Vars this fn promises to set when ITS OWN body runs - the literal
 	 * list, readable by graph tooling at both type and runtime level. */
@@ -887,6 +895,7 @@ export interface Fn<
 		const Method extends string = DefaultRouteMethod<I>,
 		const Inv extends readonly string[] = readonly [],
 		const Status extends number = number,
+		const Scope extends HttpRouteScope = "rpc",
 	>(
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
 			FnOptsBound<
@@ -901,6 +910,7 @@ export interface Fn<
 						method?: Method;
 						invalidate?: Inv;
 						status?: Status;
+						scope?: Scope;
 					}
 				: never),
 		fn: (ctx: CallCtx<I, Base, BaseFns, BasePL, PL, Q, RO, Er, Prefix>) => R,
@@ -919,6 +929,7 @@ export interface Fn<
 				method: Method;
 				invalidate: Inv;
 				status?: Status;
+				scope?: Scope;
 			};
 		},
 		PL,
@@ -938,6 +949,7 @@ export interface Fn<
 		const Method extends string = DefaultRouteMethod<I>,
 		const Inv extends readonly string[] = readonly [],
 		const Status extends number = number,
+		const Scope extends HttpRouteScope = "rpc",
 	>(
 		key: K,
 		options: OptionType<I, O, P, Q, PL, RO, Er> &
@@ -953,6 +965,7 @@ export interface Fn<
 						method?: Method;
 						invalidate?: Inv;
 						status?: Status;
+						scope?: Scope;
 					}
 				: never),
 		fn: (
@@ -973,6 +986,7 @@ export interface Fn<
 				method: Method;
 				invalidate: Inv;
 				status?: Status;
+				scope?: Scope;
 			};
 		},
 		PL,
@@ -1137,6 +1151,7 @@ const defineFn = (
 		).toUpperCase();
 		const invalidate = (opts.invalidate ?? []) as string[];
 		const status = opts.status as number | undefined;
+		const scope = opts.scope as string | undefined;
 		opts.use = [
 			...((opts.use ?? []) as Module[]),
 			{
@@ -1145,6 +1160,7 @@ const defineFn = (
 				method,
 				invalidate,
 				...(status !== undefined ? { status } : {}),
+				...(scope !== undefined ? { scope } : {}),
 				$routeSeed: onImpl("*", (c: any, next: any) => {
 					c.route = {
 						path,
@@ -1872,6 +1888,7 @@ const defineFn = (
 				method: string;
 				invalidate: readonly string[];
 				status?: number;
+				scope?: HttpRouteScope;
 		  }
 		| undefined;
 	for (const mod of modules) {
@@ -1881,6 +1898,7 @@ const defineFn = (
 			method?: unknown;
 			invalidate?: unknown;
 			status?: unknown;
+			scope?: unknown;
 		};
 		if (
 			candidate.$route === true &&
@@ -1895,6 +1913,9 @@ const defineFn = (
 					: [],
 				...(typeof candidate.status === "number"
 					? { status: candidate.status }
+					: {}),
+				...(typeof candidate.scope === "string"
+					? { scope: candidate.scope as HttpRouteScope }
 					: {}),
 			};
 			break;
