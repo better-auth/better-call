@@ -139,6 +139,8 @@ export type {
 	RouteMethod,
 	RouteModule,
 	RouteOptions,
+	RouteScope,
+	RouteScopeOf,
 	RouteState,
 } from "./route";
 export {
