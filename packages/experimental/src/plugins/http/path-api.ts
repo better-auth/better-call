@@ -179,7 +179,9 @@ export function buildServerApi(
 /** Type-level server API — export keys, route fns only (no `"http"` scope). */
 export type InferServerAPI<M> = {
 	[K in keyof M as M[K] extends { $fn: true; $route: unknown }
-		? RouteScopeOf<M[K]> extends "http"
+		? // Drop when the scope MAY be "http" (e.g. widened to RouteScope):
+			// the runtime can't be relied on to keep it.
+			"http" extends RouteScopeOf<M[K]>
 			? never
 			: K
 		: M[K] extends Record<string, unknown>

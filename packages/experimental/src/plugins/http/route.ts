@@ -1,3 +1,4 @@
+import { ValidationError } from "../../error";
 import { fnOptions, type fnOptionsSchema } from "../../fn-options";
 import { v } from "../../index";
 import { isFn, type Module, type VarExtension } from "../../module";
@@ -33,13 +34,17 @@ const ROUTE_SCOPES = [
 	"internal",
 ] as const satisfies readonly RouteScope[];
 
+/** Missing (`"rpc"`) or a known scope. Unknown values fail closed below. */
+const isKnownScope = (scope: unknown): scope is RouteScope | undefined =>
+	scope === undefined || (ROUTE_SCOPES as readonly unknown[]).includes(scope);
+
 /** Served by {@link createRouter} (everything but `"internal"`). */
 export const isRoutedScope = (scope: RouteScope | undefined): boolean =>
-	scope !== "internal";
+	isKnownScope(scope) && scope !== "internal";
 
 /** Callable in-process via `router.api` (everything but `"http"`). */
 export const isServerScope = (scope: RouteScope | undefined): boolean =>
-	scope !== "http";
+	isKnownScope(scope) && scope !== "http";
 
 /** On the typed / runtime client (`"rpc"` only). */
 export const isClientScope = (scope: RouteScope | undefined): boolean =>
@@ -139,6 +144,12 @@ export function route<
 	const S extends number = number,
 	const Sc extends RouteScope = "rpc",
 >(options: RouteOptions<P, M, I, S, Sc>): RouteModule<P, M, I, S, Sc> {
+	if (!isKnownScope(options.scope)) {
+		throw new ValidationError(
+			"route.scope",
+			`unknown endpoint scope ${JSON.stringify(options.scope)} - expected one of ${ROUTE_SCOPES.join(", ")}`,
+		);
+	}
 	const invalidate = (options.invalidate ?? []) as I;
 	const method = options.method.toUpperCase() as M;
 	const path = options.path;

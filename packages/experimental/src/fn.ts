@@ -432,6 +432,13 @@ type CallCtx<
  * plugin (no core→http import). */
 type HttpRouteScope = "rpc" | "server" | "http" | "internal";
 
+const HTTP_ROUTE_SCOPES: readonly unknown[] = [
+	"rpc",
+	"server",
+	"http",
+	"internal",
+] satisfies readonly HttpRouteScope[];
+
 /** POST when input is declared, else GET (better-auth client default). */
 type DefaultRouteMethod<I> = [unknown] extends [I]
 	? "GET"
@@ -1156,6 +1163,7 @@ const defineFn = (
 			...((opts.use ?? []) as Module[]),
 			{
 				$route: true,
+				$routeFromOptions: true,
 				path,
 				method,
 				invalidate,
@@ -1894,6 +1902,7 @@ const defineFn = (
 	for (const mod of modules) {
 		const candidate = mod as {
 			$route?: unknown;
+			$routeFromOptions?: unknown;
 			path?: unknown;
 			method?: unknown;
 			invalidate?: unknown;
@@ -1905,6 +1914,24 @@ const defineFn = (
 			typeof candidate.path === "string" &&
 			typeof candidate.method === "string"
 		) {
+			// A fn-options `scope` only applies to the fn-options `path`; a
+			// `route(...)` in `use` wins the stamp, so the scope would be
+			// silently dropped and the endpoint exposed.
+			if (opts.scope !== undefined && candidate.$routeFromOptions !== true) {
+				throw new ValidationError(
+					`${key}.scope`,
+					"scope on fn options needs path on fn options - set scope on route(...) instead",
+				);
+			}
+			if (
+				candidate.scope !== undefined &&
+				!HTTP_ROUTE_SCOPES.includes(candidate.scope)
+			) {
+				throw new ValidationError(
+					`${key}.scope`,
+					`unknown endpoint scope ${JSON.stringify(candidate.scope)} - expected one of ${HTTP_ROUTE_SCOPES.join(", ")}`,
+				);
+			}
 			routeMeta = {
 				path: candidate.path,
 				method: candidate.method.toUpperCase(),

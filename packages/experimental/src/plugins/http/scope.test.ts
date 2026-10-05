@@ -9,6 +9,7 @@ import {
 	getRouteMeta,
 	http,
 	NOT_FOUND,
+	type RouteScope,
 	route,
 } from "./index";
 
@@ -95,10 +96,63 @@ describe("scope option", () => {
 	});
 
 	it("rejects unknown scopes (type)", () => {
-		// @ts-expect-error not a RouteScope
-		e.fn("bad", { path: "/bad", scope: "client" }, () => null);
-		// @ts-expect-error not a RouteScope
-		route({ path: "/bad", method: "GET", scope: "client" });
+		expect(() =>
+			// @ts-expect-error not a RouteScope
+			e.fn("bad", { path: "/bad", scope: "client" }, () => null),
+		).toThrow();
+		expect(() =>
+			// @ts-expect-error not a RouteScope
+			route({ path: "/bad", method: "GET", scope: "client" }),
+		).toThrow();
+	});
+
+	it("rejects unknown scopes at definition", () => {
+		expect(() =>
+			e.fn("typo", { path: "/typo", scope: "private" as never }, () => null),
+		).toThrow(/unknown endpoint scope "private"/);
+		expect(() =>
+			route({ path: "/typo", method: "GET", scope: "private" as never }),
+		).toThrow(/unknown endpoint scope "private"/);
+	});
+
+	it("rejects a fn-options scope that a route() in use would override", () => {
+		expect(() =>
+			v.fn(
+				"mixed",
+				{
+					use: [http(), route({ path: "/mixed", method: "GET" })],
+					path: "/mixed",
+					scope: "internal",
+				} as never,
+				() => null,
+			),
+		).toThrow(/scope on fn options needs path on fn options/);
+		expect(() =>
+			v.fn(
+				"mixedNoPath",
+				{
+					use: [http(), route({ path: "/mixed", method: "GET" })],
+					scope: "internal",
+				} as never,
+				() => null,
+			),
+		).toThrow(/scope on fn options needs path on fn options/);
+	});
+
+	it("widened scopes stay off router.api and the client (type)", () => {
+		const scope = "http" as RouteScope;
+		const widened = e.fn("widened", { path: "/widened", scope }, () => null);
+		const router = createRouter({ widened });
+		const client = createClient({
+			baseURL: "http://localhost",
+			routes: { widened },
+		});
+		expect(router.api).not.toHaveProperty("widened");
+		expect(client).not.toHaveProperty("widened");
+		// @ts-expect-error scope may be "http" - not promised on router.api
+		router.api.widened;
+		// @ts-expect-error scope may be non-rpc - not promised on the client
+		client.widened;
 	});
 
 	it("collectRoutes skips internal", () => {
