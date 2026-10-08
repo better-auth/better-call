@@ -142,7 +142,7 @@ export type InferRequestInput<
 			request: Request;
 		}
 	: {
-			request?: Request;
+			request?: Request | undefined;
 		};
 
 export type InferHeaders<Option extends EndpointOptions | MiddlewareOptions> =
@@ -155,7 +155,7 @@ export type InferHeadersInput<
 			headers: HeadersInit;
 		}
 	: {
-			headers?: HeadersInit;
+			headers?: HeadersInit | undefined;
 		};
 
 type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
@@ -207,7 +207,7 @@ export const createInternalContext = async (
 		path,
 	}: {
 		options: EndpointOptions;
-		path?: string;
+		path?: string | undefined;
 	},
 ) => {
 	const headers = new Headers();
@@ -218,7 +218,7 @@ export const createInternalContext = async (
 		throw new ValidationError(error.message, error.issues);
 	}
 	const requestHeaders: Headers | null =
-		"headers" in context
+		context.headers !== undefined
 			? context.headers instanceof Headers
 				? context.headers
 				: new Headers(context.headers)
