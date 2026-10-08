@@ -218,7 +218,7 @@ export const createInternalContext = async (
 		throw new ValidationError(error.message, error.issues);
 	}
 	const requestHeaders: Headers | null =
-		"headers" in context
+		context.headers !== undefined
 			? context.headers instanceof Headers
 				? context.headers
 				: new Headers(context.headers)
