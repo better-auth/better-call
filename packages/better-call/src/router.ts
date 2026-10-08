@@ -25,18 +25,20 @@ export interface RouterConfig {
 	 */
 	routerContext?: Record<string, any>;
 	/**
-	 * A callback to run before any response
+	 * Runs before every HTTP response is returned, including responses from onRequest
+	 * and onError. A returned Response replaces the response.
 	 */
 	onResponse?: (response: Response, request: Request) => any | Promise<any>;
 	/**
-	 * A callback to run before any request
+	 * Runs before routing. A returned Request replaces the request, while a returned
+	 * Response skips the endpoint and continues to onResponse.
 	 */
 	onRequest?: (request: Request) => any | Promise<any>;
 	/**
-	 * A callback to run when an error is thrown in the router or middleware.
+	 * Runs when onRequest, router middleware, or an endpoint throws.
 	 *
 	 * @param error - the error that was thrown in the router or middleware.
-	 * @returns a Response object that will be returned to the client.
+	 * @returns An optional Response that replaces the default error response.
 	 */
 	onError?: (
 		error: unknown,
@@ -167,6 +169,37 @@ export const createRouter = <
 			? config.basePath.replace(/\/+$/, "")
 			: "";
 
+	const handleError = async (
+		error: unknown,
+		request: Request,
+	): Promise<Response> => {
+		if (config?.onError) {
+			try {
+				const errorResponse = await config.onError(error, request);
+				if (errorResponse instanceof Response) {
+					return toResponse(errorResponse);
+				}
+			} catch (callbackError) {
+				if (isAPIError(callbackError)) {
+					return toResponse(callbackError);
+				}
+				throw callbackError;
+			}
+		}
+
+		if (config?.throwError) {
+			throw error;
+		}
+		if (isAPIError(error)) {
+			return toResponse(error);
+		}
+		console.error(`# SERVER_ERROR: `, error);
+		return new Response(null, {
+			status: 500,
+			statusText: "Internal Server Error",
+		});
+	};
+
 	const processRequest = async (request: Request) => {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
@@ -221,89 +254,68 @@ export const createRouter = <
 
 		const handler = route.data;
 
-		try {
-			// Determine which allowedMediaTypes to use: endpoint-level overrides router-level
-			const allowedMediaTypes =
-				handler.options.metadata?.allowedMediaTypes ||
-				config?.allowedMediaTypes;
-			const context = {
-				path,
-				method: request.method as "GET",
-				headers: request.headers,
-				params: route.params ? { ...route.params } : {},
-				request: request,
-				body: handler.options.disableBody
-					? undefined
-					: await getBody(
-							handler.options.cloneRequest ? request.clone() : request,
-							allowedMediaTypes,
-						),
-				query,
-				_flag: "router" as const,
-				asResponse: true,
-				context: config?.routerContext,
-			};
-			const middlewareRoutes = findAllRoutes(middlewareRouter, "*", path);
-			if (middlewareRoutes?.length) {
-				for (const { data: middleware, params } of middlewareRoutes) {
-					const res = await (middleware as Endpoint)({
-						...context,
-						params: params ? { ...params } : {},
-						asResponse: false,
-					});
+		// Determine which allowedMediaTypes to use: endpoint-level overrides router-level
+		const allowedMediaTypes =
+			handler.options.metadata?.allowedMediaTypes || config?.allowedMediaTypes;
+		const context = {
+			path,
+			method: request.method as "GET",
+			headers: request.headers,
+			params: route.params ? { ...route.params } : {},
+			request: request,
+			body: handler.options.disableBody
+				? undefined
+				: await getBody(
+						handler.options.cloneRequest ? request.clone() : request,
+						allowedMediaTypes,
+					),
+			query,
+			_flag: "router" as const,
+			asResponse: true,
+			context: config?.routerContext,
+		};
+		const middlewareRoutes = findAllRoutes(middlewareRouter, "*", path);
+		if (middlewareRoutes?.length) {
+			for (const { data: middleware, params } of middlewareRoutes) {
+				const middlewareResponse = await (middleware as Endpoint)({
+					...context,
+					params: params ? { ...params } : {},
+					asResponse: false,
+				});
 
-					if (res instanceof Response) return res;
-				}
+				if (middlewareResponse instanceof Response) return middlewareResponse;
 			}
-
-			const response = (await handler(context)) as Response;
-			return response;
-		} catch (error) {
-			if (config?.onError) {
-				try {
-					const errorResponse = await config.onError(error, request);
-
-					if (errorResponse instanceof Response) {
-						return toResponse(errorResponse);
-					}
-				} catch (error) {
-					if (isAPIError(error)) {
-						return toResponse(error);
-					}
-
-					throw error;
-				}
-			}
-
-			if (config?.throwError) {
-				throw error;
-			}
-
-			if (isAPIError(error)) {
-				return toResponse(error);
-			}
-
-			console.error(`# SERVER_ERROR: `, error);
-			return new Response(null, {
-				status: 500,
-				statusText: "Internal Server Error",
-			});
 		}
+
+		const response = (await handler(context)) as Response;
+		return response;
 	};
 
 	return {
 		handler: async (request: Request) => {
-			const onReq = await config?.onRequest?.(request);
-			if (onReq instanceof Response) {
-				return onReq;
+			let activeRequest = request;
+			let response: Response;
+			try {
+				const onRequestResult = await config?.onRequest?.(request);
+				if (onRequestResult instanceof Response) {
+					response = onRequestResult;
+				} else {
+					activeRequest = isRequest(onRequestResult)
+						? onRequestResult
+						: request;
+					response = await processRequest(activeRequest);
+				}
+			} catch (error) {
+				response = await handleError(error, activeRequest);
 			}
-			const req = isRequest(onReq) ? onReq : request;
-			const res = await processRequest(req);
-			const onRes = await config?.onResponse?.(res, req);
-			if (onRes instanceof Response) {
-				return onRes;
+			const onResponseResult = await config?.onResponse?.(
+				response,
+				activeRequest,
+			);
+			if (onResponseResult instanceof Response) {
+				return onResponseResult;
 			}
-			return res;
+			return response;
 		},
 		endpoints,
 	};
