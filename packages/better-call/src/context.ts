@@ -142,7 +142,7 @@ export type InferRequestInput<
 			request: Request;
 		}
 	: {
-			request?: Request;
+			request?: Request | undefined;
 		};
 
 export type InferHeaders<Option extends EndpointOptions | MiddlewareOptions> =
@@ -155,7 +155,7 @@ export type InferHeadersInput<
 			headers: HeadersInit;
 		}
 	: {
-			headers?: HeadersInit;
+			headers?: HeadersInit | undefined;
 		};
 
 type InferMiddlewareContext<T> = T extends (...args: never[]) => infer Result
@@ -207,7 +207,7 @@ export const createInternalContext = async (
 		path,
 	}: {
 		options: EndpointOptions;
-		path?: string;
+		path?: string | undefined;
 	},
 ) => {
 	const headers = new Headers();

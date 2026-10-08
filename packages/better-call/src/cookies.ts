@@ -20,7 +20,7 @@ export type CookieOptions = {
 	 * @example
 	 * `domain: "example.com"`
 	 */
-	domain?: string;
+	domain?: string | undefined;
 	/**
 	 * A lifetime of a cookie. Permanent cookies are deleted after the date specified in the
 	 * Expires attribute:

@@ -174,11 +174,13 @@ export function toResponse(data?: any, init?: ResponseInit): Response {
 		}
 
 		headers.set("Content-Type", "application/json");
+		const status = data.status ?? init?.status ?? routerResponse?.status;
+		const statusText = init?.statusText ?? routerResponse?.statusText;
 		return new Response(JSON.stringify(body), {
 			...routerResponse,
 			headers,
-			status: data.status ?? init?.status ?? routerResponse?.status,
-			statusText: init?.statusText ?? routerResponse?.statusText,
+			...(status === undefined ? {} : { status }),
+			...(statusText === undefined ? {} : { statusText }),
 		});
 	}
 	if (isAPIError(data)) {

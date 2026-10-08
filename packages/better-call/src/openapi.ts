@@ -12,80 +12,94 @@ export type OpenAPISchemaType =
 
 export interface OpenAPIParameter {
 	in: "query" | "path" | "header" | "cookie";
-	name?: string;
-	description?: string;
-	required?: boolean;
-	schema?: {
-		type: OpenAPISchemaType;
-		format?: string | undefined;
-		items?: {
-			type: OpenAPISchemaType;
-		};
-		enum?: string[];
-		minLength?: number;
-		description?: string | undefined;
-		default?: string | undefined;
-		example?: string | undefined;
-	};
+	name?: string | undefined;
+	description?: string | undefined;
+	required?: boolean | undefined;
+	schema?:
+		| {
+				type: OpenAPISchemaType;
+				format?: string | undefined;
+				items?:
+					| {
+							type: OpenAPISchemaType;
+					  }
+					| undefined;
+				enum?: string[] | undefined;
+				minLength?: number | undefined;
+				description?: string | undefined;
+				default?: string | undefined;
+				example?: string | undefined;
+		  }
+		| undefined;
 }
 
 export interface Path {
-	get?: {
-		tags?: string[];
-		operationId?: string;
-		description?: string;
-		security?: [{ bearerAuth: string[] }];
-		parameters?: OpenAPIParameter[];
-		responses?: {
-			[key in string]: {
-				description?: string;
-				content: {
-					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
-							required?: string[];
-							$ref?: string;
-						};
-					};
-				};
-			};
-		};
-	};
-	post?: {
-		tags?: string[];
-		operationId?: string;
-		description?: string;
-		security?: [{ bearerAuth: string[] }];
-		parameters?: OpenAPIParameter[];
-		requestBody?: {
-			content: {
-				"application/json": {
-					schema: {
-						type?: OpenAPISchemaType;
-						properties?: Record<string, any>;
-						required?: string[];
-						$ref?: string;
-					};
-				};
-			};
-		};
-		responses?: {
-			[key in string]: {
-				description?: string;
-				content: {
-					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
-							required?: string[];
-							$ref?: string;
-						};
-					};
-				};
-			};
-		};
-	};
+	get?:
+		| {
+				tags?: string[] | undefined;
+				operationId?: string | undefined;
+				description?: string | undefined;
+				security?: [{ bearerAuth: string[] }] | undefined;
+				parameters?: OpenAPIParameter[] | undefined;
+				responses?:
+					| {
+							[key in string]: {
+								description?: string | undefined;
+								content: {
+									"application/json": {
+										schema: {
+											type?: OpenAPISchemaType | undefined;
+											properties?: Record<string, any> | undefined;
+											required?: string[] | undefined;
+											$ref?: string | undefined;
+										};
+									};
+								};
+							};
+					  }
+					| undefined;
+		  }
+		| undefined;
+	post?:
+		| {
+				tags?: string[] | undefined;
+				operationId?: string | undefined;
+				description?: string | undefined;
+				security?: [{ bearerAuth: string[] }] | undefined;
+				parameters?: OpenAPIParameter[] | undefined;
+				requestBody?:
+					| {
+							content: {
+								"application/json": {
+									schema: {
+										type?: OpenAPISchemaType | undefined;
+										properties?: Record<string, any> | undefined;
+										required?: string[] | undefined;
+										$ref?: string | undefined;
+									};
+								};
+							};
+					  }
+					| undefined;
+				responses?:
+					| {
+							[key in string]: {
+								description?: string | undefined;
+								content: {
+									"application/json": {
+										schema: {
+											type?: OpenAPISchemaType | undefined;
+											properties?: Record<string, any> | undefined;
+											required?: string[] | undefined;
+											$ref?: string | undefined;
+										};
+									};
+								};
+							};
+					  }
+					| undefined;
+		  }
+		| undefined;
 }
 const paths: Record<string, Path> = {};
 
