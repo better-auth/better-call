@@ -128,7 +128,7 @@ export const makeVar = (name: string, options: any = {}): any => {
 				...(def.$attrs !== undefined ? { attrs: def.$attrs } : {}),
 				schema: opts.schema({
 					...vTypes,
-					fn: linkedFnImpl!,
+					fn: linkedFnImpl as (...args: any[]) => any,
 					add: (shape: any) => ({
 						name: "object",
 						shape: { ...((def.schema?.shape as any) ?? {}), ...shape },
@@ -152,46 +152,67 @@ export const deriveVar = (name: string, source: any, get: any): any =>
 /* ---------------------------------- cells ---------------------------------- */
 
 /**
- * One var's state within a scope: the current value, plus how reads and
- * writes behave for it (derived computation, record accumulation).
+ * The var DEFINITIONS a frame sees, by name: what its fn mounts through
+ * `use` (vars, the bases of `v.extend`s, var-bound input) on top of what
+ * its caller saw. A default is read off the definition in scope, so two
+ * fns mounting different same-name vars each get their own; only a name
+ * nothing in the call chain mounts falls back to the last `v.var` minted.
+ */
+export type VarDefs = ReadonlyMap<string, any>;
+
+export const resolveVarDef = (name: string, defs: VarDefs | undefined): any =>
+	defs?.get(name) ?? varRegistry.get(name);
+
+/**
+ * One var's WRITTEN state within a call tree: the value, plus whether
+ * writes merge into it (record / merge vars). A var nobody has written
+ * has no cell - reads resolve its default (or derivation) from the
+ * definition in scope at read time. A written derived var shadows its
+ * computation.
  */
 export type Cell = {
 	value: unknown;
-	derive?: { source: string; get: (value: any) => any };
-	/** A direct write to a derived var shadows its computation. */
-	shadowed: boolean;
 	/** Record / merge var: `set()` merges instead of replacing. */
 	accumulate: boolean;
 };
 
 export type Cells = Record<string, Cell>;
 
-/** Cells materialize lazily from the registry on first touch. */
-export const getCell = (cells: Cells, name: string): Cell => {
+const accumulates = (def: any): boolean =>
+	def?.$accessor === true || def?.$merge === true;
+
+/** The cell for `name`, materialized from the definition in scope. */
+export const getCell = (cells: Cells, name: string, defs?: VarDefs): Cell => {
 	const existing = cells[name];
 	if (existing) return existing;
-	const def = varRegistry.get(name);
+	const def = resolveVarDef(name, defs);
 	const cell: Cell = {
-		value: def?.$derive ? undefined : def?.$accessor ? {} : def?.default,
-		derive: def?.$derive,
-		shadowed: false,
-		accumulate: def?.$accessor === true || def?.$merge === true,
+		value: def?.$accessor ? {} : readVar(cells, name, defs),
+		accumulate: accumulates(def),
 	};
 	cells[name] = cell;
 	return cell;
 };
 
-/** The current value, deriveds computed off their source. A name never
- * declared and never written reads `undefined` WITHOUT materializing a
- * cell - property probes on the context must not pollute the scope. */
-export const readVar = (cells: Cells, name: string): unknown => {
-	if (!cells[name] && !varRegistry.has(name)) return undefined;
-	const cell = getCell(cells, name);
-	if (cell.derive && !cell.shadowed) {
-		const src = readVar(cells, cell.derive.source);
-		return src == null ? null : cell.derive.get(src);
+/** The current value: the written one, else computed off the definition
+ * in scope (a record's `{}` materializes so in-place writes stick). A name
+ * never declared and never written reads `undefined` WITHOUT materializing
+ * a cell - property probes on the context must not pollute the scope. */
+export const readVar = (
+	cells: Cells,
+	name: string,
+	defs?: VarDefs,
+): unknown => {
+	const cell = cells[name];
+	if (cell) return cell.value;
+	const def = resolveVarDef(name, defs);
+	if (!def) return undefined;
+	if (def.$derive) {
+		const src = readVar(cells, def.$derive.source, defs);
+		return src == null ? null : def.$derive.get(src);
 	}
-	return cell.value;
+	if (def.$accessor) return getCell(cells, name, defs).value;
+	return def.default;
 };
 
 /**
@@ -202,13 +223,14 @@ export const readVar = (cells: Cells, name: string): unknown => {
 export const handlerContext = (
 	cells: Cells,
 	base: Record<string, unknown>,
+	defs?: VarDefs,
 ): Record<string, unknown> =>
 	new Proxy(base, {
 		get: (t, prop) =>
 			prop in t
 				? (t as any)[prop]
 				: typeof prop === "string"
-					? readVar(cells, prop)
+					? readVar(cells, prop, defs)
 					: undefined,
 		has: (t, prop) => prop in t || (typeof prop === "string" && prop in cells),
 	});
@@ -221,6 +243,8 @@ export const handlerContext = (
  */
 export type Frame = {
 	cells: Cells;
+	/** The var definitions in scope - where unwritten vars read from. */
+	defs?: VarDefs;
 	key: string;
 	lockedBy: string | undefined;
 	entries: readonly OnEntry<string>[];
@@ -242,17 +266,19 @@ export const writeVar = (frame: Frame, name: string, value: unknown) => {
 			`"${frame.lockedBy}" is readonly: attempted to write var "${name}"`,
 		);
 	}
-	const cell = getCell(frame.cells, name);
+	const accumulate =
+		frame.cells[name]?.accumulate ??
+		accumulates(resolveVarDef(name, frame.defs));
 	const merged = () => {
-		const current =
-			cell.derive && !cell.shadowed ? readVar(frame.cells, name) : cell.value;
+		const current = readVar(frame.cells, name, frame.defs);
 		const base = typeof current === "object" && current !== null ? current : {};
 		return { ...base, ...(value as Record<string, unknown>) };
 	};
-	const next = cell.accumulate ? merged() : value;
+	const next = accumulate ? merged() : value;
 	const apply = () => {
-		cell.value = next;
-		if (cell.derive) cell.shadowed = true;
+		const cell = frame.cells[name];
+		if (cell) cell.value = next;
+		else frame.cells[name] = { value: next, accumulate };
 	};
 	const hooks = frame.entries.filter(
 		(e) => e.target !== "*" && matchesTarget(e.target, `var.set.${name}`),
@@ -261,11 +287,11 @@ export const writeVar = (frame: Frame, name: string, value: unknown) => {
 	const chain = hooks.reduceRight<() => void>(
 		(proceed, entry) => () => {
 			const result = entry.handler(
-				handlerContext(frame.cells, {
-					name,
-					value: next,
-					fn: frame.key,
-				}) as any,
+				handlerContext(
+					frame.cells,
+					{ name, value: next, fn: frame.key },
+					frame.defs,
+				) as any,
 				proceed as any,
 			);
 			if (isThenable(result)) {
@@ -292,14 +318,11 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
 	const hooks = frame.entries.filter(
 		(e) => e.target !== "*" && matchesTarget(e.target, `var.get.${name}`),
 	);
-	if (hooks.length === 0) return readVar(frame.cells, name);
+	if (hooks.length === 0) return readVar(frame.cells, name, frame.defs);
 	const chain = hooks.reduceRight<() => unknown>(
 		(proceed, entry) => () => {
 			const result = entry.handler(
-				handlerContext(frame.cells, {
-					name,
-					fn: frame.key,
-				}) as any,
+				handlerContext(frame.cells, { name, fn: frame.key }, frame.defs) as any,
 				proceed as any,
 			);
 			if (isThenable(result)) {
@@ -310,7 +333,7 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
 			}
 			return result;
 		},
-		() => readVar(frame.cells, name),
+		() => readVar(frame.cells, name, frame.defs),
 	);
 	return chain();
 };
@@ -325,8 +348,9 @@ export const viewMergeVar = (
 	name: string,
 	value: unknown,
 	ctx: unknown,
+	defs?: VarDefs,
 ): unknown => {
-	const def = varRegistry.get(name);
+	const def = resolveVarDef(name, defs);
 	if (!def?.$merge || value == null || typeof value !== "object") return value;
 	return new Proxy(value as object, {
 		get: (t, prop, receiver) => {
@@ -363,7 +387,12 @@ export const contextScope = (frame: Frame, base: object): any =>
 		get: (t, prop, receiver) => {
 			if (prop in t) return Reflect.get(t, prop, receiver);
 			if (typeof prop === "string") {
-				return viewMergeVar(prop, readVarThrough(frame, prop), receiver);
+				return viewMergeVar(
+					prop,
+					readVarThrough(frame, prop),
+					receiver,
+					frame.defs,
+				);
 			}
 			return undefined;
 		},

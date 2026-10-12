@@ -147,6 +147,19 @@ const createSession = v.fn(
 
 There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
 
+A var's default comes from the definition mounted in scope: what the fn mounts through `use` (directly, or as the base of a `v.extend`), else what its caller saw. Two instances built from one factory can share a var name and still keep their own defaults, even in one call tree. Writes are values, not defaults, so they still travel the call tree by name.
+
+```ts
+const provider = (id: string, tokenUrl: string) => {
+  const endpoints = v.var("endpoints", { default: { tokenUrl } });
+  return v.fn(`oauth.${id}.exchange`, { use: [{ endpoints }] }, (c) => c.endpoints.tokenUrl);
+};
+const google = provider("google", "https://oauth2.googleapis.com/token");
+const github = provider("github", "https://github.com/login/oauth/access_token");
+google(); // "https://oauth2.googleapis.com/token"
+github(); // "https://github.com/login/oauth/access_token"
+```
+
 #### Formats
 
 `v.string({ format: "email" | "url" })` checks with the built-in `checkEmail` / `checkUrl` — nothing to configure. Emails are trimmed and lowercased before the check.
@@ -202,6 +215,15 @@ const app = v.fn({ use: [coreSession] });
 ```
 
 `v.on` mounts onto another fn by name (or reference): the handler replaces the target's body and receives `next` — call it to delegate, or don't. Targets take exact keys, `*` wildcards, RegExps, and `var.set.<name>` events for intercepting writes.
+
+A fn reference matches by key, so it also hits any other fn with the same key. Pass `{ exact: true }` to bind the hook to that one definition instead:
+
+```ts
+const workspace = provider("google", "https://workspace.example/token");
+const personal = provider("google", "https://oauth2.googleapis.com/token");
+// fires for `workspace` only, not for `personal`, though both are "oauth.google.exchange"
+v.on(workspace, (c, next) => next(), { exact: true });
+```
 
 ## Fns vs plain functions
 

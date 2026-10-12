@@ -227,6 +227,7 @@ export {
 	type ModuleVars,
 	type OnDefaultContext,
 	type OnEntry,
+	type OnOptions,
 	type UseEntry,
 	type VarExtension,
 	type VarExtensionArgsFor,

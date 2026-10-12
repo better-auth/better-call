@@ -54,30 +54,49 @@ export type OnDefaultContext = {
 	[key: string]: any;
 };
 
+/** A fn reference kept as-is in an `{ exact: true }` entry's target: it
+ * matches that one definition, never its key. */
+type ExactTarget = FnDefination<any, any, string, any, any, any>;
+
 export type OnEntry<N extends string, Ext = unknown> = {
 	$on: true;
 	/** Exact key, a `*` wildcard pattern, a RegExp, or a LIST of any of
-	 * those - one handler mounted on several events at once. */
-	target: N | RegExp | readonly (string | RegExp)[];
+	 * those - one handler mounted on several events at once. An
+	 * `{ exact: true }` entry keeps its fn references here as-is. */
+	target: N | RegExp | ExactTarget | readonly (string | RegExp | ExactTarget)[];
 	/** Extra input fields this mount adds to the target fn. */
 	extend?: { input?: Ext };
 	handler: Interceptor;
 };
 
+/** Options for a fn-reference `v.on`. */
+export type OnOptions = {
+	/**
+	 * Match the referenced fn DEFINITION only, not every fn sharing its
+	 * key - a hook on one instance's `oauth.google.exchange` stays off a
+	 * second instance built from the same factory. Strings and RegExps in
+	 * a target list still match by key.
+	 */
+	exact?: boolean;
+};
+
 /**
  * Does an `on` target hit fn key `key`? Exact match, `*` wildcards
  * ("*", "sign_up.*", "/sign-up/*" - a `*` spans anything), a RegExp, or a
- * list (any member hitting counts).
+ * list (any member hitting counts). A fn reference (from `{ exact: true }`)
+ * hits only when `fn` IS that definition.
  */
 export const matchesTarget = (
-	target: string | RegExp | readonly (string | RegExp)[],
+	target: OnEntry<string>["target"],
 	key: string,
+	fn?: unknown,
 ): boolean => {
 	if (Array.isArray(target)) {
-		return (target as readonly (string | RegExp)[]).some((member) =>
-			matchesTarget(member, key),
+		return (target as readonly (string | RegExp | ExactTarget)[]).some(
+			(member) => matchesTarget(member, key, fn),
 		);
 	}
+	if (isFn(target)) return target === fn;
 	if (target instanceof RegExp) return target.test(key);
 	// Array.isArray cannot narrow a readonly array out of the union.
 	const name = target as string;
@@ -554,6 +573,7 @@ export function on<F extends FnDefination<any, any, string, any, any, any>>(
 		c: Omit<OnDefaultContext, "input"> & { input: FnInputOf<F> },
 		next: () => Promise<FnResultOf<F>>,
 	) => any,
+	options?: OnOptions,
 ): OnEntry<F["key"]>;
 export function on<
 	F extends FnDefination<any, any, string, any, any, any>,
@@ -567,6 +587,7 @@ export function on<
 		},
 		next: () => Promise<FnResultOf<F>>,
 	) => any,
+	options?: OnOptions,
 ): OnEntry<F["key"], Ext>;
 export function on(
 	targets: readonly (
@@ -575,6 +596,7 @@ export function on(
 		| FnDefination<any, any, string, any, any, any>
 	)[],
 	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
+	options?: OnOptions,
 ): OnEntry<string>;
 export function on(
 	target: RegExp,
@@ -616,7 +638,8 @@ export function on(
 				| FnDefination<any, any, string, any, any, any>
 		  )[],
 	extendOrHandler: any,
-	maybeHandler?: any,
+	handlerOrOptions?: any,
+	maybeOptions?: OnOptions,
 ): OnEntry<string, any> | EventOnEntry<string> {
 	// Event categories: by reference or `event.<name>` - distinct handler
 	// shape (`{ type, data }`), collected separately from fn/`var.*` ons.
@@ -626,23 +649,31 @@ export function on(
 	) {
 		return onEvent(target as never, extendOrHandler);
 	}
-	// A fn reference targets its own key - no string to typo. A LIST
-	// resolves member-wise: one handler, several events.
+	const extended = typeof extendOrHandler !== "function";
+	const handler = extended ? handlerOrOptions : extendOrHandler;
+	const options: OnOptions | undefined = extended
+		? maybeOptions
+		: handlerOrOptions;
+	const exact = options?.exact === true;
+	const members: readonly unknown[] = Array.isArray(target) ? target : [target];
+	if (exact && !members.some(isFn)) {
+		throw new Error(
+			"v.on(..., { exact: true }) needs a fn reference - strings and RegExps match by key",
+		);
+	}
+	// A fn reference targets its own key - no string to typo - unless the
+	// entry is exact, which keeps the reference to match that definition.
+	// A LIST resolves member-wise: one handler, several events.
 	const resolveOne = (member: unknown) =>
-		isFn(member)
+		isFn(member) && !exact
 			? (member as { key: string }).key
-			: (member as string | RegExp);
+			: (member as string | RegExp | ExactTarget);
 	const resolved = (
 		Array.isArray(target) ? target.map(resolveOne) : resolveOne(target)
-	) as string | RegExp | readonly (string | RegExp)[];
-	return typeof extendOrHandler === "function"
-		? { $on: true, target: resolved, handler: extendOrHandler }
-		: {
-				$on: true,
-				target: resolved,
-				extend: extendOrHandler,
-				handler: maybeHandler,
-			};
+	) as OnEntry<string>["target"];
+	return extended
+		? { $on: true, target: resolved, extend: extendOrHandler, handler }
+		: { $on: true, target: resolved, handler };
 }
 
 /* ----------------------------- var extension ------------------------------ */

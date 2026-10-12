@@ -35,6 +35,7 @@ import {
 	type ModuleFns,
 	matchesTarget,
 	type OnEntry,
+	type OnOptions,
 	on as onImpl,
 	resolveModules,
 	type TargetMatches,
@@ -80,11 +81,11 @@ import {
 	type Cells,
 	contextScope,
 	type Frame,
-	getCell,
 	linkFnImpl,
 	readVar,
 	readVarThrough,
 	type VarDefination,
+	type VarDefs,
 	viewMergeVar,
 	writeVar,
 } from "./var";
@@ -1120,6 +1121,25 @@ const ACTIVE = Symbol("active-plugins");
 const EXTS = Symbol("active-var-extensions");
 const READONLY = Symbol("readonly-lock");
 const WITH = Symbol("with-overrides");
+const DEFS = Symbol("var-definitions");
+
+/** A frame's var definitions: the caller's, with the fn's own mounts on
+ * top - the nearest mount of a name wins. Cached per inherited map, so a
+ * call tree reuses one merged map per (caller scope, fn). */
+const scopeDefs = (
+	own: VarDefs,
+	cache: WeakMap<VarDefs, VarDefs>,
+	inherited: VarDefs | undefined,
+): VarDefs | undefined => {
+	if (own.size === 0) return inherited;
+	if (!inherited) return own;
+	let merged = cache.get(inherited);
+	if (!merged) {
+		merged = new Map([...inherited, ...own]);
+		cache.set(inherited, merged);
+	}
+	return merged;
+};
 
 const defineFn = (
 	key: string,
@@ -1168,14 +1188,22 @@ const defineFn = (
 	const own: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
 	const seenVarShadows = new Set<unknown>();
+	// Var definitions this fn mounts, by name - where its scope reads
+	// defaults from. A var mounted directly beats the base an extension
+	// carries; later mounts of a name beat earlier ones.
+	const mountedVars = new Map<string, unknown>();
+	const extensionBases = new Map<string, unknown>();
 	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
 			if (isOn(value) && !own.includes(value)) own.push(value);
-			else if (isVarExtension(value)) ownExts.push(value);
-			else if (isEventOn(value)) mountEventOn(value);
+			else if (isVarExtension(value)) {
+				ownExts.push(value);
+				if (value.base) extensionBases.set(value.name, value.base);
+			} else if (isEventOn(value)) mountEventOn(value);
 			else if (isEventExtension(value)) mountEventExtension(value);
 			else if (isEvent(value)) mountEvent(value);
 			else if (isVar(value)) {
+				mountedVars.set((value as { name: string }).name, value);
 				const schema = (value as { schema?: unknown }).schema;
 				if (schema === undefined || seenVarShadows.has(value)) continue;
 				seenVarShadows.add(value);
@@ -1231,11 +1259,21 @@ const defineFn = (
 		declaredInput && isVar(declaredInput)
 			? (declaredInput as { name: string }).name
 			: undefined;
+	const inputVarDefs = new Map<string, unknown>();
+	if (wholeVar !== undefined) inputVarDefs.set(wholeVar, declaredInput);
 	if (declaredInput && !wholeVar) {
 		for (const [field, def] of Object.entries(declaredInput)) {
-			if (isVar(def)) inputVars.push([field, def.name]);
+			if (!isVar(def)) continue;
+			inputVars.push([field, def.name]);
+			inputVarDefs.set(def.name, def);
 		}
 	}
+	const ownDefs: VarDefs = new Map([
+		...inputVarDefs,
+		...extensionBases,
+		...mountedVars,
+	]);
+	const defsCache = new WeakMap<VarDefs, VarDefs>();
 
 	// Contradictions caught at DEFINITION, not first call: a readonly fn
 	// promising to set vars, or binding input into vars, makes no sense.
@@ -1264,9 +1302,7 @@ const defineFn = (
 		// before anything reads them (storage default + helper namespaces).
 		if (!parent?.[STORE]) {
 			for (const [name, value] of Object.entries(mergeSeeds)) {
-				const cell = getCell(cells, name);
-				cell.value = value;
-				cell.accumulate = true;
+				cells[name] = { value, accumulate: true };
 			}
 		}
 		// The lock travels the whole subtree: once any frame above is
@@ -1285,7 +1321,9 @@ const defineFn = (
 			own.length === 0
 				? inherited
 				: [...inherited, ...own.filter((e) => !inherited.includes(e))];
-		const chain = active.filter((entry) => matchesTarget(entry.target, key));
+		const chain = active.filter((entry) =>
+			matchesTarget(entry.target, key, callable),
+		);
 
 		// Fn overrides from `.with`, travelling down like the active set: a
 		// mocked `use` fn stays mocked for the whole subtree.
@@ -1300,9 +1338,12 @@ const defineFn = (
 						...ownExts.filter((e) => !inheritedExts.includes(e)),
 					];
 
+		const defs = scopeDefs(ownDefs, defsCache, parent?.[DEFS]);
+
 		let ctx: any;
 		const frame: Frame = {
 			cells,
+			defs,
 			key,
 			lockedBy,
 			entries: active,
@@ -1325,9 +1366,10 @@ const defineFn = (
 				return check(
 					value,
 					contextScope(
-						{ cells: forked, key, lockedBy, entries: active },
+						{ cells: forked, defs, key, lockedBy, entries: active },
 						{
 							[STORE]: forked,
+							[DEFS]: defs,
 							[ACTIVE]: active,
 							[EXTS]: exts,
 							[READONLY]: lockedBy,
@@ -1548,6 +1590,7 @@ const defineFn = (
 				input: parsed,
 				error: mintError,
 				[STORE]: cells,
+				[DEFS]: defs,
 				[ACTIVE]: active,
 				[EXTS]: exts,
 				[READONLY]: lockedBy,
@@ -1603,7 +1646,12 @@ const defineFn = (
 						const varName = (used as { name: string }).name;
 						Object.defineProperty(target, name, {
 							get: () =>
-								viewMergeVar(varName, readVarThrough(frame, varName), ctx),
+								viewMergeVar(
+									varName,
+									readVarThrough(frame, varName),
+									ctx,
+									defs,
+								),
 							set: (value: unknown) => writeVar(frame, varName, value),
 							enumerable: true,
 							configurable: true,
@@ -1656,7 +1704,7 @@ const defineFn = (
 			bindUsable(base, usable, withFns);
 
 			const missing = (name: string) => {
-				const value = readVar(cells, name);
+				const value = readVar(cells, name, defs);
 				return value === undefined || value === null;
 			};
 			const checkRequires = () => {
@@ -1803,8 +1851,10 @@ const defineFn = (
 			const cells: Cells = Object.fromEntries(
 				Object.entries(source).map(([name, cell]) => [name, { ...cell }]),
 			);
+			const seedDefs = scopeDefs(ownDefs, defsCache, given?.[DEFS]);
 			const seedFrame: Frame = {
 				cells,
+				defs: seedDefs,
 				key: `${key}.with`,
 				lockedBy: undefined,
 				entries: [],
@@ -1845,6 +1895,7 @@ const defineFn = (
 			applyWith(usable, context, overrides);
 			return {
 				[STORE]: cells,
+				[DEFS]: given?.[DEFS],
 				[ACTIVE]: given?.[ACTIVE],
 				[EXTS]: given?.[EXTS],
 				[READONLY]: given?.[READONLY],
@@ -2040,6 +2091,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 			c: OnContext<Base, BaseFns, F>,
 			next: () => Promise<MatchedResult<F>>,
 		) => any,
+		options?: OnOptions,
 	): OnEntry<F["key"]>;
 	/** Var-write events: never prefixed (vars are global), and `value`
 	 * is typed from the builder's scope when the target is exact. */
@@ -2264,7 +2316,7 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 					input: (options as OptionType<any, any, any, any, any>).input,
 					output: (options as OptionType<any, any, any, any, any>).output,
 				},
-				on: (target: any, a?: any, b?: any) =>
+				on: (target: any, ...rest: any[]) =>
 					(onImpl as any)(
 						// var, scope, and event categories live in a global
 						// namespace - no builder key prefix.
@@ -2274,8 +2326,7 @@ const builderFn = (baseKey: string, base: Record<string, any>) => {
 							!target.startsWith("event.")
 							? key + target
 							: target,
-						a,
-						b,
+						...rest,
 					),
 				with: (fn: { with: (context: unknown) => unknown }, context: unknown) =>
 					fn.with(context),
