@@ -70,7 +70,24 @@ export interface VarDefination<
 	customize: <S>(options: {
 		schema: (v: VarCustomizer<T>) => S;
 	}) => VarDefination<N, InferInput<S>, S>;
+	/**
+	 * A mountable SEED: put it in a fn's `use` and the var holds `value`
+	 * for that fn's whole subtree - the per-instance counterpart of a
+	 * default. It does not redefine the var, so library fns mounting the
+	 * var themselves see the seeded value too. Writes to the var inside
+	 * the subtree stay in it.
+	 */
+	with(value: T): VarSeed<N, T>;
 }
+
+/** What `var.with(value)` returns - mount it in `use`. */
+export type VarSeed<N extends string, T> = {
+	$seed: true;
+	name: N;
+	/** The seeded var - mounting the seed brings it, like `v.extend`. */
+	var: VarDefination<N, T, any, any>;
+	value: T;
+};
 
 export type ValueOfVar<SV> =
 	SV extends VarDefination<any, infer T, any, any> ? T : never;
@@ -106,21 +123,35 @@ export const linkFnImpl = (impl: (...args: any[]) => any) => {
 	linkedFnImpl = impl;
 };
 
+/**
+ * Identity of a var's STATE, shared by every definition that is "the same
+ * var": a `customize`d re-export keeps it, a fresh `v.var` of the same name
+ * gets its own. Written values live per slot, not per name.
+ */
+export type VarSlot = { readonly name: string };
+
 export const makeVar = (name: string, options: any = {}): any => {
 	const schema =
 		options.schema === undefined ? undefined : asType(options.schema);
+	const slot: VarSlot = options.slot ?? { name };
 	const def: any = {
 		$var: true,
 		name,
+		$slot: slot,
 		default: options.default,
 		schema,
 		...(options.attrs !== undefined ? { $attrs: options.attrs } : {}),
 		$accessor: options.accessor === true,
 		$merge: options.merge === true,
 		$derive: options.derive,
+		// `this`: copies (`withAttrs`, views) seed themselves.
+		with(this: any, value: unknown) {
+			return { $seed: true, name, var: this ?? def, value };
+		},
 		customize: (opts: any) =>
 			makeVar(name, {
 				...options,
+				slot,
 				default: def.default,
 				// Carry whole-var attrs through customize (including any
 				// attached after mint via withAttrs-rebinding, which goes
@@ -147,16 +178,15 @@ export const makeVar = (name: string, options: any = {}): any => {
  * derived var directly shadows the computation for that scope.
  */
 export const deriveVar = (name: string, source: any, get: any): any =>
-	makeVar(name, { derive: { source: source.name, get } });
+	makeVar(name, { derive: { source: source.name, sourceDef: source, get } });
 
 /* ---------------------------------- cells ---------------------------------- */
 
 /**
  * The var DEFINITIONS a frame sees, by name: what its fn mounts through
- * `use` (vars, the bases of `v.extend`s, var-bound input) on top of what
- * its caller saw. A default is read off the definition in scope, so two
- * fns mounting different same-name vars each get their own; only a name
- * nothing in the call chain mounts falls back to the last `v.var` minted.
+ * `use` (vars, the bases of `v.extend`s and seeds, var-bound input) on top
+ * of what its caller saw - the nearest mount of a name wins. A name nothing
+ * in the call chain mounts falls back to the last `v.var` minted.
  */
 export type VarDefs = ReadonlyMap<string, any>;
 
@@ -164,11 +194,10 @@ export const resolveVarDef = (name: string, defs: VarDefs | undefined): any =>
 	defs?.get(name) ?? varRegistry.get(name);
 
 /**
- * One var's WRITTEN state within a call tree: the value, plus whether
- * writes merge into it (record / merge vars). A var nobody has written
- * has no cell - reads resolve its default (or derivation) from the
- * definition in scope at read time. A written derived var shadows its
- * computation.
+ * One var's WRITTEN state: the value, plus whether writes merge into it
+ * (record / merge vars). A var nobody has written has no cell - reads
+ * resolve its default (or derivation) from the definition in scope. A
+ * written derived var shadows its computation.
  */
 export type Cell = {
 	value: unknown;
@@ -176,43 +205,148 @@ export type Cell = {
 	accumulate: boolean;
 };
 
-export type Cells = Record<string, Cell>;
+/**
+ * A call tree's var state, as a stack of LAYERS. Cells are keyed by the
+ * var's SLOT (its definition family), never by bare name: two instances
+ * minting their own same-name var never share a value, while every fn
+ * mounting the same definition does.
+ *
+ * - The root layer of a call tree, and an `isolate` layer, own their
+ *   writes: nothing written above them lands below.
+ * - A seed layer (`fn.with(...)` on a call, a mounted `var.with(value)`)
+ *   holds its seeded cells; writes to those stay in it, every other write
+ *   passes through to the layer below - so a seeded call still hands back
+ *   what it `provides`.
+ */
+export type Layer = {
+	cells: Map<unknown, Cell>;
+	parent: Layer | undefined;
+	isolate: boolean;
+};
+
+export const rootLayer = (): Layer => ({
+	cells: new Map(),
+	parent: undefined,
+	isolate: true,
+});
+
+/** A seed layer over `parent`; a fresh root when there is none. */
+export const seedLayer = (parent: Layer | undefined): Layer =>
+	parent ? { cells: new Map(), parent, isolate: false } : rootLayer();
+
+/** A copy-on-write fork: reads fall through, writes stay here. */
+export const isolatedLayer = (parent: Layer | undefined): Layer => ({
+	cells: new Map(),
+	parent,
+	isolate: true,
+});
+
+/** Where a definition's state lives; an undeclared name keys by itself. */
+const slotOf = (def: any, name: string): unknown => def?.$slot ?? name;
+
+const lookup = (layer: Layer, slot: unknown): Cell | undefined => {
+	for (let at: Layer | undefined = layer; at; at = at.parent) {
+		const cell = at.cells.get(slot);
+		if (cell) return cell;
+	}
+	return undefined;
+};
+
+/** The layer a write to `slot` lands in: the nearest one already holding
+ * it, never crossing an isolate boundary. */
+const writeTarget = (layer: Layer, slot: unknown): Layer => {
+	let at = layer;
+	while (!at.cells.has(slot) && !at.isolate && at.parent) at = at.parent;
+	return at;
+};
 
 const accumulates = (def: any): boolean =>
 	def?.$accessor === true || def?.$merge === true;
 
-/** The cell for `name`, materialized from the definition in scope. */
-export const getCell = (cells: Cells, name: string, defs?: VarDefs): Cell => {
-	const existing = cells[name];
-	if (existing) return existing;
-	const def = resolveVarDef(name, defs);
-	const cell: Cell = {
-		value: def?.$accessor ? {} : readVar(cells, name, defs),
-		accumulate: accumulates(def),
-	};
-	cells[name] = cell;
-	return cell;
-};
-
-/** The current value: the written one, else computed off the definition
- * in scope (a record's `{}` materializes so in-place writes stick). A name
- * never declared and never written reads `undefined` WITHOUT materializing
- * a cell - property probes on the context must not pollute the scope. */
-export const readVar = (
-	cells: Cells,
+/** The current value of `def`'s var: the written one, else computed off
+ * the definition (a record's `{}` materializes so in-place writes stick). */
+const readDef = (
+	layer: Layer,
+	def: any,
 	name: string,
-	defs?: VarDefs,
+	defs: VarDefs | undefined,
 ): unknown => {
-	const cell = cells[name];
+	const slot = slotOf(def, name);
+	const cell = lookup(layer, slot);
 	if (cell) return cell.value;
-	const def = resolveVarDef(name, defs);
 	if (!def) return undefined;
 	if (def.$derive) {
-		const src = readVar(cells, def.$derive.source, defs);
+		const source =
+			def.$derive.sourceDef ?? resolveVarDef(def.$derive.source, defs);
+		const src = readDef(layer, source, def.$derive.source, defs);
 		return src == null ? null : def.$derive.get(src);
 	}
-	if (def.$accessor) return getCell(cells, name, defs).value;
+	if (def.$accessor) {
+		const fresh: Cell = { value: {}, accumulate: true };
+		writeTarget(layer, slot).cells.set(slot, fresh);
+		return fresh.value;
+	}
 	return def.default;
+};
+
+/** A name never declared and never written reads `undefined` WITHOUT
+ * materializing a cell - property probes must not pollute the scope. */
+export const readVar = (layer: Layer, name: string, defs?: VarDefs): unknown =>
+	readDef(layer, resolveVarDef(name, defs), name, defs);
+
+/** Has anything WRITTEN `name` in this scope? */
+export const hasVar = (layer: Layer, name: string, defs?: VarDefs): boolean =>
+	lookup(layer, slotOf(resolveVarDef(name, defs), name)) !== undefined;
+
+/** The value a write of `value` leaves: merged onto the current one for
+ * record / merge vars. */
+const nextValue = (
+	layer: Layer,
+	def: any,
+	name: string,
+	value: unknown,
+	defs: VarDefs | undefined,
+): { next: unknown; accumulate: boolean } => {
+	const accumulate =
+		lookup(layer, slotOf(def, name))?.accumulate ?? accumulates(def);
+	if (!accumulate) return { next: value, accumulate };
+	const current = readDef(layer, def, name, defs);
+	const base = typeof current === "object" && current !== null ? current : {};
+	return {
+		next: { ...base, ...(value as Record<string, unknown>) },
+		accumulate,
+	};
+};
+
+const store = (target: Layer, slot: unknown, cell: Cell) => {
+	const existing = target.cells.get(slot);
+	if (existing) existing.value = cell.value;
+	else target.cells.set(slot, cell);
+};
+
+/**
+ * SEED `name` in `layer` itself - no readonly lock, no `var.set` hooks: a
+ * seed declares a value, like a default does. Record / merge vars merge
+ * onto what the layer below holds.
+ */
+export const seedVar = (
+	layer: Layer,
+	name: string,
+	value: unknown,
+	defs?: VarDefs,
+) => seedVarDef(layer, resolveVarDef(name, defs), name, value, defs);
+
+/** {@link seedVar} for a known definition - lands in ITS slot even when
+ * the frame's nearest mount of the name is a different var. */
+export const seedVarDef = (
+	layer: Layer,
+	def: any,
+	name: string,
+	value: unknown,
+	defs?: VarDefs,
+) => {
+	const { next, accumulate } = nextValue(layer, def, name, value, defs);
+	store(layer, slotOf(def, name), { value: next, accumulate });
 };
 
 /**
@@ -221,7 +355,7 @@ export const readVar = (
  * `c.<var>` cannot recurse into its own get hook.
  */
 export const handlerContext = (
-	cells: Cells,
+	layer: Layer,
 	base: Record<string, unknown>,
 	defs?: VarDefs,
 ): Record<string, unknown> =>
@@ -230,20 +364,21 @@ export const handlerContext = (
 			prop in t
 				? (t as any)[prop]
 				: typeof prop === "string"
-					? readVar(cells, prop, defs)
+					? readVar(layer, prop, defs)
 					: undefined,
-		has: (t, prop) => prop in t || (typeof prop === "string" && prop in cells),
+		has: (t, prop) =>
+			prop in t || (typeof prop === "string" && hasVar(layer, prop, defs)),
 	});
 
 /* ---------------------------------- frame ---------------------------------- */
 
 /**
  * What a handle needs to know about the fn frame it was created in: the
- * scope's cells, plus everything write behavior depends on there.
+ * scope's layer, plus everything write behavior depends on there.
  */
 export type Frame = {
-	cells: Cells;
-	/** The var definitions in scope - where unwritten vars read from. */
+	layer: Layer;
+	/** The var definitions in scope - which var a name means here. */
 	defs?: VarDefs;
 	key: string;
 	lockedBy: string | undefined;
@@ -257,7 +392,8 @@ const isThenable = (value: any): value is Promise<unknown> =>
  * Every write funnels here: the readonly lock beats everything, then the
  * matching `var.set.<name>` entries run SYNCHRONOUSLY around the actual
  * write - call `next()` to land it, skip to cancel, throw to abort. The
- * bare "*" target means "every fn", never "every var write".
+ * bare "*" target means "every fn", never "every var write". The write
+ * lands in the var's slot for the definition this frame sees.
  */
 export const writeVar = (frame: Frame, name: string, value: unknown) => {
 	if (frame.lockedBy) {
@@ -266,20 +402,17 @@ export const writeVar = (frame: Frame, name: string, value: unknown) => {
 			`"${frame.lockedBy}" is readonly: attempted to write var "${name}"`,
 		);
 	}
-	const accumulate =
-		frame.cells[name]?.accumulate ??
-		accumulates(resolveVarDef(name, frame.defs));
-	const merged = () => {
-		const current = readVar(frame.cells, name, frame.defs);
-		const base = typeof current === "object" && current !== null ? current : {};
-		return { ...base, ...(value as Record<string, unknown>) };
-	};
-	const next = accumulate ? merged() : value;
-	const apply = () => {
-		const cell = frame.cells[name];
-		if (cell) cell.value = next;
-		else frame.cells[name] = { value: next, accumulate };
-	};
+	const def = resolveVarDef(name, frame.defs);
+	const slot = slotOf(def, name);
+	const { next, accumulate } = nextValue(
+		frame.layer,
+		def,
+		name,
+		value,
+		frame.defs,
+	);
+	const apply = () =>
+		store(writeTarget(frame.layer, slot), slot, { value: next, accumulate });
 	const hooks = frame.entries.filter(
 		(e) => e.target !== "*" && matchesTarget(e.target, `var.set.${name}`),
 	);
@@ -288,7 +421,7 @@ export const writeVar = (frame: Frame, name: string, value: unknown) => {
 		(proceed, entry) => () => {
 			const result = entry.handler(
 				handlerContext(
-					frame.cells,
+					frame.layer,
 					{ name, value: next, fn: frame.key },
 					frame.defs,
 				) as any,
@@ -318,11 +451,11 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
 	const hooks = frame.entries.filter(
 		(e) => e.target !== "*" && matchesTarget(e.target, `var.get.${name}`),
 	);
-	if (hooks.length === 0) return readVar(frame.cells, name, frame.defs);
+	if (hooks.length === 0) return readVar(frame.layer, name, frame.defs);
 	const chain = hooks.reduceRight<() => unknown>(
 		(proceed, entry) => () => {
 			const result = entry.handler(
-				handlerContext(frame.cells, { name, fn: frame.key }, frame.defs) as any,
+				handlerContext(frame.layer, { name, fn: frame.key }, frame.defs) as any,
 				proceed as any,
 			);
 			if (isThenable(result)) {
@@ -333,7 +466,7 @@ export const readVarThrough = (frame: Frame, name: string): unknown => {
 			}
 			return result;
 		},
-		() => readVar(frame.cells, name, frame.defs),
+		() => readVar(frame.layer, name, frame.defs),
 	);
 	return chain();
 };

@@ -31,6 +31,7 @@ import {
 	isNamespace,
 	isOn,
 	isVarExtension,
+	isVarSeed,
 	type Module,
 	type ModuleFns,
 	matchesTarget,
@@ -78,14 +79,21 @@ import type { ResolvedVars, ScopeOf, VarName, VarScope } from "./scope";
 import { storageInScope } from "./storage";
 import type { LiteralString, Prettify } from "./types";
 import {
-	type Cells,
 	contextScope,
 	type Frame,
+	isolatedLayer,
+	type Layer,
 	linkFnImpl,
 	readVar,
 	readVarThrough,
+	resolveVarDef,
+	rootLayer,
+	seedLayer,
+	seedVar,
+	seedVarDef,
 	type VarDefination,
 	type VarDefs,
+	type VarSeed,
 	viewMergeVar,
 	writeVar,
 } from "./var";
@@ -1122,6 +1130,8 @@ const EXTS = Symbol("active-var-extensions");
 const READONLY = Symbol("readonly-lock");
 const WITH = Symbol("with-overrides");
 const DEFS = Symbol("var-definitions");
+const SEEDS = Symbol("applied-seeds");
+const NO_SEEDS: ReadonlySet<unknown> = new Set();
 
 /** A frame's var definitions: the caller's, with the fn's own mounts on
  * top - the nearest mount of a name wins. Cached per inherited map, so a
@@ -1193,12 +1203,18 @@ const defineFn = (
 	// carries; later mounts of a name beat earlier ones.
 	const mountedVars = new Map<string, unknown>();
 	const extensionBases = new Map<string, unknown>();
+	// `var.with(value)` seeds this fn mounts: applied at its frame, for its
+	// subtree - once per call tree (identity dedup, like `on` entries).
+	const ownSeeds: VarSeed<string, unknown>[] = [];
 	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
 			if (isOn(value) && !own.includes(value)) own.push(value);
 			else if (isVarExtension(value)) {
 				ownExts.push(value);
 				if (value.base) extensionBases.set(value.name, value.base);
+			} else if (isVarSeed(value)) {
+				if (!ownSeeds.includes(value)) ownSeeds.push(value);
+				extensionBases.set(value.name, value.var);
 			} else if (isEventOn(value)) mountEventOn(value);
 			else if (isEventExtension(value)) mountEventExtension(value);
 			else if (isEvent(value)) mountEvent(value);
@@ -1297,13 +1313,26 @@ const defineFn = (
 			? callArgs.slice(0, tupleInput.length)
 			: callArgs[0];
 		const parent: any = tupleInput ? callArgs[tupleInput.length] : callArgs[1];
-		const cells: Cells = parent?.[STORE] ?? {};
-		// Root scope: fold merge-var contributions from `use` into cells
-		// before anything reads them (storage default + helper namespaces).
-		if (!parent?.[STORE]) {
+		const parentLayer: Layer | undefined = parent?.[STORE];
+		const defs = scopeDefs(ownDefs, defsCache, parent?.[DEFS]);
+		let layer = parentLayer ?? rootLayer();
+		// Root scope: fold merge-var contributions from `use` into the
+		// store before anything reads them (storage default + helpers).
+		if (!parentLayer) {
 			for (const [name, value] of Object.entries(mergeSeeds)) {
-				cells[name] = { value, accumulate: true };
+				seedVar(layer, name, value, defs);
 			}
+		}
+		// Mounted seeds not yet applied above: a layer for this subtree.
+		const appliedSeeds: ReadonlySet<unknown> = parent?.[SEEDS] ?? NO_SEEDS;
+		let seeds = appliedSeeds;
+		const freshSeeds = ownSeeds.filter((seed) => !appliedSeeds.has(seed));
+		if (freshSeeds.length > 0) {
+			if (parentLayer) layer = seedLayer(parentLayer);
+			for (const seed of freshSeeds) {
+				seedVarDef(layer, seed.var, seed.name, seed.value, defs);
+			}
+			seeds = new Set([...appliedSeeds, ...freshSeeds]);
 		}
 		// The lock travels the whole subtree: once any frame above is
 		// readonly, every write below throws - handlers, nested fns,
@@ -1338,11 +1367,9 @@ const defineFn = (
 						...ownExts.filter((e) => !inheritedExts.includes(e)),
 					];
 
-		const defs = scopeDefs(ownDefs, defsCache, parent?.[DEFS]);
-
 		let ctx: any;
 		const frame: Frame = {
-			cells,
+			layer,
 			defs,
 			key,
 			lockedBy,
@@ -1359,16 +1386,16 @@ const defineFn = (
 			if (typeof check !== "function") return undefined;
 			if (check === builtinFormats[format]) return check;
 			return (value) => {
-				const forked: Cells = Object.fromEntries(
-					Object.entries(cells).map(([n, cell]) => [n, { ...cell }]),
-				);
-				delete forked[name];
+				const forked = isolatedLayer(layer);
+				const formatDef = resolveVarDef(name, defs);
+				seedVarDef(forked, formatDef, name, formatDef?.default, defs);
 				return check(
 					value,
 					contextScope(
-						{ cells: forked, defs, key, lockedBy, entries: active },
+						{ layer: forked, defs, key, lockedBy, entries: active },
 						{
 							[STORE]: forked,
+							[SEEDS]: seeds,
 							[DEFS]: defs,
 							[ACTIVE]: active,
 							[EXTS]: exts,
@@ -1589,7 +1616,8 @@ const defineFn = (
 			const base: any = {
 				input: parsed,
 				error: mintError,
-				[STORE]: cells,
+				[STORE]: layer,
+				[SEEDS]: seeds,
 				[DEFS]: defs,
 				[ACTIVE]: active,
 				[EXTS]: exts,
@@ -1704,7 +1732,7 @@ const defineFn = (
 			bindUsable(base, usable, withFns);
 
 			const missing = (name: string) => {
-				const value = readVar(cells, name, defs);
+				const value = readVar(layer, name, defs);
 				return value === undefined || value === null;
 			};
 			const checkRequires = () => {
@@ -1841,24 +1869,22 @@ const defineFn = (
 	/**
 	 * `.with`: a hand-built context. Keys naming one of this fn's `use`
 	 * fns become OVERRIDES (carried by the subtree via `WITH`); everything
-	 * else SEEDS a var in a fresh store. A parent given to the bound call
-	 * is forked - its cells are copied, so seeds and writes inside never
-	 * leak back into it.
+	 * else SEEDS a var for the bound call's subtree. Given a parent, the
+	 * seeds sit in a layer over the parent's store: the seeded vars (and
+	 * writes to them) never leak back, but everything else the call writes
+	 * - what it `provides` - reaches the caller as usual. Without one, each
+	 * call starts from a fresh store.
 	 */
 	const withCall = (context: Record<string, unknown>) => {
 		const makeParent = (given: any) => {
-			const source: Cells = given?.[STORE] ?? {};
-			const cells: Cells = Object.fromEntries(
-				Object.entries(source).map(([name, cell]) => [name, { ...cell }]),
-			);
+			const givenLayer: Layer | undefined = given?.[STORE];
+			const layer = seedLayer(givenLayer);
 			const seedDefs = scopeDefs(ownDefs, defsCache, given?.[DEFS]);
-			const seedFrame: Frame = {
-				cells,
-				defs: seedDefs,
-				key: `${key}.with`,
-				lockedBy: undefined,
-				entries: [],
-			};
+			if (!givenLayer) {
+				for (const [name, value] of Object.entries(mergeSeeds)) {
+					seedVar(layer, name, value, seedDefs);
+				}
+			}
 			const overrides: Record<string, unknown> = { ...given?.[WITH] };
 			// Walk the given context against the usable tree: a fn member is
 			// an OVERRIDE, a var member (top-level or inside a group) SEEDS
@@ -1872,9 +1898,10 @@ const defineFn = (
 				for (const [name, value] of Object.entries(entries)) {
 					const member = map?.[name];
 					if (member === undefined) {
-						writeVar(seedFrame, name, value);
+						seedVar(layer, name, value, seedDefs);
 					} else if (isVar(member)) {
-						writeVar(seedFrame, (member as { name: string }).name, value);
+						const varName = (member as { name: string }).name;
+						seedVarDef(layer, member, varName, value, seedDefs);
 					} else if (isFn(member) || typeof value !== "object" || !value) {
 						target[name] = value;
 					} else {
@@ -1894,7 +1921,8 @@ const defineFn = (
 			};
 			applyWith(usable, context, overrides);
 			return {
-				[STORE]: cells,
+				[STORE]: layer,
+				[SEEDS]: given?.[SEEDS],
 				[DEFS]: given?.[DEFS],
 				[ACTIVE]: given?.[ACTIVE],
 				[EXTS]: given?.[EXTS],

@@ -24,7 +24,7 @@ import type {
 	Prettify,
 	UnionToIntersection,
 } from "./types";
-import type { VarDefination } from "./var";
+import type { VarDefination, VarSeed } from "./var";
 
 /** Storage (or a slice): `$models` plus callable `$adapter`. Kept opaque
  * in {@link ModuleFns} so collections stay on `c.db`, not walked as groups.
@@ -147,13 +147,17 @@ export type Module = Record<string, unknown> & {
 	 * through - its `$on` is the hook-mounting METHOD, not the brand. */
 	$on?: (...args: never[]) => unknown;
 	$fn?: never;
+	$seed?: never;
 };
 
 /**
  * A mountable `use` entry: a plain {@link Module}, or a bare
  * {@link VarExtension} (auto-wrapped by {@link resolveModules}).
  */
-export type UseEntry = Module | VarExtension<string, any, any>;
+export type UseEntry =
+	| Module
+	| VarExtension<string, any, any>
+	| VarSeed<string, any>;
 
 /** A module member that can NEST other members: a plain record that is
  * not itself branded. Fn defs are callable, so they never match. Storage
@@ -162,6 +166,7 @@ type GroupMember<V> = V extends
 	| { $var: true }
 	| { $on: true }
 	| { $varExtend: true }
+	| { $seed: true }
 	| { $event: true }
 	| { $eventExtend: true }
 	| { $eventOn: true }
@@ -178,17 +183,21 @@ type VarEntryUnion<M> =
 		? unknown extends BT
 			? never
 			: { [P in N]: BT }
-		: {
-				[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
-					? { [P in N]: T }
-					: M[K] extends VarExtension<infer N, any, infer BT>
-						? unknown extends BT
-							? never
-							: { [P in N]: BT }
-						: [GroupMember<M[K]>] extends [never]
-							? never
-							: VarEntryUnion<GroupMember<M[K]>>;
-			}[keyof M];
+		: M extends VarSeed<infer N, infer T>
+			? { [P in N]: T }
+			: {
+					[K in keyof M]: M[K] extends VarDefination<infer N, infer T, any, any>
+						? { [P in N]: T }
+						: M[K] extends VarSeed<infer N, infer T>
+							? { [P in N]: T }
+							: M[K] extends VarExtension<infer N, any, infer BT>
+								? unknown extends BT
+									? never
+									: { [P in N]: BT }
+								: [GroupMember<M[K]>] extends [never]
+									? never
+									: VarEntryUnion<GroupMember<M[K]>>;
+				}[keyof M];
 
 /**
  * Vars a module exports, keyed by their DECLARED name, not export name.
@@ -268,7 +277,7 @@ export const resolveModules = (
 	modules: readonly unknown[],
 ): Record<string, unknown>[] =>
 	modules.map((mod) => {
-		if (isVarExtension(mod)) {
+		if (isVarExtension(mod) || isVarSeed(mod)) {
 			return { [mod.name]: mod };
 		}
 		if (
@@ -322,6 +331,7 @@ export const isNamespace = (
 		isVar(value) ||
 		isOn(value) ||
 		isVarExtension(value) ||
+		isVarSeed(value) ||
 		isEvent(value) ||
 		isEventExtension(value) ||
 		isEventOn(value)
@@ -341,6 +351,7 @@ export const isNamespace = (
 			isVar(m) ||
 			isOn(m) ||
 			isVarExtension(m) ||
+			isVarSeed(m) ||
 			isEvent(m) ||
 			isEventExtension(m) ||
 			isEventOn(m) ||
@@ -694,6 +705,10 @@ export const isVarExtension = (
 	value: any,
 ): value is VarExtension<string, any> => value?.$varExtend === true;
 
+/** A `var.with(value)` seed - see {@link VarSeed}. */
+export const isVarSeed = (value: any): value is VarSeed<string, unknown> =>
+	value?.$seed === true;
+
 /**
  * Extend a var's shape from a module. Where `customize` mints a NEW var
  * definition to re-export, an extension is a mountable value: every scope
@@ -934,7 +949,8 @@ type VarSurfaceKey =
 	| "$source"
 	| "$attrs"
 	| "$merge"
-	| "customize";
+	| "customize"
+	| "with";
 
 /** Widen only same-key helpers on a merge var; leave the VarDef surface. */
 type ApplyOnVarHelpers<V, PL> = [Exclude<keyof V, VarSurfaceKey>] extends [

@@ -154,10 +154,22 @@ describe("var defaults resolve from the definition mounted in scope", () => {
 		expect(seen).toEqual([{ tokenUrl: "https://github/token" }]);
 	});
 
-	it("a write is a value, not a default - it travels the call tree", async () => {
+	it("a write to one instance's var stays out of another's", async () => {
 		const app = v.fn(
 			"sv.write",
 			{ use: [{ endpoints: google.endpoints }] },
+			async (c) => {
+				c.sv_endpoints = { tokenUrl: "https://set/token" };
+				return [await github.exchange(undefined, c), c.sv_endpoints.tokenUrl];
+			},
+		);
+		expect(await app()).toEqual(["https://github/token", "https://set/token"]);
+	});
+
+	it("a write reaches every fn of the same definition", async () => {
+		const app = v.fn(
+			"sv.write",
+			{ use: [{ endpoints: github.endpoints }] },
 			async (c) => {
 				c.sv_endpoints = { tokenUrl: "https://set/token" };
 				return github.exchange(undefined, c);
@@ -301,5 +313,204 @@ describe("exact hooks bind to one fn definition", () => {
 				} as never,
 			),
 		).toThrow(/exact/);
+	});
+});
+
+describe("written values live per definition", () => {
+	// A tenant module: its own config var, a fn that writes it, one that
+	// reads it - built once per tenant.
+	const tenant = (id: string) => {
+		const config = v.var("st_config", { default: { id, plan: "free" } });
+		const upgrade = v.fn(`st.${id}.upgrade`, { use: [{ config }] }, (c) => {
+			c.st_config = { ...c.st_config, plan: "pro" };
+		});
+		const plan = v.fn(`st.${id}.plan`, { use: [{ config }] }, (c) => {
+			return `${c.st_config.id}:${c.st_config.plan}`;
+		});
+		return { config, upgrade, plan };
+	};
+
+	it("two tenants writing same-name vars in one call tree stay apart", async () => {
+		const acme = tenant("acme");
+		const umbrella = tenant("umbrella");
+		const app = v.fn("st.app", async (c) => {
+			await acme.upgrade(undefined, c);
+			return [await acme.plan(undefined, c), await umbrella.plan(undefined, c)];
+		});
+		expect(await app()).toEqual(["acme:pro", "umbrella:free"]);
+	});
+
+	it("a parent's write reaches children that inherit or mount the definition", async () => {
+		const acme = tenant("acme");
+		const inherits = v.fn(
+			"st.inherits",
+			(c) => (c as unknown as { st_config: { plan: string } }).st_config.plan,
+		);
+		const app = v.fn(
+			"st.parent",
+			{ use: [{ config: acme.config }] },
+			async (c) => {
+				c.st_config = { id: "acme", plan: "enterprise" };
+				return [await acme.plan(undefined, c), await inherits(undefined, c)];
+			},
+		);
+		expect(await app()).toEqual(["acme:enterprise", "enterprise"]);
+	});
+
+	it("a child's write flows back to the caller (provides)", async () => {
+		const acme = tenant("acme");
+		const app = v.fn(
+			"st.back",
+			{ use: [{ config: acme.config }] },
+			async (c) => {
+				await acme.upgrade(undefined, c);
+				return c.st_config.plan;
+			},
+		);
+		expect(await app()).toBe("pro");
+	});
+
+	it("a customized re-export is the same var", async () => {
+		const base = v.var("st_profile", {
+			default: null as { id: string } | null,
+			schema: v.object({ id: v.string() }),
+		});
+		const wide = base.customize({
+			schema: (t) => t.add({ role: t.string({ optional: true }) }),
+		});
+		const read = v.fn("st.read", { use: [{ wide }] }, (c) => c.st_profile?.id);
+		const app = v.fn("st.write", { use: [{ base }] }, async (c) => {
+			c.st_profile = { id: "p1" };
+			return read(undefined, c);
+		});
+		expect(await app()).toBe("p1");
+	});
+
+	it("a frame that mounts nothing writes the latest definition, as before", async () => {
+		const only = v.var("st_solo", { default: 0 });
+		const read = v.fn("st.solo", { use: [{ only }] }, (c) => c.st_solo);
+		const app = v.fn("st.unmounted", async (c) => {
+			(c as unknown as { st_solo: number }).st_solo = 7;
+			return read(undefined, c);
+		});
+		expect(await app()).toBe(7);
+	});
+});
+
+describe("seeding a subtree", () => {
+	const session = v.var("ss_session", {
+		default: null as { user: string } | null,
+	});
+	const result = v.var("ss_result", { default: null as string | null });
+	const complete = v.fn(
+		"ss.complete",
+		{ use: [{ session, result }], provides: ["ss_result"] },
+		(c) => {
+			c.ss_result = `done:${c.ss_session?.user ?? "anon"}`;
+			return c.ss_session?.user;
+		},
+	);
+
+	it("fn.with(seeds)(input, c) keeps the seed in the subtree and hands back what it provides", async () => {
+		const app = v.fn("ss.app", { use: [{ session, result }] }, async (c) => {
+			c.ss_session = { user: "outer" };
+			const inner = await complete.with({ ss_session: { user: "seeded" } })(
+				undefined,
+				c,
+			);
+			return [inner, c.ss_session?.user, c.ss_result];
+		});
+		expect(await app()).toEqual(["seeded", "outer", "done:seeded"]);
+	});
+
+	it("a write to a seeded var inside the call stays inside", async () => {
+		const logout = v.fn("ss.logout", { use: [{ session }] }, (c) => {
+			c.ss_session = null;
+		});
+		const app = v.fn("ss.app", { use: [{ session }] }, async (c) => {
+			c.ss_session = { user: "outer" };
+			await logout.with({ ss_session: { user: "seeded" } })(undefined, c);
+			return c.ss_session?.user;
+		});
+		expect(await app()).toBe("outer");
+	});
+});
+
+describe("mounted seeds: var.with(value)", () => {
+	// A library: fns that mount the library's own var.
+	const registry = v.var("ms_registry", { default: [] as string[] });
+	const list = v.fn("ms.list", { use: [{ registry }] }, (c) =>
+		c.ms_registry.join(","),
+	);
+	const add = v.fn(
+		"ms.add",
+		{ input: { id: v.string() }, use: [{ registry }] },
+		(c) => {
+			c.ms_registry = [...c.ms_registry, c.input.id];
+		},
+	);
+	// An instance: a root that seeds the library var for everything below.
+	const instance = (providers: string[]) =>
+		v.fn("ms.root", { use: [registry.with(providers), { list, add }] });
+
+	it("library fns see the instance's seed, not the library default", async () => {
+		const google = instance(["google"]);
+		const github = instance(["github", "apple"]);
+		const run = (root: typeof google) => root.fn("call", (c) => c.list())();
+		expect(await run(google)).toBe("google");
+		expect(await run(github)).toBe("github,apple");
+		expect(list()).toBe("");
+	});
+
+	it("the seed types the var on c", () => {
+		const root = v.fn({ use: [registry.with(["x"])] });
+		root.fn((c) => {
+			expectTypeOf(c.ms_registry).toEqualTypeOf<string[]>();
+		});
+	});
+
+	it("writes inside the subtree land in the seeded value", async () => {
+		const root = instance(["google"]);
+		const f = root.fn("call", async (c) => {
+			await c.add({ id: "okta" });
+			return c.list();
+		});
+		expect(await f()).toBe("google,okta");
+		// The next call starts from the seed again.
+		expect(await root.fn("again", (c) => c.list())()).toBe("google");
+	});
+
+	it("a nested mount reseeds its own subtree only", async () => {
+		const tenantList = v.fn(
+			"ms.tenant",
+			{ use: [registry.with(["tenant"]), { list }] },
+			(c) => c.list(),
+		);
+		const root = instance(["google"]);
+		const f = root.fn("call", async (c) => [
+			await tenantList(undefined, c),
+			await c.list(),
+		]);
+		expect(await f()).toEqual(["tenant", "google"]);
+	});
+
+	it("the same seed mounted again below does not reset the subtree", async () => {
+		const seed = registry.with(["google"]);
+		const again = v.fn("ms.again", { use: [seed, { list }] }, (c) => c.list());
+		const root = v.fn("ms.root", { use: [seed, { add }] });
+		const f = root.fn("call", async (c) => {
+			await c.add({ id: "okta" });
+			return again(undefined, c);
+		});
+		expect(await f()).toBe("google,okta");
+	});
+
+	it("a seed is a declaration - a readonly subtree still sees it", () => {
+		const ro = v.fn(
+			"ms.ro",
+			{ readonly: true, use: [registry.with(["ro"]), { list }] },
+			(c) => c.list(),
+		);
+		expect(ro()).toBe("ro");
 	});
 });
