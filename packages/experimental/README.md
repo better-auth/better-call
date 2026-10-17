@@ -147,7 +147,7 @@ const createSession = v.fn(
 
 There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
 
-A var's default comes from the definition mounted in scope: what the fn mounts through `use` (directly, or as the base of a `v.extend`), else what its caller saw. Two instances built from one factory can share a var name and still keep their own defaults, even in one call tree. Writes are values, not defaults, so they still travel the call tree by name.
+A var's state belongs to its **definition**, not its name. Its default comes from the definition mounted in scope: what the fn mounts through `use` (directly, as the base of a `v.extend`, or through a seed), else what its caller saw; the nearest mount wins. Written values work the same way: a write lands on the definition the writing fn sees, and every fn of that definition reads it, the caller and the fns it calls alike. A fresh `v.var` with the same name is a different var, so two instances built from one factory never see each other's defaults or writes, even in one call tree. A `customize`d re-export is the same var.
 
 ```ts
 const provider = (id: string, tokenUrl: string) => {
@@ -158,6 +158,27 @@ const google = provider("google", "https://oauth2.googleapis.com/token");
 const github = provider("github", "https://github.com/login/oauth/access_token");
 google(); // "https://oauth2.googleapis.com/token"
 github(); // "https://github.com/login/oauth/access_token"
+```
+
+#### Seeding
+
+A seed gives a var a value for a subtree, without redefining it.
+
+- `fn.with(seeds)` seeds one call. Called with a parent `c`, the seeds sit in a layer over the caller: the seeded vars, and writes to them, stay inside the call; everything else it writes (what it `provides`) reaches the caller as usual. Without a parent, each call starts fresh.
+- `someVar.with(value)` is a seed you **mount**: put it in a fn's `use` and the var holds `value` for that fn's whole subtree. Library fns that mount the var themselves see it too, which makes it the way to give one instance its own config.
+
+```ts
+// library
+const providers = v.var("providers", { default: [] as string[] });
+const list = v.fn("auth.list", { use: [{ providers }] }, (c) => c.providers);
+
+// one instance per app
+const app = v.fn("app.", { use: [providers.with(["google", "github"]), { list }] });
+app.fn("run", (c) => c.list())(); // ["google", "github"]
+list(); // [] - the library default, untouched
+
+// one call, with what it provides handed back
+v.fn((c) => complete.with({ logger })(input, c));
 ```
 
 #### Formats
@@ -216,13 +237,36 @@ const app = v.fn({ use: [coreSession] });
 
 `v.on` mounts onto another fn by name (or reference): the handler replaces the target's body and receives `next` — call it to delegate, or don't. Targets take exact keys, `*` wildcards, RegExps, and `var.set.<name>` events for intercepting writes.
 
-A fn reference matches by key, so it also hits any other fn with the same key. Pass `{ exact: true }` to bind the hook to that one definition instead:
+A hook on a fn reference is typed from that fn: `c.input` is its parsed input, `c.error` mints its declared tags (payloads checked), `c.fnKey` is its key, and the vars and used fns it mounts are on `c`. Vars it doesn't mount read as `unknown`. `next({ input })` hands the inner layers and the body a different input (typed as the fn's input, not re-validated); the calling layer's own `c.input` stays as it was.
+
+```ts
+v.on(signIn, async (c, next) => {
+  if (c.input.email.endsWith("@blocked.dev")) throw c.error("FORBIDDEN");
+  return next({ input: { ...c.input, email: c.input.email.trim() } });
+});
+```
+
+Options go last, `v.on(target, handler, { exact, local })`:
+
+- A fn reference matches by key, so it also hits any other fn with the same key. `{ exact: true }` binds the hook to that one definition instead.
+- A mounted hook travels to every fn called below the fn that mounts it. `{ local: true }` keeps it to fns that mount it directly, so a module of quirks can be mounted at a root without its hooks running there or wrapping the app's own hooks.
 
 ```ts
 const workspace = provider("google", "https://workspace.example/token");
 const personal = provider("google", "https://oauth2.googleapis.com/token");
 // fires for `workspace` only, not for `personal`, though both are "oauth.google.exchange"
 v.on(workspace, (c, next) => next(), { exact: true });
+
+// a quirk that only runs where it is mounted - in the step fn's own `use`
+const quirks = { trimHd: v.on("oauth.google.profile", trim, { local: true }) };
+```
+
+A fn type written by hand (`FnDefination<…>`) names its modules in the seed slot with `WithSeedFor<[…]>`. `.with` seeds are then checked against them, and hooks on the fn see their vars:
+
+```ts
+type Exchange = FnDefination<Args, Promise<Tokens>, "oauth.google.exchange",
+  Input, readonly string[], typeof oauthErrors, WithSeedFor<[typeof runtime]>>;
+exchange.with({ oauthFetch: mockFetch }); // typed, no cast
 ```
 
 ## Fns vs plain functions

@@ -508,12 +508,14 @@ export interface FnDefination<
 	 */
 	try(...args: CallArgs<A, I>): TryResult<R, Er>;
 	/**
-	 * Call with a HAND-BUILT context. Keys naming a var SEED that var in a
-	 * fresh scope; keys naming a `use` fn OVERRIDE that binding for the
-	 * whole subtree below. On terminating / exported fns `W` is
+	 * Call with a HAND-BUILT context. Keys naming a var SEED that var for
+	 * the call's subtree; keys naming a `use` fn OVERRIDE that binding for
+	 * the whole subtree below. On terminating / exported fns `W` is
 	 * {@link WithSeedOpaque} (emit-safe); for precise seed checking use
-	 * {@link Instance.with}. A parent passed to the bound call is FORKED:
-	 * its vars are copied in, never written back.
+	 * {@link Instance.with}, or {@link WithSeedFor} on a hand-declared
+	 * type. Given a parent, the seeds sit in a layer over it: seeded vars
+	 * (and writes to them) never leak back, everything else the call
+	 * writes - what it `provides` - reaches the caller.
 	 */
 	with(context: W): BoundCall<A, R, I, Er>;
 	/** Brand, so a plugin module can be scanned for its fns. */
