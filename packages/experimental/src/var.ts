@@ -130,10 +130,23 @@ export const linkFnImpl = (impl: (...args: any[]) => any) => {
  */
 export type VarSlot = { readonly name: string };
 
+/** Merge vars fold every same-name definition into ONE value (that is
+ * their contract), so they share one slot per name. */
+const mergeSlots = new Map<string, VarSlot>();
+const mergeSlot = (name: string): VarSlot => {
+	let slot = mergeSlots.get(name);
+	if (!slot) {
+		slot = { name };
+		mergeSlots.set(name, slot);
+	}
+	return slot;
+};
+
 export const makeVar = (name: string, options: any = {}): any => {
 	const schema =
 		options.schema === undefined ? undefined : asType(options.schema);
-	const slot: VarSlot = options.slot ?? { name };
+	const slot: VarSlot =
+		options.slot ?? (options.merge === true ? mergeSlot(name) : { name });
 	const def: any = {
 		$var: true,
 		name,

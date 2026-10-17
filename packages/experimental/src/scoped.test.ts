@@ -386,6 +386,16 @@ describe("written values live per definition", () => {
 		expect(await app()).toBe("p1");
 	});
 
+	it("merge vars fold same-name definitions into one value, as documented", async () => {
+		const library = v.var("st_db", { merge: true, default: { from: "lib" } });
+		const read = v.fn("st.db", { use: [{ library }] }, (c) => c.st_db.from);
+		const override = v.var("st_db", { merge: true, default: { from: "app" } });
+		const app = v.fn("st.app", { use: [{ db: override }] }, (c) =>
+			read(undefined, c),
+		);
+		expect(await app()).toBe("app");
+	});
+
 	it("a frame that mounts nothing writes the latest definition, as before", async () => {
 		const only = v.var("st_solo", { default: 0 });
 		const read = v.fn("st.solo", { use: [{ only }] }, (c) => c.st_solo);
