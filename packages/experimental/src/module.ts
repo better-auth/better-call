@@ -35,7 +35,16 @@ type StorageLike = {
 	$adapter: (...args: never[]) => unknown;
 };
 
-export type Interceptor = (c: any, next: () => Promise<any>) => any;
+/**
+ * A fn hook's `next`: call it to run the inner layers and the body.
+ * `next({ input })` hands them a different input (typed as the fn's parsed
+ * input, not re-validated); the caller's own `c.input` stays as it was.
+ */
+export type Next<I = Record<string, any>, R = any> = (override?: {
+	input: I;
+}) => Promise<R>;
+
+export type Interceptor = (c: any, next: Next<any, any>) => any;
 
 /**
  * What a GLOBAL `v.on` handler sees. Without a builder there is no scope
@@ -66,11 +75,20 @@ export type OnEntry<N extends string, Ext = unknown> = {
 	target: N | RegExp | ExactTarget | readonly (string | RegExp | ExactTarget)[];
 	/** Extra input fields this mount adds to the target fn. */
 	extend?: { input?: Ext };
+	/** `{ local: true }`: runs only for fns mounting it directly. */
+	local?: true;
 	handler: Interceptor;
 };
 
 /** Options for a fn-reference `v.on`. */
 export type OnOptions = {
+	/**
+	 * Run only in the frames of fns that mount this entry DIRECTLY (their
+	 * own `use`). Without it a mounted hook travels to every fn called
+	 * below. A local quirk stays where it was put: mounting its module at
+	 * a root doesn't hoist it outside the app's hooks.
+	 */
+	local?: boolean;
 	/**
 	 * Match the referenced fn DEFINITION only, not every fn sharing its
 	 * key - a hook on one instance's `oauth.google.exchange` stays off a
@@ -563,10 +581,12 @@ type FnResultOf<F> =
 export function on<T extends "var.set.*" | `var.set.${string}`>(
 	target: T,
 	handler: (c: VarSetContext<VarNameOf<T>>, next: () => void) => void,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<T>;
 export function on<T extends "var.get.*" | `var.get.${string}`>(
 	target: T,
 	handler: (c: VarGetContext<VarNameOf<T>>, next: () => unknown) => unknown,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<T>;
 /** Subscribe to an event CATEGORY by reference - hears every kind. */
 export function on<N extends LiteralString, T extends Record<string, unknown>>(
@@ -582,7 +602,7 @@ export function on<F extends FnDefination<any, any, string, any, any, any>>(
 	target: F,
 	handler: (
 		c: Omit<OnDefaultContext, "input"> & { input: FnInputOf<F> },
-		next: () => Promise<FnResultOf<F>>,
+		next: Next<FnInputOf<F>, FnResultOf<F>>,
 	) => any,
 	options?: OnOptions,
 ): OnEntry<F["key"]>;
@@ -596,7 +616,7 @@ export function on<
 		c: Omit<OnDefaultContext, "input"> & {
 			input: FnInputOf<F> & InferInput<Ext>;
 		},
-		next: () => Promise<FnResultOf<F>>,
+		next: Next<FnInputOf<F> & InferInput<Ext>, FnResultOf<F>>,
 	) => any,
 	options?: OnOptions,
 ): OnEntry<F["key"], Ext>;
@@ -606,16 +626,18 @@ export function on(
 		| RegExp
 		| FnDefination<any, any, string, any, any, any>
 	)[],
-	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
+	handler: (c: OnDefaultContext, next: Next) => any,
 	options?: OnOptions,
 ): OnEntry<string>;
 export function on(
 	target: RegExp,
-	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
+	handler: (c: OnDefaultContext, next: Next) => any,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<string>;
 export function on<N extends "*" | LiteralString>(
 	target: N,
-	handler: (c: OnDefaultContext, next: () => Promise<any>) => any,
+	handler: (c: OnDefaultContext, next: Next) => any,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<N>;
 export function on<const Ext>(
 	target: RegExp,
@@ -624,8 +646,9 @@ export function on<const Ext>(
 		c: Omit<OnDefaultContext, "input"> & {
 			input: InferInput<Ext> & Record<string, any>;
 		},
-		next: () => Promise<any>,
+		next: Next,
 	) => any,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<string, Ext>;
 export function on<N extends LiteralString, const Ext>(
 	target: N,
@@ -634,8 +657,9 @@ export function on<N extends LiteralString, const Ext>(
 		c: Omit<OnDefaultContext, "input"> & {
 			input: InferInput<Ext> & Record<string, any>;
 		},
-		next: () => Promise<any>,
+		next: Next,
 	) => any,
+	options?: Pick<OnOptions, "local">,
 ): OnEntry<N, Ext>;
 export function on(
 	target:
@@ -682,9 +706,16 @@ export function on(
 	const resolved = (
 		Array.isArray(target) ? target.map(resolveOne) : resolveOne(target)
 	) as OnEntry<string>["target"];
+	const local = options?.local === true ? { local: true as const } : {};
 	return extended
-		? { $on: true, target: resolved, extend: extendOrHandler, handler }
-		: { $on: true, target: resolved, handler };
+		? {
+				$on: true,
+				target: resolved,
+				extend: extendOrHandler,
+				handler,
+				...local,
+			}
+		: { $on: true, target: resolved, handler, ...local };
 }
 
 /* ----------------------------- var extension ------------------------------ */

@@ -225,6 +225,7 @@ export {
 	type Module,
 	type ModuleFns,
 	type ModuleVars,
+	type Next,
 	type OnDefaultContext,
 	type OnEntry,
 	type OnOptions,

@@ -35,6 +35,7 @@ import {
 	type Module,
 	type ModuleFns,
 	matchesTarget,
+	type Next,
 	type OnEntry,
 	type OnOptions,
 	on as onImpl,
@@ -1195,7 +1196,10 @@ const defineFn = (
 	// dedup, like inheritance. Same-name `customize` re-exports are
 	// folded in as synthetic extensions so var-bound input re-validates
 	// against the shadowed schema (matching {@link VarArgsInScope}).
+	// Hooks this fn mounts, in mount order. `own` is the share that travels
+	// to the fns it calls; `{ local: true }` entries stay in `ownAll` only.
 	const own: OnEntry<string>[] = [];
+	const ownAll: OnEntry<string>[] = [];
 	const ownExts: VarExtension<string, any>[] = [];
 	const seenVarShadows = new Set<unknown>();
 	// Var definitions this fn mounts, by name - where its scope reads
@@ -1208,8 +1212,10 @@ const defineFn = (
 	const ownSeeds: VarSeed<string, unknown>[] = [];
 	const scanMembers = (mod: Record<string, unknown>) => {
 		for (const value of Object.values(mod)) {
-			if (isOn(value) && !own.includes(value)) own.push(value);
-			else if (isVarExtension(value)) {
+			if (isOn(value)) {
+				if (!ownAll.includes(value)) ownAll.push(value);
+				if (!value.local && !own.includes(value)) own.push(value);
+			} else if (isVarExtension(value)) {
 				ownExts.push(value);
 				if (value.base) extensionBases.set(value.name, value.base);
 			} else if (isVarSeed(value)) {
@@ -1350,7 +1356,13 @@ const defineFn = (
 			own.length === 0
 				? inherited
 				: [...inherited, ...own.filter((e) => !inherited.includes(e))];
-		const chain = active.filter((entry) =>
+		// This frame alone also runs its LOCAL entries, in mount order among
+		// its own - they never reach `ACTIVE`, so the fns it calls don't inherit them.
+		const here =
+			ownAll.length === own.length
+				? active
+				: [...inherited, ...ownAll.filter((e) => !inherited.includes(e))];
+		const chain = here.filter((entry) =>
 			matchesTarget(entry.target, key, callable),
 		);
 
@@ -1373,7 +1385,7 @@ const defineFn = (
 			defs,
 			key,
 			lockedBy,
-			entries: active,
+			entries: here,
 		};
 
 		// Format checks resolve from the `format.<name>` vars AT CHECK TIME,
@@ -1392,7 +1404,7 @@ const defineFn = (
 				return check(
 					value,
 					contextScope(
-						{ layer: forked, defs, key, lockedBy, entries: active },
+						{ layer: forked, defs, key, lockedBy, entries: here },
 						{
 							[STORE]: forked,
 							[SEEDS]: seeds,
@@ -1756,8 +1768,26 @@ const defineFn = (
 				bodyRan = true;
 				return declared(c);
 			};
+			// `next({ input })` hands inner layers (and the body) a different
+			// input; the outer layer's own `c.input` is untouched. Not
+			// re-validated - it is typed as the fn's parsed input.
+			const withInput = (input: unknown) => {
+				const swapped = Object.create(base);
+				Object.defineProperty(swapped, "input", {
+					value: input,
+					writable: true,
+					enumerable: true,
+					configurable: true,
+				});
+				return contextScope(frame, swapped);
+			};
 			const body = chain.reduceRight<(c: any) => any>(
-				(next, entry) => (c) => entry.handler(c, () => next(c)),
+				(next, entry) => (c) =>
+					entry.handler(c, (override?: { input?: unknown }) =>
+						next(
+							override && "input" in override ? withInput(override.input) : c,
+						),
+					),
 				declaredTracked,
 			);
 
@@ -2117,7 +2147,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 		target: F,
 		handler: (
 			c: OnContext<Base, BaseFns, F>,
-			next: () => Promise<MatchedResult<F>>,
+			next: Next<MatchedInput<F>, MatchedResult<F>>,
 		) => any,
 		options?: OnOptions,
 	): OnEntry<F["key"]>;
@@ -2134,6 +2164,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 			c: VarSetContext<VarNameOfT<T>> & { value: VarValueOfT<T, Base> },
 			next: () => void,
 		) => void,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<T>;
 	/** Var-read events: `next()` yields the stored value and the handler's
 	 * return becomes the read result - typed from the scope when exact. */
@@ -2148,6 +2179,7 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 			c: VarGetContext<VarNameOfT<T>>,
 			next: () => VarValueOfT<T, Base>,
 		) => VarValueOfT<T, Base>,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<T>;
 	/** Event category by reference - never prefixed. */
 	<N extends LiteralString, T extends Record<string, unknown>>(
@@ -2161,33 +2193,37 @@ export interface InstanceOn<Base, BaseFns, Prefix extends string> {
 	): EventOnEntry<N>;
 	(
 		target: RegExp,
-		handler: (
-			c: OnContext<Base, BaseFns, never>,
-			next: () => Promise<any>,
-		) => any,
+		handler: (c: OnContext<Base, BaseFns, never>, next: Next) => any,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<string>;
 	<N extends OnTargetSuggest<Base, BaseFns, Prefix> | LiteralString>(
 		target: N,
 		handler: (
 			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>>,
-			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
+			next: Next<
+				MatchedInput<MatchedFn<BaseFns, `${Prefix}${N}`>>,
+				MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>
+			>,
 		) => any,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<`${Prefix}${N}`>;
 	<const Ext>(
 		target: RegExp,
 		extend: { input: Ext },
-		handler: (
-			c: OnContext<Base, BaseFns, never, Ext>,
-			next: () => Promise<any>,
-		) => any,
+		handler: (c: OnContext<Base, BaseFns, never, Ext>, next: Next) => any,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<string, Ext>;
 	<N extends OnTargetSuggest<Base, BaseFns, Prefix> | LiteralString, const Ext>(
 		target: N,
 		extend: { input: Ext },
 		handler: (
 			c: OnContext<Base, BaseFns, MatchedFn<BaseFns, `${Prefix}${N}`>, Ext>,
-			next: () => Promise<MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>>,
+			next: Next<
+				MatchedInput<MatchedFn<BaseFns, `${Prefix}${N}`>>,
+				MatchedResult<MatchedFn<BaseFns, `${Prefix}${N}`>>
+			>,
 		) => any,
+		options?: Pick<OnOptions, "local">,
 	): OnEntry<`${Prefix}${N}`, Ext>;
 }
 
