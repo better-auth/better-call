@@ -1,10 +1,10 @@
-import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
-import { v } from "../../index";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { v } from "../../index";
+import { collectRoutes, getRouteMeta, http, httpOptions, route } from "./index";
 
 describe("httpOptions — path on fn options", () => {
 	it("unlocks path when http is in parent use", () => {
-		const e = v.fn("auth.", { use: [http] });
+		const e = v.fn("auth.", { use: [http()] });
 		const signUpEmail = e.fn(
 			"signUpEmail",
 			{ path: "/sign-up/email" },
@@ -16,8 +16,12 @@ describe("httpOptions — path on fn options", () => {
 			method: "GET",
 			invalidate: [],
 		});
-		expectTypeOf(signUpEmail.$route!.path).toEqualTypeOf<"/sign-up/email">();
-		expectTypeOf(signUpEmail.$route!.method).toEqualTypeOf<"GET">();
+		expectTypeOf<
+			NonNullable<typeof signUpEmail.$route>["path"]
+		>().toEqualTypeOf<"/sign-up/email">();
+		expectTypeOf<
+			NonNullable<typeof signUpEmail.$route>["method"]
+		>().toEqualTypeOf<"GET">();
 	});
 
 	it("unlocks path with use: [{ httpOptions }]", () => {
@@ -31,7 +35,9 @@ describe("httpOptions — path on fn options", () => {
 			method: "GET",
 			invalidate: [],
 		});
-		expectTypeOf(ping.$route!.path).toEqualTypeOf<"/ping">();
+		expectTypeOf<
+			NonNullable<typeof ping.$route>["path"]
+		>().toEqualTypeOf<"/ping">();
 	});
 
 	it("unlocks path with bare use: [httpOptions]", () => {
@@ -45,11 +51,13 @@ describe("httpOptions — path on fn options", () => {
 			method: "GET",
 			invalidate: [],
 		});
-		expectTypeOf(ping.$route!.path).toEqualTypeOf<"/ping">();
+		expectTypeOf<
+			NonNullable<typeof ping.$route>["path"]
+		>().toEqualTypeOf<"/ping">();
 	});
 
 	it("defaults method to POST when input is declared", () => {
-		const e = v.fn("auth.", { use: [http] });
+		const e = v.fn("auth.", { use: [http()] });
 		const signIn = e.fn(
 			"signIn",
 			{
@@ -60,11 +68,13 @@ describe("httpOptions — path on fn options", () => {
 		);
 
 		expect(getRouteMeta(signIn)?.method).toBe("POST");
-		expectTypeOf(signIn.$route!.method).toEqualTypeOf<"POST">();
+		expectTypeOf<
+			NonNullable<typeof signIn.$route>["method"]
+		>().toEqualTypeOf<"POST">();
 	});
 
 	it("explicit method wins over the default", () => {
-		const e = v.fn({ use: [http] });
+		const e = v.fn({ use: [http()] });
 		const list = e.fn(
 			"list",
 			{
@@ -79,13 +89,15 @@ describe("httpOptions — path on fn options", () => {
 			path: "/items",
 			method: "GET",
 		});
-		expectTypeOf(list.$route!.method).toEqualTypeOf<"GET">();
+		expectTypeOf<
+			NonNullable<typeof list.$route>["method"]
+		>().toEqualTypeOf<"GET">();
 	});
 
-	it("same-call use: [http] unlocks path", () => {
+	it("same-call use: [http()] unlocks path", () => {
 		const ping = v.fn(
 			"ping",
-			{ use: [http], path: "/ping", method: "GET" },
+			{ use: [http()], path: "/ping", method: "GET" },
 			() => "pong",
 		);
 		expect(getRouteMeta(ping)).toEqual({
@@ -96,7 +108,7 @@ describe("httpOptions — path on fn options", () => {
 	});
 
 	it("collectRoutes finds path-option routes", () => {
-		const e = v.fn({ use: [http] });
+		const e = v.fn({ use: [http()] });
 		const whoami = e.fn("whoami", { path: "/me", method: "GET" }, () => ({
 			id: "1",
 		}));
@@ -121,7 +133,9 @@ describe("httpOptions — path on fn options", () => {
 			method: "PUT",
 			invalidate: [],
 		});
-		expectTypeOf(legacy.$route!.path).toEqualTypeOf<"/legacy">();
+		expectTypeOf<
+			NonNullable<typeof legacy.$route>["path"]
+		>().toEqualTypeOf<"/legacy">();
 	});
 
 	it("rejects path without http in use (type)", () => {

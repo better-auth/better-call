@@ -415,12 +415,12 @@ describe("telemetry()", () => {
 		const seenParents: Array<string | undefined> = [];
 		const wrapped = createCapturingTracer();
 		const original = wrapped.tracer.startActiveSpan.bind(wrapped.tracer);
-		(wrapped.tracer as { startActiveSpan: typeof original }).startActiveSpan = (
-			name,
-			arg2,
-			arg3,
-			arg4,
-		) => {
+		// The overloads can't be satisfied by one arrow; type it loosely.
+		(
+			wrapped.tracer as unknown as {
+				startActiveSpan: (...args: unknown[]) => unknown;
+			}
+		).startActiveSpan = (name, arg2, arg3, arg4) => {
 			if (
 				typeof name === "string" &&
 				name.startsWith("GET ") &&
@@ -429,7 +429,12 @@ describe("telemetry()", () => {
 				const parentCtx = arg3 as typeof ROOT_CONTEXT;
 				seenParents.push(trace.getSpanContext(parentCtx)?.traceId);
 			}
-			return original(name, arg2 as never, arg3 as never, arg4 as never);
+			return original(
+				name as string,
+				arg2 as never,
+				arg3 as never,
+				arg4 as never,
+			);
 		};
 
 		const router = createRouter(

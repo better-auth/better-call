@@ -22,7 +22,12 @@ const tsc = join(root, "../../node_modules/typescript/bin/tsc");
  * ~750KB for two fns because ScopeOf/ResolvedVars inlined the module graph. */
 const MAX_DTS_BYTES = 80_000;
 
-describe("declaration emit (TS7056)", () => {
+/** Each test runs a cold `tsc` synchronously: ~4s alone, but several times
+ * that while the rest of the suite (or the machine) is busy. The default
+ * 5s budget made these flaky under load - give them room instead. */
+const TSC_TIMEOUT = 120_000;
+
+describe("declaration emit (TS7056)", { timeout: TSC_TIMEOUT }, () => {
 	it("exports auth-sized e.fn results without ScopeOf graph expansion", () => {
 		const outDir = mkdtempSync(join(tmpdir(), "bc-decl-emit-"));
 		try {
@@ -99,247 +104,255 @@ describe("declaration emit (TS7056)", () => {
 	});
 });
 
-describe("declaration emit (TS2883 / package entry)", () => {
-	it("exports e.fn with errors through better-call package entry under node16", () => {
-		expect(
-			existsSync(join(root, "dist/index.d.mts")),
-			"dist/index.d.mts missing - run pnpm build in packages/experimental",
-		).toBe(true);
+describe(
+	"declaration emit (TS2883 / package entry)",
+	{ timeout: TSC_TIMEOUT },
+	() => {
+		it("exports e.fn with errors through better-call package entry under node16", () => {
+			expect(
+				existsSync(join(root, "dist/index.d.mts")),
+				"dist/index.d.mts missing - run pnpm build in packages/experimental",
+			).toBe(true);
 
-		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-consumer-"));
-		try {
-			mkdirSync(join(consumerDir, "node_modules"));
-			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
-			symlinkSync(
-				join(consumerFixtureDir, "index.ts"),
-				join(consumerDir, "index.ts"),
-			);
-			symlinkSync(
-				join(consumerFixtureDir, "tsconfig.json"),
-				join(consumerDir, "tsconfig.json"),
-			);
-			// Written here (not checked in) so this fixture is not a pnpm
-			// workspace package that knip would police for unlisted deps.
-			writeFileSync(
-				join(consumerDir, "package.json"),
-				JSON.stringify({
-					name: "better-call-declaration-emit-consumer",
-					private: true,
-					type: "module",
-				}),
-			);
-
+			const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-consumer-"));
 			try {
-				execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
-					cwd: consumerDir,
-					stdio: "pipe",
-				});
-			} catch (err) {
-				const e = err as { stderr?: Buffer; stdout?: Buffer };
-				throw new Error(
-					[
-						"consumer declaration emit failed:",
-						e.stderr?.toString("utf8"),
-						e.stdout?.toString("utf8"),
-					]
-						.filter(Boolean)
-						.join("\n"),
+				mkdirSync(join(consumerDir, "node_modules"));
+				symlinkSync(root, join(consumerDir, "node_modules/better-call"));
+				symlinkSync(
+					join(consumerFixtureDir, "index.ts"),
+					join(consumerDir, "index.ts"),
 				);
+				symlinkSync(
+					join(consumerFixtureDir, "tsconfig.json"),
+					join(consumerDir, "tsconfig.json"),
+				);
+				// Written here (not checked in) so this fixture is not a pnpm
+				// workspace package that knip would police for unlisted deps.
+				writeFileSync(
+					join(consumerDir, "package.json"),
+					JSON.stringify({
+						name: "better-call-declaration-emit-consumer",
+						private: true,
+						type: "module",
+					}),
+				);
+
+				try {
+					execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+						cwd: consumerDir,
+						stdio: "pipe",
+					});
+				} catch (err) {
+					const e = err as { stderr?: Buffer; stdout?: Buffer };
+					throw new Error(
+						[
+							"consumer declaration emit failed:",
+							e.stderr?.toString("utf8"),
+							e.stdout?.toString("utf8"),
+						]
+							.filter(Boolean)
+							.join("\n"),
+					);
+				}
+
+				const dts = readFileSync(join(consumerDir, "out/index.d.ts"), "utf8");
+				expect(dts).toMatch(/export declare const signInEmail:/);
+				expect(dts).toMatch(/export declare const bound:/);
+				// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
+				// Error maps ride as FnDefination / BoundCall type args (with
+				// TypeDefination fields); FnErrorsOf only surfaces on .try results.
+				expect(dts).toMatch(/import\("better-call"\)\.FnDefination/);
+				expect(dts).toMatch(/import\("better-call"\)\.BoundCall/);
+				expect(dts).toMatch(/import\("better-call"\)\.TypeDefination/);
+				expect(dts).not.toMatch(/dist\/fn\.mjs/);
+			} finally {
+				rmSync(consumerDir, { recursive: true, force: true });
 			}
+		});
 
-			const dts = readFileSync(join(consumerDir, "out/index.d.ts"), "utf8");
-			expect(dts).toMatch(/export declare const signInEmail:/);
-			expect(dts).toMatch(/export declare const bound:/);
-			// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
-			// Error maps ride as FnDefination / BoundCall type args (with
-			// TypeDefination fields); FnErrorsOf only surfaces on .try results.
-			expect(dts).toMatch(/import\("better-call"\)\.FnDefination/);
-			expect(dts).toMatch(/import\("better-call"\)\.BoundCall/);
-			expect(dts).toMatch(/import\("better-call"\)\.TypeDefination/);
-			expect(dts).not.toMatch(/dist\/fn\.mjs/);
-		} finally {
-			rmSync(consumerDir, { recursive: true, force: true });
-		}
-	});
-
-	it("exports v.fn builder scopes through better-call package entry under node16", () => {
-		expect(
-			existsSync(join(root, "dist/index.d.mts")),
-			"dist/index.d.mts missing - run pnpm build in packages/experimental",
-		).toBe(true);
-		// Instance / InstanceOn must be public so emit can name
-		// builders portably (TS2883).
-		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
-			/\bInstance\b/,
-		);
-		expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
-			/\bInstanceOn\b/,
-		);
-
-		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-app-"));
-		try {
-			mkdirSync(join(consumerDir, "node_modules"));
-			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
-			symlinkSync(
-				join(consumerFixtureDir, "app-scope.ts"),
-				join(consumerDir, "app-scope.ts"),
+		it("exports v.fn builder scopes through better-call package entry under node16", () => {
+			expect(
+				existsSync(join(root, "dist/index.d.mts")),
+				"dist/index.d.mts missing - run pnpm build in packages/experimental",
+			).toBe(true);
+			// Instance / InstanceOn must be public so emit can name
+			// builders portably (TS2883).
+			expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
+				/\bInstance\b/,
 			);
-			writeFileSync(
-				join(consumerDir, "tsconfig.json"),
-				JSON.stringify({
-					compilerOptions: {
-						strict: true,
-						declaration: true,
-						composite: true,
-						emitDeclarationOnly: true,
-						outDir: "./out",
-						module: "Node16",
-						moduleResolution: "Node16",
-						target: "ESNext",
-						skipLibCheck: true,
-						lib: ["esnext"],
-					},
-					include: ["./app-scope.ts"],
-				}),
-			);
-			writeFileSync(
-				join(consumerDir, "package.json"),
-				JSON.stringify({
-					name: "better-call-declaration-emit-app-scope",
-					private: true,
-					type: "module",
-				}),
+			expect(readFileSync(join(root, "dist/index.d.mts"), "utf8")).toMatch(
+				/\bInstanceOn\b/,
 			);
 
+			const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-app-"));
 			try {
-				execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
-					cwd: consumerDir,
-					stdio: "pipe",
-				});
-			} catch (err) {
-				const e = err as { stderr?: Buffer; stdout?: Buffer };
-				throw new Error(
-					[
-						"app-scope declaration emit failed:",
-						e.stderr?.toString("utf8"),
-						e.stdout?.toString("utf8"),
-					]
-						.filter(Boolean)
-						.join("\n"),
+				mkdirSync(join(consumerDir, "node_modules"));
+				symlinkSync(root, join(consumerDir, "node_modules/better-call"));
+				symlinkSync(
+					join(consumerFixtureDir, "app-scope.ts"),
+					join(consumerDir, "app-scope.ts"),
 				);
+				writeFileSync(
+					join(consumerDir, "tsconfig.json"),
+					JSON.stringify({
+						compilerOptions: {
+							strict: true,
+							declaration: true,
+							composite: true,
+							emitDeclarationOnly: true,
+							outDir: "./out",
+							module: "Node16",
+							moduleResolution: "Node16",
+							target: "ESNext",
+							skipLibCheck: true,
+							lib: ["esnext"],
+						},
+						include: ["./app-scope.ts"],
+					}),
+				);
+				writeFileSync(
+					join(consumerDir, "package.json"),
+					JSON.stringify({
+						name: "better-call-declaration-emit-app-scope",
+						private: true,
+						type: "module",
+					}),
+				);
+
+				try {
+					execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+						cwd: consumerDir,
+						stdio: "pipe",
+					});
+				} catch (err) {
+					const e = err as { stderr?: Buffer; stdout?: Buffer };
+					throw new Error(
+						[
+							"app-scope declaration emit failed:",
+							e.stderr?.toString("utf8"),
+							e.stdout?.toString("utf8"),
+						]
+							.filter(Boolean)
+							.join("\n"),
+					);
+				}
+
+				const dts = readFileSync(
+					join(consumerDir, "out/app-scope.d.ts"),
+					"utf8",
+				);
+				// Builders carry Base/BaseFns/PL plus stamped $use/$requires (http
+				// use is large) but must stay under TS7056 (~1e6). Soft ceiling
+				// tracks realistic auth apps (~620KB today).
+				expect(dts.length).toBeLessThan(750_000);
+				expect(dts).toMatch(/export declare const app:/);
+				expect(dts).toMatch(/export declare const signIn:/);
+				// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
+				// Emit must name Instance (not expand FnOutBound / FnsFrom /
+				// Members / UnionToIntersection).
+				expect(dts).toMatch(/import\("better-call"\)\.Instance</);
+				expect(dts).not.toMatch(/dist\/fn\.mjs/);
+				expect(dts).not.toMatch(/dist\/module\.mjs/);
+				expect(dts).not.toMatch(/dist\/types\.mjs/);
+				expect(dts).not.toMatch(/InstanceOn/);
+				expect(dts).not.toMatch(/\bFnsFrom\b/);
+				expect(dts).not.toMatch(/\bUnionToIntersection\b/);
+			} finally {
+				rmSync(consumerDir, { recursive: true, force: true });
 			}
+		});
 
-			const dts = readFileSync(join(consumerDir, "out/app-scope.d.ts"), "utf8");
-			// Builders carry Base/BaseFns/PL plus stamped $use/$requires (http
-			// use is large) but must stay under TS7056 (~1e6). Soft ceiling
-			// tracks realistic auth apps (~620KB today).
-			expect(dts.length).toBeLessThan(750_000);
-			expect(dts).toMatch(/export declare const app:/);
-			expect(dts).toMatch(/export declare const signIn:/);
-			// Portable via package entry - not better-call/dist/fn.mjs (TS2883).
-			// Emit must name Instance (not expand FnOutBound / FnsFrom /
-			// Members / UnionToIntersection).
-			expect(dts).toMatch(/import\("better-call"\)\.Instance</);
-			expect(dts).not.toMatch(/dist\/fn\.mjs/);
-			expect(dts).not.toMatch(/dist\/module\.mjs/);
-			expect(dts).not.toMatch(/dist\/types\.mjs/);
-			expect(dts).not.toMatch(/InstanceOn/);
-			expect(dts).not.toMatch(/\bFnsFrom\b/);
-			expect(dts).not.toMatch(/\bUnionToIntersection\b/);
-		} finally {
-			rmSync(consumerDir, { recursive: true, force: true });
-		}
-	});
-
-	it("exports http() wrappers through package subpaths under node16", () => {
-		expect(
-			existsSync(join(root, "dist/http.d.mts")),
-			"dist/http.d.mts missing - run pnpm build in packages/experimental",
-		).toBe(true);
-		// Module shape must be public so emit can name http() returns portably
-		// (TS2742 / TS2883).
-		expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
-			/\bHttpModuleOf\b/,
-		);
-
-		const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-http-"));
-		try {
-			mkdirSync(join(consumerDir, "node_modules"));
-			symlinkSync(root, join(consumerDir, "node_modules/better-call"));
-			symlinkSync(
-				join(consumerFixtureDir, "http-cache.ts"),
-				join(consumerDir, "http-cache.ts"),
-			);
-			writeFileSync(
-				join(consumerDir, "tsconfig.json"),
-				JSON.stringify({
-					compilerOptions: {
-						strict: true,
-						declaration: true,
-						composite: true,
-						emitDeclarationOnly: true,
-						outDir: "./out",
-						module: "Node16",
-						moduleResolution: "Node16",
-						target: "ESNext",
-						skipLibCheck: true,
-						lib: ["esnext"],
-					},
-					include: ["./http-cache.ts"],
-				}),
-			);
-			writeFileSync(
-				join(consumerDir, "package.json"),
-				JSON.stringify({
-					name: "better-call-declaration-emit-http",
-					private: true,
-					type: "module",
-				}),
+		it("exports http() wrappers through package subpaths under node16", () => {
+			expect(
+				existsSync(join(root, "dist/http.d.mts")),
+				"dist/http.d.mts missing - run pnpm build in packages/experimental",
+			).toBe(true);
+			// Module shape must be public so emit can name http() returns portably
+			// (TS2742 / TS2883).
+			expect(readFileSync(join(root, "dist/http.d.mts"), "utf8")).toMatch(
+				/\bHttpModuleOf\b/,
 			);
 
+			const consumerDir = mkdtempSync(join(tmpdir(), "bc-decl-http-"));
 			try {
-				execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
-					cwd: consumerDir,
-					stdio: "pipe",
-				});
-			} catch (err) {
-				const e = err as { stderr?: Buffer; stdout?: Buffer };
-				throw new Error(
-					[
-						"http declaration emit failed:",
-						e.stderr?.toString("utf8"),
-						e.stdout?.toString("utf8"),
-					]
-						.filter(Boolean)
-						.join("\n"),
+				mkdirSync(join(consumerDir, "node_modules"));
+				symlinkSync(root, join(consumerDir, "node_modules/better-call"));
+				symlinkSync(
+					join(consumerFixtureDir, "http-cache.ts"),
+					join(consumerDir, "http-cache.ts"),
 				);
+				writeFileSync(
+					join(consumerDir, "tsconfig.json"),
+					JSON.stringify({
+						compilerOptions: {
+							strict: true,
+							declaration: true,
+							composite: true,
+							emitDeclarationOnly: true,
+							outDir: "./out",
+							module: "Node16",
+							moduleResolution: "Node16",
+							target: "ESNext",
+							skipLibCheck: true,
+							lib: ["esnext"],
+						},
+						include: ["./http-cache.ts"],
+					}),
+				);
+				writeFileSync(
+					join(consumerDir, "package.json"),
+					JSON.stringify({
+						name: "better-call-declaration-emit-http",
+						private: true,
+						type: "module",
+					}),
+				);
+
+				try {
+					execFileSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+						cwd: consumerDir,
+						stdio: "pipe",
+					});
+				} catch (err) {
+					const e = err as { stderr?: Buffer; stdout?: Buffer };
+					throw new Error(
+						[
+							"http declaration emit failed:",
+							e.stderr?.toString("utf8"),
+							e.stdout?.toString("utf8"),
+						]
+							.filter(Boolean)
+							.join("\n"),
+					);
+				}
+
+				const dts = readFileSync(
+					join(consumerDir, "out/http-cache.d.ts"),
+					"utf8",
+				);
+				expect(dts).toMatch(/export declare const authHttp:/);
+				// Portable via package subpath - not deep plugins/... paths.
+				expect(dts).toMatch(/import\("better-call\/http"\)\.HttpModuleOf/);
+				expect(dts).not.toMatch(/plugins\/http\/cookie-cache/);
+				expect(dts).not.toMatch(/dist\/fn\.mjs/);
+				expect(dts).not.toMatch(/dist\/var\.mjs/);
+				expect(dts).not.toMatch(/dist\/module\.mjs/);
+				expect(dts).not.toMatch(/dist\/types\.mjs/);
+			} finally {
+				rmSync(consumerDir, { recursive: true, force: true });
 			}
+		});
 
-			const dts = readFileSync(
-				join(consumerDir, "out/http-cache.d.ts"),
-				"utf8",
-			);
-			expect(dts).toMatch(/export declare const authHttp:/);
-			// Portable via package subpath - not deep plugins/... paths.
-			expect(dts).toMatch(/import\("better-call\/http"\)\.HttpModuleOf/);
-			expect(dts).not.toMatch(/plugins\/http\/cookie-cache/);
-			expect(dts).not.toMatch(/dist\/fn\.mjs/);
-			expect(dts).not.toMatch(/dist\/var\.mjs/);
-			expect(dts).not.toMatch(/dist\/module\.mjs/);
-			expect(dts).not.toMatch(/dist\/types\.mjs/);
-		} finally {
-			rmSync(consumerDir, { recursive: true, force: true });
-		}
-	});
-
-	it("emits db schema under the serialize limit", () => {
-		const dtsPath = join(root, "dist/db.d.mts");
-		expect(existsSync(dtsPath), "dist/db.d.mts missing - run pnpm build").toBe(
-			true,
-		);
-		const dts = readFileSync(dtsPath, "utf8");
-		expect(dts.length).toBeLessThan(MAX_DTS_BYTES);
-		expect(dts).toMatch(/declare const schema:/);
-		expect(dts).toMatch(/export \{[^}]*\bschema\b/);
-	});
-});
+		it("emits db schema under the serialize limit", () => {
+			const dtsPath = join(root, "dist/db.d.mts");
+			expect(
+				existsSync(dtsPath),
+				"dist/db.d.mts missing - run pnpm build",
+			).toBe(true);
+			const dts = readFileSync(dtsPath, "utf8");
+			expect(dts.length).toBeLessThan(MAX_DTS_BYTES);
+			expect(dts).toMatch(/declare const schema:/);
+			expect(dts).toMatch(/export \{[^}]*\bschema\b/);
+		});
+	},
+);

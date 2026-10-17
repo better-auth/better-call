@@ -235,8 +235,10 @@ export type HttpModule = HttpModuleOf;
  * HTTP plugin: callable (`http()`) and usable bare (`use: [http]`) via
  * assigned default module members.
  *
- * Prefer `use: [http()]` (or `use: [createHttp()]`) when the bare
- * callable intersection fails to unlock http fn-options under tsc.
+ * Bare `use: [http]` works at runtime, but the TYPE walk can't see a
+ * callable module's members (`Module`'s index signature hides them), so
+ * http's vars (`req`, `res`, ...) and fn-options (`path`, `method`) stay
+ * untyped. Use `use: [http()]` (or `createHttp()`) when you need them.
  */
 export type Http = import("../../module").Module &
 	HttpModule &

@@ -1,4 +1,5 @@
 import {
+	type Context,
 	type Counter,
 	context,
 	type Histogram,
@@ -243,10 +244,10 @@ const nowMs = () =>
 
 const elapsedSec = (start: number) => (nowMs() - start) / 1000;
 
-const fnKeyOf = (c: {
-	fnKey?: string;
-	fn?: { key?: string } | string;
-}): string => {
+// Context readers take any `c` (a hook's context is loosely typed) and
+// narrow what they find.
+const fnKeyOf = (ctx: object): string => {
+	const c = ctx as { fnKey?: unknown; fn?: { key?: unknown } | string };
 	if (typeof c.fnKey === "string" && c.fnKey.length > 0) return c.fnKey;
 	const fn = c.fn;
 	if (fn && typeof fn === "object" && typeof fn.key === "string") return fn.key;
@@ -254,23 +255,29 @@ const fnKeyOf = (c: {
 	return "";
 };
 
-const routeOf = (c: {
-	route?: {
-		path?: string;
-		method?: string;
-		invalidate?: readonly string[];
-		status?: number;
-	} | null;
-}): {
+const routeOf = (
+	ctx: object,
+): {
 	path?: string;
 	method?: string;
 	invalidate?: string[];
 	status?: number;
 } => {
-	const route = c.route;
+	const route = (
+		ctx as {
+			route?: {
+				path?: unknown;
+				method?: unknown;
+				invalidate?: unknown;
+				status?: unknown;
+			} | null;
+		}
+	).route;
 	if (!route || typeof route !== "object") return {};
 	const invalidate = Array.isArray(route.invalidate)
-		? route.invalidate.filter((v): v is string => typeof v === "string")
+		? (route.invalidate as unknown[]).filter(
+				(v): v is string => typeof v === "string",
+			)
 		: undefined;
 	return {
 		path: typeof route.path === "string" ? route.path : undefined,
@@ -295,10 +302,11 @@ type FnSchemaMeta = {
 	errors?: Record<string, unknown>;
 };
 
-const schemaOf = (c: {
-	$schema?: FnSchemaMeta;
-	fn?: { $schema?: FnSchemaMeta } | string;
-}): FnSchemaMeta | undefined => {
+const schemaOf = (ctx: object): FnSchemaMeta | undefined => {
+	const c = ctx as {
+		$schema?: FnSchemaMeta;
+		fn?: { $schema?: FnSchemaMeta } | string;
+	};
 	if (c.$schema && typeof c.$schema === "object") return c.$schema;
 	const fn = c.fn;
 	if (fn && typeof fn === "object" && fn.$schema) return fn.$schema;

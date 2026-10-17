@@ -24,10 +24,17 @@ export const captureCallerStack = <E extends Error>(
 			) => void;
 		}
 	).captureStackTrace;
+	const original = error.stack;
 	if (typeof capture === "function") {
 		capture(error, boundary);
 	}
 	scrubLibraryFrames(error);
+	// Bun (JSC) can drop EVERY frame when given a boundary: keep the
+	// original stack, scrubbed, rather than a bare message line.
+	if (original !== undefined && !error.stack?.includes("\n")) {
+		setStack(error, original);
+		scrubLibraryFrames(error);
+	}
 	return error;
 };
 
@@ -40,7 +47,19 @@ const scrubLibraryFrames = (error: Error) => {
 	const head = lines[0];
 	if (head === undefined) return;
 	const frames = lines.slice(1).filter((line) => !isLibraryFrame(line));
-	error.stack = frames.length > 0 ? [head, ...frames].join("\n") : head;
+	setStack(error, frames.length > 0 ? [head, ...frames].join("\n") : head);
+};
+
+/** Rewrite `stack` keeping it non-enumerable, as engines create it - a
+ * plain assignment makes it enumerable on JSC (Bun), and then two errors
+ * with the same tag and payload stop comparing equal. */
+const setStack = (error: Error, stack: string) => {
+	Object.defineProperty(error, "stack", {
+		value: stack,
+		writable: true,
+		configurable: true,
+		enumerable: false,
+	});
 };
 
 const isLibraryFrame = (line: string) =>

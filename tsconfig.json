@@ -8,6 +8,9 @@
 	"references": [
 		{
 			"path": "./packages/better-call/tsconfig.json"
+		},
+		{
+			"path": "./packages/experimental/tsconfig.json"
 		}
 	]
 }

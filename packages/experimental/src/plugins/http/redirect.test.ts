@@ -10,7 +10,7 @@ import {
 	redirect,
 } from "./index";
 
-const app = v.fn({ use: [http] });
+const app = v.fn({ use: [http()] });
 
 describe("http.redirect", () => {
 	it("writes Location + 302 onto res, then throws Redirect", () => {
