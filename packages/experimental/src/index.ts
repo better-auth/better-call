@@ -124,7 +124,7 @@ interface V {
 }
 
 export const v: V = {
-	fn: fnImpl as Fn,
+	fn: fnImpl as unknown as Fn,
 	var: makeVar as V["var"],
 	record: ((name: string, options: any = {}) =>
 		makeVar(name, { ...options, accessor: true })) as V["record"],

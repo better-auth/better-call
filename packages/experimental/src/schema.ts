@@ -334,8 +334,10 @@ type FieldIn<F> = F extends { $var: true; schema?: infer S }
 	: F extends { $fnSchema: { input?: infer FI; output?: infer FO } }
 		? FnSchemaIn<F, SchemaFnIn<FI, FO> & FnVarBrand<FI>>
 		: F extends TypeDefination<infer T, any, infer D>
-			? undefined extends D
-				? T | null
+			? // Optional: `undefined` spelled out, so a parsed value (which
+				// carries it) passes back as args under exactOptionalPropertyTypes.
+				undefined extends D
+				? T | null | undefined
 				: null extends D
 					? T | null
 					: T
@@ -406,9 +408,14 @@ type Defaulted<I> = {
 }[keyof I];
 
 /** Defaulted keys are optional to send, but always present in the handler. */
+/** Omittable keys also take an explicit `undefined` - the same as leaving
+ * them out at runtime (the default applies), and what a parsed value
+ * carries under exactOptionalPropertyTypes. */
 type ArgsShape<I> = Prettify<
 	{ [K in keyof I as K extends Defaulted<I> ? never : K]: FieldIn<I[K]> } & {
-		[K in keyof I as K extends Defaulted<I> ? K : never]?: FieldIn<I[K]>;
+		[K in keyof I as K extends Defaulted<I> ? K : never]?:
+			| FieldIn<I[K]>
+			| undefined;
 	}
 >;
 
@@ -437,7 +444,7 @@ export type InferArgs<I> = I extends { $var: true; schema?: infer S }
 			? { -readonly [K in keyof I]: InferArgs<I[K]> }
 			: I extends TypeDefination<infer T, any, infer D>
 				? undefined extends D
-					? T | null
+					? T | null | undefined
 					: null extends D
 						? T | null
 						: T

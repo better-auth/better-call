@@ -2,6 +2,8 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"lib": ["esnext", "dom", "dom.iterable"],
-		"types": ["node"]
+		"types": ["node"],
+		// Consumers (v2) compile with it on; keep the source clean under it.
+		"exactOptionalPropertyTypes": true
 	}
 }

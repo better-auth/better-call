@@ -101,13 +101,13 @@ export type ToOpenAPIOptions = {
 	};
 	servers?: { url: string; description?: string }[];
 	/** Prepended to every path (e.g. router `basePath`). */
-	basePath?: string;
+	basePath?: string | undefined;
 	/**
 	 * Modules from `createRouter({ use })`. Models come from
 	 * `v.storage(...).$models` and bare {@link import("../db").schema}
 	 * vars (`$attrs.db.model`) — not option / session vars.
 	 */
-	use?: readonly unknown[];
+	use?: readonly unknown[] | undefined;
 	/**
 	 * Extra / override schemas merged into `components.schemas` after
 	 * models inferred from {@link ToOpenAPIOptions.use}.
@@ -339,7 +339,7 @@ type RouteSource = Router | CollectedRoute[] | Record<string, unknown>;
 const resolveRoutes = (
 	source: RouteSource,
 	basePath?: string,
-): { routes: CollectedRoute[]; basePath?: string } => {
+): { routes: CollectedRoute[]; basePath?: string | undefined } => {
 	if (Array.isArray(source)) return { routes: source, basePath };
 	if (typeof source === "function" && "routes" in source) {
 		const router = source as Router;

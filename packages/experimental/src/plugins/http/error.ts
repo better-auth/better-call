@@ -107,17 +107,20 @@ export type EncodeErrorOptions = {
 		| Record<string, ErrorMessageOverride>
 		| ((
 				request: Request | undefined,
-		  ) => Record<string, ErrorMessageOverride> | undefined);
+		  ) => Record<string, ErrorMessageOverride> | undefined)
+		| undefined;
 	/**
 	 * Full-control rewrite. Runs after `messages` lookup; return
 	 * `null`/`undefined` to keep whatever message is current.
 	 */
-	message?: (
-		error: FnError,
-		request: Request | undefined,
-	) => string | undefined | null;
+	message?:
+		| ((
+				error: FnError,
+				request: Request | undefined,
+		  ) => string | undefined | null)
+		| undefined;
 	/** Current request - used by `messages`/`message` fns for locale detection. */
-	request?: Request;
+	request?: Request | undefined;
 };
 
 const resolveOverride = (

@@ -47,7 +47,7 @@ describe("v.string type-arg + optional DX", () => {
 			import("./types").LiteralString
 		>();
 		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<
-			import("./types").LiteralString | null
+			import("./types").LiteralString | null | undefined
 		>();
 		// Runtime still accepts any string.
 		expect(validate(field, "/sign-up/email", "path")).toBe("/sign-up/email");
@@ -130,9 +130,12 @@ describe("other vTypes type-arg + optional DX", () => {
 			{ optional: true, default: {} },
 		);
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<{
-			password: { hash?: string | null; verify?: string | null };
+			password: {
+				hash?: string | undefined | null;
+				verify?: string | undefined | null;
+			};
 			minPasswordLength: number;
-			maxPasswordLength?: number | null;
+			maxPasswordLength?: number | undefined | null;
 		}>();
 	});
 
@@ -175,8 +178,8 @@ describe("factory defaults", () => {
 		});
 		expectTypeOf<InferArgs<typeof schema>>().toEqualTypeOf<{
 			id: string;
-			createdAt?: Date;
-			updatedAt?: Date;
+			createdAt?: Date | undefined;
+			updatedAt?: Date | undefined;
 		}>();
 		expectTypeOf<InferOutput<typeof schema>>().toEqualTypeOf<{
 			id: string;
@@ -377,7 +380,9 @@ describe("v.union", () => {
 		const field = v.string({ optional: true });
 		expect(validate(field, null, "x")).toBeNull();
 		expect(validate(field, undefined, "x")).toBeUndefined();
-		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<string | null>();
+		expectTypeOf<InferArgs<typeof field>>().toEqualTypeOf<
+			string | null | undefined
+		>();
 		expectTypeOf<InferOutput<typeof field>>().toEqualTypeOf<
 			string | undefined | null
 		>();
@@ -423,8 +428,8 @@ describe("v.union", () => {
 			n: number | null;
 		}>();
 		expectTypeOf<InferArgs<typeof shaped>>().toEqualTypeOf<{
-			callbackUrl?: string | null;
-			n?: number | null;
+			callbackUrl?: string | undefined | null;
+			n?: number | undefined | null;
 		}>();
 
 		expect(

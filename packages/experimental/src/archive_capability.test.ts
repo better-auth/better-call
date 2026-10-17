@@ -316,7 +316,7 @@ const makeApp = async (
 	decide?: (request: {
 		subject: string;
 		caps: Cap[];
-		goal?: string | null;
+		goal?: string | null | undefined;
 	}) => "approve" | "challenge" | "deny",
 ) => {
 	const profiles: Record<string, { name: string; email: string }> = {

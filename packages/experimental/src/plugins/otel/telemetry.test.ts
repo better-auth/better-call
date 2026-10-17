@@ -16,7 +16,7 @@ import { isTelemetryModule, type TelemetryLogger, telemetry } from "./index";
 
 type CapturedSpan = {
 	name: string;
-	kind?: SpanKind;
+	kind?: SpanKind | undefined;
 	attributes: Record<string, unknown>;
 	status?: { code: SpanStatusCode; message?: string };
 	exceptions: Error[];
@@ -116,12 +116,12 @@ const createCapturingMeter = () => {
 	const histograms: Array<{
 		name: string;
 		value: number;
-		attrs?: Record<string, unknown>;
+		attrs?: Record<string, unknown> | undefined;
 	}> = [];
 	const counters: Array<{
 		name: string;
 		value: number;
-		attrs?: Record<string, unknown>;
+		attrs?: Record<string, unknown> | undefined;
 	}> = [];
 	const meter = {
 		createHistogram(name: string) {

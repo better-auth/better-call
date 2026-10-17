@@ -7,7 +7,7 @@ import { type EncodeErrorOptions, encodeError } from "./error";
 import { applyRedirect, Redirect, redirect } from "./redirect";
 import { fromRequest, req } from "./request";
 import type { HttpResponse } from "./response";
-import { res, toResponse } from "./response";
+import { type ResponseBody, res, toResponse } from "./response";
 
 const base = {
 	req,
@@ -32,7 +32,7 @@ export type CreateHandlerContext<PL extends readonly Module[] = readonly []> =
 		Fn
 	>;
 
-const isBodyInit = (value: unknown): value is BodyInit =>
+const isBodyInit = (value: unknown): value is NonNullable<ResponseBody> =>
 	typeof value === "string" ||
 	value instanceof Blob ||
 	value instanceof ArrayBuffer ||

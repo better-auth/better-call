@@ -392,7 +392,7 @@ export const handlerContext = (
 export type Frame = {
 	layer: Layer;
 	/** The var definitions in scope - which var a name means here. */
-	defs?: VarDefs;
+	defs?: VarDefs | undefined;
 	key: string;
 	lockedBy: string | undefined;
 	entries: readonly OnEntry<string>[];

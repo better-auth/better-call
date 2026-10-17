@@ -258,10 +258,10 @@ const fnKeyOf = (ctx: object): string => {
 const routeOf = (
 	ctx: object,
 ): {
-	path?: string;
-	method?: string;
-	invalidate?: string[];
-	status?: number;
+	path?: string | undefined;
+	method?: string | undefined;
+	invalidate?: string[] | undefined;
+	status?: number | undefined;
 } => {
 	const route = (
 		ctx as {

@@ -118,7 +118,10 @@ describe("schema", () => {
 
 		const store = v.storage(memoryAdapter(), { item });
 		type CreateArg = Parameters<typeof store.item.create>[0];
-		expectTypeOf<CreateArg>().toEqualTypeOf<{ tag: string; id?: string }>();
+		expectTypeOf<CreateArg>().toEqualTypeOf<{
+			tag: string;
+			id?: string | undefined;
+		}>();
 
 		const created = await store.item.create({ tag: "a" });
 		expect(created.tag).toBe("a");

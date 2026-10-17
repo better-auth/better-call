@@ -21,9 +21,10 @@ export const handler = createHandler(
 		if (c.req?.path === "/go") {
 			c.redirect({ url: "/me" });
 		}
+		// `headers` may be undefined - the same as absent for Response.
 		return Response.json(c.whoami(), {
 			headers: c.res?.headers,
-		});
+		} as ResponseInit);
 	},
 	{ use: [{ whoami }] },
 );

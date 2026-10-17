@@ -94,11 +94,13 @@ export function createClient<const O extends CreateClientOptions<any>>(
 	// Always capture as a value at the transport layer so we can still read
 	// invalidate headers; `throw` is applied after success/error is known.
 	const { throw: _throwOpt, ...restFetchOptions } = options.fetchOptions ?? {};
+	// `baseURL` may be undefined - the same as absent to better-fetch, but
+	// not to exactOptionalPropertyTypes.
 	const $fetch = createFetch({
 		baseURL: options.baseURL,
 		...restFetchOptions,
 		throw: false,
-	});
+	} as Parameters<typeof createFetch>[0]);
 
 	const resources: Record<string, ResolvedResource> = {};
 

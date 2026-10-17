@@ -13,13 +13,20 @@ export type HttpResponse = {
 
 export const res = v.var("res", { default: null as HttpResponse | null });
 
+/** `Response`'s own parameter types - not the DOM lib's `BodyInit` /
+ * `ResponseInit` names, which a consumer without `lib: ["dom"]` lacks. */
+export type ResponseBody = ConstructorParameters<typeof Response>[0];
+type ResponseInitOf = NonNullable<ConstructorParameters<typeof Response>[1]>;
+
 /** Build a fetch {@link Response} from the scope's response state. */
 export const toResponse = (
 	response: HttpResponse,
-	body: BodyInit | null = null,
+	body: ResponseBody = null,
 ): Response =>
 	new Response(body, {
 		status: response.status ?? 200,
 		statusText: response.statusText,
 		headers: response.headers,
-	});
+		// `statusText` may be undefined - the same as absent for Response,
+		// but not to exactOptionalPropertyTypes.
+	} as ResponseInitOf);

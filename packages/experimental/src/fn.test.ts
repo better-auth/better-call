@@ -648,14 +648,18 @@ describe("fn schema var widening", () => {
 			expectTypeOf(u).exclude<null>().toEqualTypeOf<{
 				id: string;
 				email: string;
-				name?: string | null;
+				name?: string | undefined | null;
 			}>();
 			const d = c.fnt_wdb;
 			expectTypeOf(d)
 				.exclude<undefined>()
 				.toHaveProperty("createUser")
 				.parameter(0)
-				.toEqualTypeOf<{ id: string; email: string; name?: string | null }>();
+				.toEqualTypeOf<{
+					id: string;
+					email: string;
+					name?: string | undefined | null;
+				}>();
 			return d?.createUser({ id: "1", email: "a@b.c" });
 		});
 		const impl = { createUser: async (i: { id: string }) => i };
@@ -794,7 +798,7 @@ describe("fn schema var widening", () => {
 		type Arg = Parameters<typeof signUp>[0];
 		expectTypeOf<Arg>().toEqualTypeOf<{
 			id: string;
-			name?: string | null;
+			name?: string | undefined | null;
 			email: string;
 			password: string;
 		}>();

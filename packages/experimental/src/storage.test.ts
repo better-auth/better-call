@@ -511,8 +511,8 @@ describe("v.storage", () => {
 		type CreateArg = Parameters<typeof store.user.create>[0];
 		expectTypeOf<CreateArg>().toEqualTypeOf<{
 			name: string;
-			id?: string;
-			tag?: string;
+			id?: string | undefined;
+			tag?: string | undefined;
 		}>();
 
 		const created = await store.user.create({ name: "x" });
@@ -549,7 +549,7 @@ describe("storage collection var widening", () => {
 
 	it("a scoped db var re-resolves findOne/create against mounted v.extend", async () => {
 		const db = v.var("stg_wdb", {
-			default: store as typeof store | undefined,
+			default: store,
 		});
 		const run = v.fn({ use: [{ user, userWithEmail, db }] }, async (c) => {
 			expectTypeOf(c.stg_wuser)

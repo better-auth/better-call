@@ -31,7 +31,7 @@ export const generateKeypair = async (): Promise<Keypair> => {
 	const pair = (await subtle.generateKey({ name: "Ed25519" }, true, [
 		"sign",
 		"verify",
-	])) as CryptoKeyPair;
+	])) as unknown as { publicKey: CryptoKey; privateKey: CryptoKey };
 	const id = b64(await subtle.exportKey("raw", pair.publicKey));
 	return {
 		id,
@@ -301,7 +301,7 @@ export type Challenge = {
 	subject: string;
 	holder: string;
 	caps: Cap[];
-	goal?: string | null;
+	goal?: string | null | undefined;
 	status: "pending" | "approved" | "denied";
 };
 
@@ -333,11 +333,13 @@ export type Authority = {
 	/** Decides whether a presented attestation passes. */
 	verify?: (attestation: unknown) => string | null | Promise<string | null>;
 	/** How widening requests are settled. Default: challenge everything. */
-	decide?: (request: {
-		subject: string;
-		caps: Cap[];
-		goal?: string | null;
-	}) => "approve" | "challenge" | "deny";
+	decide?:
+		| ((request: {
+				subject: string;
+				caps: Cap[];
+				goal?: string | null | undefined;
+		  }) => "approve" | "challenge" | "deny")
+		| undefined;
 	/** Delegation and attestation lifetime, seconds. */
 	ttl?: number;
 };
