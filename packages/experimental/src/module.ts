@@ -8,7 +8,7 @@ import {
 	isEventOn,
 	onEvent,
 } from "./event";
-import type { FnDefination } from "./fn";
+import type { FnDefination, OnContextOf } from "./fn";
 import {
 	type InferArgs,
 	type InferInput,
@@ -600,10 +600,7 @@ export function on<N extends LiteralString>(
 ): EventOnEntry<N>;
 export function on<F extends FnDefination<any, any, string, any, any, any>>(
 	target: F,
-	handler: (
-		c: Omit<OnDefaultContext, "input"> & { input: FnInputOf<F> },
-		next: Next<FnInputOf<F>, FnResultOf<F>>,
-	) => any,
+	handler: (c: OnContextOf<F>, next: Next<FnInputOf<F>, FnResultOf<F>>) => any,
 	options?: OnOptions,
 ): OnEntry<F["key"]>;
 export function on<
@@ -613,9 +610,7 @@ export function on<
 	target: F,
 	extend: { input: Ext },
 	handler: (
-		c: Omit<OnDefaultContext, "input"> & {
-			input: FnInputOf<F> & InferInput<Ext>;
-		},
+		c: OnContextOf<F, Ext>,
 		next: Next<FnInputOf<F> & InferInput<Ext>, FnResultOf<F>>,
 	) => any,
 	options?: OnOptions,

@@ -115,3 +115,89 @@ describe("{ local: true } hooks stay with the fn that mounts them", () => {
 		expect(seen).toEqual(["parent"]);
 	});
 });
+
+describe("v.on(fnRef) contexts are typed from the target fn", () => {
+	const user = v.var("ot_user", { default: null as { id: string } | null });
+	const guard = v.fn(
+		"ot.guard",
+		{
+			input: { n: v.number() },
+			errors: { too_big: { max: v.number() } },
+			use: [{ user }],
+		},
+		(c) => c.input.n,
+	);
+
+	it("c.error mints the target's declared tags, payloads checked", async () => {
+		const veto = v.on(guard, async (c) => {
+			expectTypeOf(c.fnKey).toEqualTypeOf<"ot.guard">();
+			// Type-only: these would throw at runtime.
+			const _unchecked = () => {
+				// @ts-expect-error - not a declared tag of ot.guard
+				c.error("nope");
+				// @ts-expect-error - payload must match the declared schema
+				c.error("too_big", { max: "1" });
+			};
+			throw c.error("too_big", { max: 3 });
+		});
+		const app = v.fn("ot.app", { use: [{ veto }] }, (c) => guard({ n: 9 }, c));
+		await expect(app()).rejects.toMatchObject({
+			tag: "too_big",
+			data: { max: 3 },
+		});
+	});
+
+	it("vars the target mounts are typed; others read as unknown", () => {
+		v.on(guard, (c, next) => {
+			expectTypeOf(c.ot_user).toEqualTypeOf<{ id: string } | null>();
+			expectTypeOf(c.somethingElse).toEqualTypeOf<unknown>();
+			return next();
+		});
+	});
+});
+
+describe("WithSeedFor types .with() and hooks on hand-declared fn types", () => {
+	const oauthFetch = v.var("ot_fetch", {
+		default: (async () => new Response("real")) as (
+			url: string,
+		) => Promise<Response>,
+	});
+	const runtime = { oauthFetch };
+	const errors = { failed: {} };
+	type Exchange = import("./index").FnDefination<
+		{ code: string },
+		Promise<string>,
+		"ot.exchange",
+		{ code: ReturnType<typeof v.string> },
+		readonly string[],
+		typeof errors,
+		import("./index").WithSeedFor<[typeof runtime]>
+	>;
+	const exchange: Exchange = v.fn(
+		"ot.exchange",
+		{ input: { code: v.string() }, errors, use: [runtime] },
+		async (c) => (await c.ot_fetch(c.input.code)).text(),
+	);
+
+	it(".with seeds are checked against the declared modules, no cast", async () => {
+		const mock = async () => new Response("mock");
+		expect(await exchange.with({ ot_fetch: mock })({ code: "x" })).toBe("mock");
+		// @ts-expect-error - not a var or fn of the declared modules
+		exchange.with({ nope: 1 });
+		// @ts-expect-error - wrong value type for the var
+		exchange.with({ ot_fetch: 42 });
+	});
+
+	it("v.on on the hand-declared type sees its vars and errors", () => {
+		v.on(exchange, (c, next) => {
+			expectTypeOf(c.ot_fetch).toEqualTypeOf<
+				(url: string) => Promise<Response>
+			>();
+			const _unchecked = () => {
+				// @ts-expect-error - not a declared tag
+				c.error("other");
+			};
+			return next();
+		});
+	});
+});

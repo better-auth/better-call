@@ -14,7 +14,14 @@ export type VarValues<V> = {
 		: never;
 };
 
-type MergeExtension<T, E> = T extends object ? Prettify<T & E> : T;
+/** Fold a var's mounted `v.extend` fields into its value. A function
+ * VALUE (a var holding `fetch`, a clock) has no fields to fold: through
+ * `Prettify` it would flatten to `{}`. */
+type MergeExtension<T, E> = T extends (...args: any[]) => any
+	? T
+	: T extends object
+		? Prettify<T & E>
+		: T;
 
 type Merged<PL, Base> = ModuleVars<PL> & Base;
 

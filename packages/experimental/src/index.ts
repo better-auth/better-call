@@ -179,6 +179,7 @@ export type {
 	BoundCall,
 	Context,
 	CtxBound,
+	ErrorMint,
 	Fn,
 	FnDefination,
 	FnErrors,
@@ -190,6 +191,7 @@ export type {
 	Instance,
 	InstanceOn,
 	InstanceResult,
+	OnContextOf,
 	OptionType,
 	ParentContext,
 	PublicFn,
@@ -197,6 +199,7 @@ export type {
 	WidenedArgs,
 	WithContext,
 	WithSeed,
+	WithSeedFor,
 	WithSeedOpaque,
 	WithSeedStored,
 } from "./fn";
@@ -315,4 +318,11 @@ export {
 	type WhereOps,
 } from "./storage";
 export type { LiteralString, Prettify } from "./types";
-export type { VarCustomizer, VarDefination, VarMap, VarView } from "./var";
+export type {
+	VarCustomizer,
+	VarDefination,
+	VarMap,
+	VarSeed,
+	VarSlot,
+	VarView,
+} from "./var";

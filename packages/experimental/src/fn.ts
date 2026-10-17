@@ -246,6 +246,26 @@ export type WithSeedStored<RV, _U = unknown> = WithVarsSeed<RV>;
  */
 export type WithSeedOpaque = object;
 
+/**
+ * The `.with` seed slot (`W`) for a HAND-DECLARED fn type: name the
+ * modules the fn mounts, as you would in `use`, and `.with` checks seeds
+ * against their vars and fns. `v.on(fn, ...)` reads the same list to type
+ * the hook's vars (see {@link OnContextOf}).
+ *
+ * ```ts
+ * type Exchange = FnDefination<Args, Promise<Tokens>, "oauth.google.exchange",
+ *   Input, readonly string[], typeof oauthErrors, WithSeedFor<[typeof runtime]>>;
+ * exchange.with({ oauthFetch: mockFetch }); // typed, no cast
+ * ```
+ */
+export type WithSeedFor<PL extends readonly UseEntry[]> = WithSeed<
+	ResolvedVars<PL>,
+	ModuleFns<PL>
+> & {
+	/** Phantom: the module list, for {@link OnContextOf}. */
+	readonly $seedFor?: PL;
+};
+
 /** What `v.fn` / `e.fn` returns: contract params plus an opaque `.with`
  * seed slot - never `ScopeOf` / `ModuleFns` / {@link WithSeed}. */
 export type PublicFn<
@@ -736,6 +756,14 @@ type ReadUseApi<U> = Prettify<
 	} & { readonly [K in UseVarKeys<U>]: UseVarValue<U[K]> }
 >;
 
+/** `c.error`: mint one of `Errs`' declared tags, payload validated. */
+export type ErrorMint<Errs> = <T extends keyof Errs & string>(
+	tag: T,
+	...data: Record<never, never> extends InferArgs<Errs[T]>
+		? [data?: InferArgs<Errs[T]>]
+		: [data: InferArgs<Errs[T]>]
+) => FnError<T, InferInput<Errs[T]>>;
+
 export type Context<
 	I,
 	RV,
@@ -755,12 +783,7 @@ export type Context<
 	 * `throw c.error("invalid_credentials", { attempts: 3 })`. Only tags
 	 * from this fn's `errors` exist; the payload validates like input.
 	 */
-	error: <T extends keyof Errs & string>(
-		tag: T,
-		...data: Record<never, never> extends InferArgs<Errs[T]>
-			? [data?: InferArgs<Errs[T]>]
-			: [data: InferArgs<Errs[T]>]
-	) => FnError<T, InferInput<Errs[T]>>;
+	error: ErrorMint<Errs>;
 	/** Define fns from inside: this fn's scope and key carry over, so
 	 * anything built here is typed exactly like a chained builder. */
 	fn: FnApi;
@@ -2125,10 +2148,51 @@ type FnRequiresKey<F> = F extends { readonly $requires?: infer Q }
 		: never
 	: never;
 
+/** The modules a fn's vars come from: its stamped `use` (builder-made
+ * fns), else a hand-declared type's {@link WithSeedFor} list. */
+type FnVarsPL<F> =
+	FnUsePL<F> extends readonly []
+		? F extends FnDefination<any, any, any, any, any, any, infer W>
+			? W extends { readonly $seedFor?: infer PL }
+				? PL extends readonly UseEntry[]
+					? PL
+					: readonly []
+				: readonly []
+			: readonly []
+		: FnUsePL<F>;
+
+/** The declared error map of `F`. */
+type FnErrorsOfDef<F> =
+	F extends FnDefination<any, any, any, any, any, infer Er> ? Er : NoErrors;
+
+/**
+ * What a hook on fn `F` sees (`v.on(F, (c, next) => ...)`): `F`'s parsed
+ * input (plus extension fields), `c.error` minting `F`'s declared tags,
+ * `F`'s key, and the vars and used fns `F` mounts - from its stamped
+ * `use`, or a hand-declared type's {@link WithSeedFor}. Vars `F` doesn't
+ * mount (the caller's) read as `unknown`.
+ */
+export type OnContextOf<F, Ext = unknown> = {
+	input: FnInputOfDef<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
+	error: ErrorMint<FnErrorsOfDef<F>>;
+	fnKey: F extends { readonly key: infer K extends string } ? K : string;
+	fn: unknown;
+	types: typeof vTypes;
+	$schema?: Context<unknown, unknown, never>["$schema"];
+} & VarScope<ScopeOf<FnVarsPL<F>>, FnRequiresKey<F>> &
+	UseApi<ModuleFns<FnVarsPL<F>>> & { [key: string]: unknown };
+
+type FnInputOfDef<F> =
+	F extends FnDefination<any, any, any, infer I, any, any>
+		? InferInput<I>
+		: never;
+
 /** What a builder-scoped `on` handler sees: builder scope, plus the target
  * fn's own `use` / `requires` when stamped, and `input` from the target. */
 type OnContext<Base, BaseFns, F, Ext = unknown> = {
 	input: MatchedInput<F> & (unknown extends Ext ? unknown : InferInput<Ext>);
+	error: ErrorMint<FnErrorsOfDef<F>>;
+	fnKey: string;
 	types: typeof vTypes;
 	fn: unknown;
 } & VarScope<ScopeOf<FnUsePL<F>, Base>, FnRequiresKey<F>> &
