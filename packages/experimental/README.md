@@ -147,7 +147,7 @@ const createSession = v.fn(
 
 There are also accumulating vars (`v.record`), computed vars (`v.derive`), reshaping (`customize`), and mountable widening (`v.extend`).
 
-A var's state belongs to its **definition**, not its name. Its default comes from the definition mounted in scope: what the fn mounts through `use` (directly, as the base of a `v.extend`, or through a seed), else what its caller saw; the nearest mount wins. Written values work the same way: a write lands on the definition the writing fn sees, and every fn of that definition reads it, the caller and the fns it calls alike. A fresh `v.var` with the same name is a different var, so two instances built from one factory never see each other's defaults or writes, even in one call tree. A `customize`d re-export is the same var.
+A var's state belongs to its **definition**, not its name. Its default comes from the definition mounted in scope: what the fn mounts through `use` (directly, as the base of a `v.extend`, or through a seed), else what its caller saw; the nearest mount wins. Written values work the same way: a write lands on the definition the writing fn sees, and every fn of that definition reads it, the caller and the fns it calls alike. A fresh `v.var` with the same name is a different var, so two instances built from one factory never see each other's defaults or writes, even in one call tree. A `customize`d re-export is the same var. Merge vars (`merge: true`) are the exception by design: every definition of the name folds into one value.
 
 ```ts
 const provider = (id: string, tokenUrl: string) => {
