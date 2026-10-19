@@ -214,7 +214,7 @@ class InternalAPIError extends Error {
 	) {
 		super(
 			body?.message,
-			body?.cause
+			body && "cause" in body
 				? {
 						cause: body.cause,
 					}

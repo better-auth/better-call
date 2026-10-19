@@ -63,4 +63,9 @@ describe("APIError", () => {
 			code: "FAILED_TO_GET_SESSION",
 		});
 	});
+
+	it.each([null, false, 0, ""])("should keep a falsy cause (%j)", (cause) => {
+		const error = new APIError("INTERNAL_SERVER_ERROR", { cause });
+		expect(error).toHaveProperty("cause", cause);
+	});
 });
