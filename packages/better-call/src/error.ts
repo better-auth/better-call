@@ -224,6 +224,16 @@ class InternalAPIError extends Error {
 		this.status = status;
 		this.headers = headers;
 		this.statusCode = statusCode;
+		// Like `Error#cause`, keep the cause readable but non-enumerable so it is never serialized.
+		if (body && "cause" in body) {
+			const { cause, ...publicBody } = body;
+			this.body = Object.defineProperty(publicBody, "cause", {
+				value: cause,
+				writable: true,
+				configurable: true,
+			});
+			return;
+		}
 		this.body = body;
 	}
 }
