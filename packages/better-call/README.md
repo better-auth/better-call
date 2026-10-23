@@ -293,6 +293,8 @@ const uploadFile = createEndpoint("/upload", {
 
 The `requireHeaders` option is used to require the request to have headers. If the request doesn't have headers, the endpoint will throw an error. This is only useful when you call the endpoint as a function.
 
+TypeScript requires a `headers` argument when calling this endpoint directly.
+
 ```ts
 const createItem = createEndpoint("/item", {
     method: "GET",
@@ -312,6 +314,8 @@ createItem({
 #### Require Request
 
 The `requireRequest` option is used to require the request to have a request object. If the request doesn't have a request object, the endpoint will throw an error. This is only useful when you call the endpoint as a function.
+
+TypeScript requires a `request` argument when calling this endpoint directly.
 
 ```ts
 const createItem = createEndpoint("/item", {
