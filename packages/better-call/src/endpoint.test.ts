@@ -180,7 +180,7 @@ describe("types", async () => {
 				}),
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.body).toEqualTypeOf<{ name?: string }>();
+				expectTypeOf(ctx.body).toEqualTypeOf<{ name?: string | undefined }>();
 			},
 		);
 
@@ -243,7 +243,7 @@ describe("types", async () => {
 				}),
 			},
 			async (ctx) => {
-				expectTypeOf(ctx.query).toEqualTypeOf<{ name?: string }>();
+				expectTypeOf(ctx.query).toEqualTypeOf<{ name?: string | undefined }>();
 			},
 		);
 

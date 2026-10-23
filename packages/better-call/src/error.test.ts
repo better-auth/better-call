@@ -48,4 +48,24 @@ describe("APIError", () => {
 			);
 		}
 	});
+
+	it("should keep the cause readable but not serializable", () => {
+		const cause = new Error("Connection timeout");
+		const error = new APIError("INTERNAL_SERVER_ERROR", {
+			message: "Failed to get session",
+			code: "FAILED_TO_GET_SESSION",
+			cause,
+		});
+		expect(error.cause).toBe(cause);
+		expect(error.body?.cause).toBe(cause);
+		expect(JSON.parse(JSON.stringify(error.body))).toEqual({
+			message: "Failed to get session",
+			code: "FAILED_TO_GET_SESSION",
+		});
+	});
+
+	it.each([null, false, 0, ""])("should keep a falsy cause (%j)", (cause) => {
+		const error = new APIError("INTERNAL_SERVER_ERROR", { cause });
+		expect(error).toHaveProperty("cause", cause);
+	});
 });

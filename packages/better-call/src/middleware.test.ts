@@ -92,6 +92,28 @@ describe("runtime", () => {
 		});
 	});
 
+	it("should read request cookies in middleware when only a request is passed", async () => {
+		const middleware = createMiddleware(async (ctx) => {
+			return {
+				session: ctx.getCookie("session"),
+			};
+		});
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "GET",
+				use: [middleware],
+			},
+			async (ctx) => {
+				return ctx.context.session;
+			},
+		);
+		const request = new Request("http://localhost/test", {
+			headers: { cookie: "session=abc" },
+		});
+		expect(await endpoint({ request })).toBe("abc");
+	});
+
 	it("should run multiple middleware", async () => {
 		const middleware = createMiddleware(async () => {
 			return {

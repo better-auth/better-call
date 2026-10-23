@@ -2,6 +2,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import type { InferParam } from "./context";
 import type { EndpointContext, EndpointOptions } from "./endpoint";
 import type { InferParamPath, InferParamWildCard } from "./helper";
+import type { OpenAPIParameter } from "./openapi";
 
 describe("infer param", () => {
 	it("empty path", () => {
@@ -98,5 +99,40 @@ describe("endpoint context", () => {
 		): EndpointContext<string, Options, Context, InferParam<string>> => context;
 
 		expectTypeOf(widenContext).toBeFunction();
+	});
+});
+
+/**
+ * @see https://github.com/better-auth/better-auth/issues/10213
+ */
+describe("openapi metadata under exactOptionalPropertyTypes", () => {
+	it("accepts the parameter shape emitted for a mixed-shape literal", () => {
+		// A library built without exactOptionalPropertyTypes emits a mixed-shape
+		// `parameters` literal as a union whose members carry `prop?: undefined`.
+		type EmittedParameters = (
+			| {
+					name: string;
+					in: "query";
+					schema: { type: "string"; format?: undefined; items?: undefined };
+			  }
+			| {
+					name: string;
+					in: "query";
+					schema: { type: "string"; format: string; items?: undefined };
+			  }
+			| {
+					name: string;
+					in: "query";
+					schema: {
+						type: "array";
+						format?: undefined;
+						items: { type: "string" };
+					};
+			  }
+		)[];
+		expectTypeOf<EmittedParameters>().toExtend<OpenAPIParameter[]>();
+		expectTypeOf<{
+			openapi: { parameters: EmittedParameters; description?: undefined };
+		}>().toExtend<NonNullable<EndpointOptions["metadata"]>>();
 	});
 });

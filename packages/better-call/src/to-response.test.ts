@@ -129,6 +129,20 @@ describe("toResponse", () => {
 			const response = toResponse(error);
 			expect(response.headers.get("X-Error")).toBe("test");
 		});
+
+		it("should not serialize the APIError cause", async () => {
+			const error = new APIError("INTERNAL_SERVER_ERROR", {
+				message: "Failed to get session",
+				code: "FAILED_TO_GET_SESSION",
+				cause: { code: "STORE_UNAVAILABLE", detail: "Private store details" },
+			});
+			const response = toResponse(error);
+			expect(response.status).toBe(500);
+			await expect(response.json()).resolves.toEqual({
+				message: "Failed to get session",
+				code: "FAILED_TO_GET_SESSION",
+			});
+		});
 	});
 
 	describe("Special flag handling", () => {

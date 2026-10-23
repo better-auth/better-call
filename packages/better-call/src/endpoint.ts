@@ -51,56 +51,78 @@ export interface EndpointBaseOptions {
 		/**
 		 * Open API definition
 		 */
-		openapi?: {
-			summary?: string;
-			description?: string;
-			tags?: string[];
-			operationId?: string;
-			parameters?: OpenAPIParameter[];
-			requestBody?: {
-				content: {
-					"application/json": {
-						schema: {
-							type?: OpenAPISchemaType;
-							properties?: Record<string, any>;
-							required?: string[];
-							$ref?: string;
-						};
-					};
-				};
-			};
-			responses?: {
-				[status: string]: {
-					description: string;
-					content?: {
-						"application/json"?: {
-							schema: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
-								required?: string[];
-								$ref?: string;
-							};
-						};
-						"text/plain"?: {
-							schema?: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
-								required?: string[];
-								$ref?: string;
-							};
-						};
-						"text/html"?: {
-							schema?: {
-								type?: OpenAPISchemaType;
-								properties?: Record<string, any>;
-								required?: string[];
-								$ref?: string;
-							};
-						};
-					};
-				};
-			};
-		};
+		openapi?:
+			| {
+					summary?: string | undefined;
+					description?: string | undefined;
+					tags?: string[] | undefined;
+					operationId?: string | undefined;
+					parameters?: OpenAPIParameter[] | undefined;
+					requestBody?:
+						| {
+								content: {
+									"application/json": {
+										schema: {
+											type?: OpenAPISchemaType | undefined;
+											properties?: Record<string, any> | undefined;
+											required?: string[] | undefined;
+											$ref?: string | undefined;
+										};
+									};
+								};
+						  }
+						| undefined;
+					responses?:
+						| {
+								[status: string]: {
+									description: string;
+									content?:
+										| {
+												"application/json"?:
+													| {
+															schema: {
+																type?: OpenAPISchemaType | undefined;
+																properties?: Record<string, any> | undefined;
+																required?: string[] | undefined;
+																$ref?: string | undefined;
+															};
+													  }
+													| undefined;
+												"text/plain"?:
+													| {
+															schema?:
+																| {
+																		type?: OpenAPISchemaType | undefined;
+																		properties?:
+																			| Record<string, any>
+																			| undefined;
+																		required?: string[] | undefined;
+																		$ref?: string | undefined;
+																  }
+																| undefined;
+													  }
+													| undefined;
+												"text/html"?:
+													| {
+															schema?:
+																| {
+																		type?: OpenAPISchemaType | undefined;
+																		properties?:
+																			| Record<string, any>
+																			| undefined;
+																		required?: string[] | undefined;
+																		$ref?: string | undefined;
+																  }
+																| undefined;
+													  }
+													| undefined;
+										  }
+										| undefined;
+								};
+						  }
+						| undefined;
+			  }
+			| undefined;
 		/**
 		 * Infer body and query type from ts interface
 		 *
@@ -175,7 +197,7 @@ export interface EndpointBaseOptions {
 	/**
 	 * List of middlewares to use
 	 */
-	use?: MiddlewareHandler[];
+	use?: MiddlewareHandler[] | undefined;
 	/**
 	 * A callback to run before any API error is throw or returned
 	 *
@@ -640,10 +662,10 @@ export function createEndpoint<
 
 		return (
 			context.asResponse
-				? toResponse(response, {
-						headers,
-						status,
-					})
+				? toResponse(
+						response,
+						status === undefined ? { headers } : { headers, status },
+					)
 				: context.returnHeaders
 					? context.returnStatus
 						? {
