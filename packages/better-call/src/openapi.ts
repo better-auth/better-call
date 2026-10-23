@@ -25,22 +25,26 @@ export interface OpenAPIRef {
 
 export interface OpenAPIParameter {
 	in: "query" | "path" | "header" | "cookie";
-	name?: string;
-	description?: string;
-	required?: boolean;
+	name?: string | undefined;
+	description?: string | undefined;
+	required?: boolean | undefined;
 	examples?: Record<string, OpenAPIExample | OpenAPIRef>;
-	schema?: {
-		type: OpenAPISchemaType;
-		format?: string | undefined;
-		items?: {
-			type: OpenAPISchemaType;
-		};
-		enum?: string[];
-		minLength?: number;
-		description?: string | undefined;
-		default?: string | undefined;
-		example?: string | undefined;
-	};
+	schema?:
+		| {
+				type: OpenAPISchemaType;
+				format?: string | undefined;
+				items?:
+					| {
+							type: OpenAPISchemaType;
+					  }
+					| undefined;
+				enum?: string[] | undefined;
+				minLength?: number | undefined;
+				description?: string | undefined;
+				default?: string | undefined;
+				example?: string | undefined;
+		  }
+		| undefined;
 }
 
 export interface Path {

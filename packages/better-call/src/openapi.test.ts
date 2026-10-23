@@ -40,7 +40,7 @@ describe("openapi generator", () => {
 		});
 
 		expect(spec.paths["/search"]).toBeDefined();
-		expect(spec.paths["/search"].get?.parameters).toEqual([
+		expect(spec.paths["/search"]?.get?.parameters).toEqual([
 			{
 				name: "searchOperator",
 				in: "query",
