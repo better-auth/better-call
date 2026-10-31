@@ -77,6 +77,8 @@ export type OnEntry<N extends string, Ext = unknown> = {
 	extend?: { input?: Ext };
 	/** `{ local: true }`: runs only for fns mounting it directly. */
 	local?: true;
+	/** `{ raw: true }`: runs before the target validates its input. */
+	raw?: true;
 	handler: Interceptor;
 };
 
@@ -89,6 +91,14 @@ export type OnOptions = {
 	 * a root doesn't hoist it outside the app's hooks.
 	 */
 	local?: boolean;
+	/**
+	 * Run BEFORE the target validates its input: `c.input` is the input as
+	 * the caller sent it, and `next({ input })` replaces what gets
+	 * validated - so the fn's own schema checks it. Vars and `c.fnKey` /
+	 * `c.$schema` read as usual; the context has no used fns or `c.error`
+	 * yet. Raw hooks run before every ordinary hook on the fn.
+	 */
+	raw?: boolean;
 	/**
 	 * Match the referenced fn DEFINITION only, not every fn sharing its
 	 * key - a hook on one instance's `oauth.google.exchange` stays off a
@@ -627,12 +637,12 @@ export function on(
 export function on(
 	target: RegExp,
 	handler: (c: OnDefaultContext, next: Next) => any,
-	options?: Pick<OnOptions, "local">,
+	options?: Pick<OnOptions, "local" | "raw">,
 ): OnEntry<string>;
 export function on<N extends "*" | LiteralString>(
 	target: N,
 	handler: (c: OnDefaultContext, next: Next) => any,
-	options?: Pick<OnOptions, "local">,
+	options?: Pick<OnOptions, "local" | "raw">,
 ): OnEntry<N>;
 export function on<const Ext>(
 	target: RegExp,
@@ -643,7 +653,7 @@ export function on<const Ext>(
 		},
 		next: Next,
 	) => any,
-	options?: Pick<OnOptions, "local">,
+	options?: Pick<OnOptions, "local" | "raw">,
 ): OnEntry<string, Ext>;
 export function on<N extends LiteralString, const Ext>(
 	target: N,
@@ -654,7 +664,7 @@ export function on<N extends LiteralString, const Ext>(
 		},
 		next: Next,
 	) => any,
-	options?: Pick<OnOptions, "local">,
+	options?: Pick<OnOptions, "local" | "raw">,
 ): OnEntry<N, Ext>;
 export function on(
 	target:
@@ -701,7 +711,10 @@ export function on(
 	const resolved = (
 		Array.isArray(target) ? target.map(resolveOne) : resolveOne(target)
 	) as OnEntry<string>["target"];
-	const local = options?.local === true ? { local: true as const } : {};
+	const local = {
+		...(options?.local === true ? { local: true as const } : {}),
+		...(options?.raw === true ? { raw: true as const } : {}),
+	};
 	return extended
 		? {
 				$on: true,

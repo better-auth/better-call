@@ -542,6 +542,9 @@ export interface FnDefination<
 		tags?: readonly string[];
 		/** Marked as retired - OpenAPI deprecated, MCP destructive hints, etc. */
 		deprecated?: boolean;
+		/** Callable with a capability (`better-call/capability`): the fn
+		 * opted in through the `capability` option. */
+		capability?: boolean;
 	};
 	/**
 	 * HTTP route meta when `use` includes `route({ path, method, ... })`
@@ -801,6 +804,8 @@ export type Context<
 		description?: string;
 		tags?: readonly string[];
 		deprecated?: boolean;
+		/** Opted in to capability calls (`better-call/capability`). */
+		capability?: boolean;
 		/** Declared error tag → payload schema (OpenAPI error responses). */
 		errors?: Record<string, unknown>;
 	};
@@ -1339,8 +1344,27 @@ const defineFn = (
 		}
 	}
 
+	// Declared contract meta, the same for every call: on `c.$schema` for
+	// hooks and handlers.
+	const schemaMeta = {
+		...(options.idempotent === true ? { idempotent: true as const } : {}),
+		...(options.summary !== undefined
+			? { summary: options.summary as string }
+			: {}),
+		...(options.description !== undefined
+			? { description: options.description as string }
+			: {}),
+		...(options.tags !== undefined
+			? { tags: [...(options.tags as readonly string[])] }
+			: {}),
+		...(options.deprecated === true ? { deprecated: true as const } : {}),
+		...(opts.capability === true ? { capability: true as const } : {}),
+		...(declaredErrors ? { errors: declaredErrors } : {}),
+	};
+
 	const callable = (...callArgs: any[]) => {
-		const input: unknown = tupleInput
+		// `let`: a raw hook's `next({ input })` replaces it before parsing.
+		let input: unknown = tupleInput
 			? callArgs.slice(0, tupleInput.length)
 			: callArgs[0];
 		const parent: any = tupleInput ? callArgs[tupleInput.length] : callArgs[1];
@@ -1387,9 +1411,13 @@ const defineFn = (
 			ownAll.length === own.length
 				? active
 				: [...inherited, ...ownAll.filter((e) => !inherited.includes(e))];
-		const chain = here.filter((entry) =>
+		const matched = here.filter((entry) =>
 			matchesTarget(entry.target, key, callable),
 		);
+		// Raw entries run before parsing; the rest wrap the parsed call.
+		const rawChain = matched.filter((entry) => entry.raw);
+		const chain =
+			rawChain.length === 0 ? matched : matched.filter((entry) => !entry.raw);
 
 		// Fn overrides from `.with`, travelling down like the active set: a
 		// mocked `use` fn stays mocked for the whole subtree.
@@ -1636,20 +1664,6 @@ const defineFn = (
 
 			// The context's FIXED surface; everything not on it is a var, read
 			// and written straight on `c` through the proxy below.
-			const schemaMeta = {
-				...(options.idempotent === true ? { idempotent: true as const } : {}),
-				...(options.summary !== undefined
-					? { summary: options.summary as string }
-					: {}),
-				...(options.description !== undefined
-					? { description: options.description as string }
-					: {}),
-				...(options.tags !== undefined
-					? { tags: [...(options.tags as readonly string[])] }
-					: {}),
-				...(options.deprecated === true ? { deprecated: true as const } : {}),
-				...(declaredErrors ? { errors: declaredErrors } : {}),
-			};
 			const base: any = {
 				input: parsed,
 				error: mintError,
@@ -1878,11 +1892,44 @@ const defineFn = (
 			return run();
 		};
 
-		try {
-			const result = thenMaybe(
+		const runParsed = () =>
+			thenMaybe(
 				thenMaybe(thenMaybe(parseInput(), applyInputExtensions), seedInputVars),
 				runWithParsed,
 			);
+		// Raw hooks see the caller's input before any validation; each
+		// `next({ input })` replaces what the next layer (and finally the
+		// parse) receives.
+		const runRaw = () => {
+			const rawContext = () =>
+				contextScope(frame, {
+					input,
+					fnKey: key,
+					types: vTypes,
+					[STORE]: layer,
+					[SEEDS]: seeds,
+					[DEFS]: defs,
+					[ACTIVE]: active,
+					[EXTS]: exts,
+					[READONLY]: lockedBy,
+					[WITH]: withFns,
+					...(Object.keys(schemaMeta).length > 0
+						? { $schema: schemaMeta }
+						: {}),
+				});
+			const step = rawChain.reduceRight<() => unknown>(
+				(next, entry) => () =>
+					entry.handler(rawContext(), (override?: { input?: unknown }) => {
+						if (override && "input" in override) input = override.input;
+						return Promise.resolve().then(next);
+					}),
+				runParsed,
+			);
+			return step();
+		};
+
+		try {
+			const result = rawChain.length === 0 ? runParsed() : runRaw();
 			if (isThenable(result)) {
 				return result.then(
 					(value) => value,
@@ -2059,6 +2106,7 @@ const defineFn = (
 				: {}),
 			...(options.tags !== undefined ? { tags: [...options.tags] } : {}),
 			...(options.deprecated === true ? { deprecated: true } : {}),
+			...(opts.capability === true ? { capability: true } : {}),
 		},
 		...(routeMeta ? { $route: routeMeta } : {}),
 	});

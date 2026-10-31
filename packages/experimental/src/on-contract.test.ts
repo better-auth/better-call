@@ -201,3 +201,64 @@ describe("WithSeedFor types .with() and hooks on hand-declared fn types", () => 
 		});
 	});
 });
+
+describe("{ raw: true } hooks run before input validation", () => {
+	const needsN = v.fn(
+		"raw.needs",
+		{ input: { n: v.number() } },
+		(c) => c.input.n,
+	);
+
+	it("next({ input }) supplies what the fn's schema then validates", async () => {
+		const fill = v.on(
+			"raw.needs",
+			(c, next) => next({ input: { ...c.input, n: 3 } }),
+			{ raw: true },
+		);
+		const app = v.fn("raw.app", { use: [{ fill }] }, (c) =>
+			needsN({} as never, c),
+		);
+		expect(await app()).toBe(3);
+	});
+
+	it("the replaced input is still validated", async () => {
+		const bad = v.on("raw.needs", (_c, next) => next({ input: { n: "x" } }), {
+			raw: true,
+		});
+		const app = v.fn("raw.app", { use: [{ bad }] }, (c) => needsN({ n: 1 }, c));
+		await expect(app()).rejects.toThrow("expected number");
+	});
+
+	it("sees the raw input, before ordinary hooks, and can refuse the call", async () => {
+		const seen: string[] = [];
+		const raw = v.on(
+			"raw.needs",
+			(c, next) => {
+				seen.push(`raw:${typeof c.input.n}`);
+				return next();
+			},
+			{ raw: true },
+		);
+		const parsed = v.on("raw.needs", (c, next) => {
+			seen.push(`parsed:${typeof c.input.n}`);
+			return next();
+		});
+		const app = v.fn("raw.app", { use: [{ parsed, raw }] }, (c) =>
+			needsN({ n: 2 }, c),
+		);
+		expect(await app()).toBe(2);
+		expect(seen).toEqual(["raw:number", "parsed:number"]);
+
+		const refuse = v.on(
+			"raw.needs",
+			async () => {
+				throw new Error("refused");
+			},
+			{ raw: true },
+		);
+		const blocked = v.fn("raw.app", { use: [{ refuse }] }, (c) =>
+			needsN({ n: 2 }, c),
+		);
+		await expect(blocked()).rejects.toThrow("refused");
+	});
+});

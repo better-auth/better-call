@@ -291,9 +291,42 @@ The worked example is `expt-better-auth`: `sign_up.email` and `two_factor.enable
 
 When you *do* want extensibility around a primitive — say, letting an app observe or veto token verification — hang the hook on the operation that calls it, not on the primitive itself. The fn layer is where `on` belongs; the primitive stays sealed.
 
-## Capability-based security
+## Capabilities
 
-`src/capability.ts` (exported as `better-call/capability`, demoed in `test/capability-demo.ts`) builds security out of the primitives above; a larger API-shaped example lives in `test/capability-api-demo.ts`. The model in one sentence:
+`better-call/capability` (`src/capability.ts`) lets a call run on a token's authority instead of an identity's. A capability holds **grants**; a grant names one fn and may fix part of its input:
+
+```ts
+{ fn: "auth.organization.invite_member",
+  lock: { organizationId: "org_acme", role: "member" },   // fixed: filled in, or must match
+  constrain: { email: { glob: "*@acme.com" } } }           // supplied by the caller, within a rule
+```
+
+better-call owns the mechanism; the host owns storage and minting:
+
+```ts
+const caps = capabilities({
+  // Read the token in the boundary frame and look it up. `null`: no
+  // capability - the call runs as usual. Default boundary: the http router.
+  resolve: (c) => lookup(c.req?.headers.get("authorization")),
+});
+const app = v.fn({ use: [http(), caps] });
+
+// Opt in per fn. Fns without `capability: true` refuse every capability call.
+const invite = app.fn("invite", { path: "/invite", capability: true, input }, handler);
+
+createRouter({ invite }, { use: [caps] });
+```
+
+- The first fn below the boundary is the **entry**. A grant must allow it with its input; locked fields are applied to the raw input, so the fn's own schema validates them. Otherwise: a 403 `CAPABILITY_DENIED`.
+- Fns the entry calls run unchecked - it reaches them by reference, not by the token.
+- `c.capability` is the held capability and the grant the entry matched.
+- `grant(fn, { lock, constrain })` builds a grant typed against the fn's input; `checkGrant(fn, grant)` validates it before storing; `covers(parent, child)` / `coversAll` decide whether a holder may mint a narrower grant.
+
+The guard is a `{ raw: true }` hook: raw hooks run before a fn validates its input, and their `next({ input })` replaces what gets validated.
+
+## Archived: signed delegation chains
+
+`src/archive_capability.ts` (exported as `better-call/archive_capability`, demoed in `test/capability-demo.ts`) is an earlier model: key pairs, signed delegation chains and per-call invocations, with no stored state. A larger API-shaped example lives in `test/capability-api-demo.ts`. The model in one sentence:
 
 > A fn may be called exactly by whoever **holds a reference** to it, and every fn validates that about its caller before doing anything.
 
