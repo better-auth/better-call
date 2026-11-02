@@ -780,6 +780,52 @@ describe("error handling", () => {
 	});
 
 	describe("allowedMediaTypes", () => {
+		it("should reject media types that only contain an allowed type", async () => {
+			let called = false;
+			const endpoint = createEndpoint(
+				"/post",
+				{
+					method: "POST",
+					metadata: {
+						allowedMediaTypes: ["application/x-www-form-urlencoded"],
+					},
+				},
+				async (c) => {
+					called = true;
+					return c.body;
+				},
+			);
+			const router = createRouter({ endpoint });
+
+			for (const contentType of [
+				"application/x-www-form-urlencoded+json",
+				"application/x-www-form-urlencoded-json",
+				"text/application/x-www-form-urlencoded",
+			]) {
+				const response = await router.handler(
+					new Request("http://localhost/post", {
+						method: "POST",
+						headers: { "Content-Type": contentType },
+						body: JSON.stringify({ name: { nested: true } }),
+					}),
+				);
+				expect(response.status).toBe(415);
+			}
+			expect(called).toBe(false);
+
+			const response = await router.handler(
+				new Request("http://localhost/post", {
+					method: "POST",
+					headers: {
+						"Content-Type": "Application/X-WWW-Form-Urlencoded; charset=utf-8",
+					},
+					body: "name=test",
+				}),
+			);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ name: "test" });
+		});
+
 		it("should allow requests with allowed media type at router level", async () => {
 			const endpoint = createEndpoint(
 				"/post",

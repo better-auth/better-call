@@ -18,10 +18,7 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 				.split(";")[0]!
 				.trim();
 			const normalizedAllowed = allowed.toLowerCase().trim();
-			return (
-				normalizedContentTypeBase === normalizedAllowed ||
-				normalizedContentTypeBase.includes(normalizedAllowed)
-			);
+			return normalizedContentTypeBase === normalizedAllowed;
 		});
 
 		if (!isAllowed) {
