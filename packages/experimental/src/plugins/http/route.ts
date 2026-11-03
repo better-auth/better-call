@@ -1,4 +1,5 @@
-import { fnOptions, fnOptionsSchema } from "../../fn-options";
+import { ValidationError } from "../../error";
+import { fnOptions, type fnOptionsSchema } from "../../fn-options";
 import { v } from "../../index";
 import { isFn, type Module, type VarExtension } from "../../module";
 import type { InferInput, TypeDefination } from "../../schema";
@@ -13,16 +14,64 @@ export type RouteMethod =
 	| "HEAD"
 	| "OPTIONS";
 
+/**
+ * Where an endpoint is available (better-call 1.x `metadata.scope`, plus
+ * `SERVER_ONLY` as `"internal"`):
+ *
+ * | scope              | router (HTTP) | `router.api` | client |
+ * | ------------------ | ------------- | ------------ | ------ |
+ * | `"rpc"` (default)  | yes           | yes          | yes    |
+ * | `"server"`         | yes           | yes          | no     |
+ * | `"http"`           | yes           | no           | no     |
+ * | `"internal"`       | no            | yes          | no     |
+ */
+export type RouteScope = "rpc" | "server" | "http" | "internal";
+
+const ROUTE_SCOPES = [
+	"rpc",
+	"server",
+	"http",
+	"internal",
+] as const satisfies readonly RouteScope[];
+
+/** Missing (`"rpc"`) or a known scope. Unknown values fail closed below. */
+const isKnownScope = (scope: unknown): scope is RouteScope | undefined =>
+	scope === undefined || (ROUTE_SCOPES as readonly unknown[]).includes(scope);
+
+/** Served by {@link createRouter} (everything but `"internal"`). */
+export const isRoutedScope = (scope: RouteScope | undefined): boolean =>
+	isKnownScope(scope) && scope !== "internal";
+
+/** Callable in-process via `router.api` (everything but `"http"`). */
+export const isServerScope = (scope: RouteScope | undefined): boolean =>
+	isKnownScope(scope) && scope !== "http";
+
+/** On the typed / runtime client (`"rpc"` only). */
+export const isClientScope = (scope: RouteScope | undefined): boolean =>
+	scope === undefined || scope === "rpc";
+
+/** Scope stamped on a fn's `$route`; missing means `"rpc"`. */
+export type RouteScopeOf<F> = F extends { $route: { scope?: infer S } }
+	? [Exclude<S, undefined>] extends [never]
+		? "rpc"
+		: Exclude<S, undefined> extends RouteScope
+			? Exclude<S, undefined>
+			: "rpc"
+	: "rpc";
+
 export type RouteOptions<
 	P extends string = string,
 	M extends RouteMethod = RouteMethod,
 	I extends readonly string[] = readonly string[],
 	S extends number = number,
+	Sc extends RouteScope = RouteScope,
 > = {
 	path: P;
 	method: M;
 	/** Resource names the client should refresh after a successful call. */
 	invalidate?: I;
+	/** Where the endpoint is available (default `"rpc"`). See {@link RouteScope}. */
+	scope?: Sc;
 	/**
 	 * Declared success status for this operation (default 200). Used by the
 	 * router when the handler does not set `c.res.status`, and by OpenAPI
@@ -52,6 +101,8 @@ export type RouteMeta<
 	invalidate: I;
 	/** Declared success status when set on {@link route}. */
 	status?: S;
+	/** Endpoint scope when not the default `"rpc"`. */
+	scope?: RouteScope;
 };
 
 /** Header carrying the final invalidate list on successful responses. */
@@ -66,12 +117,14 @@ export type RouteModule<
 	M extends RouteMethod = RouteMethod,
 	I extends readonly string[] = readonly string[],
 	S extends number = number,
+	Sc extends RouteScope = RouteScope,
 > = Module & {
 	readonly $route: true;
 	readonly path: P;
 	readonly method: M;
 	readonly invalidate: I;
 	readonly status?: S;
+	readonly scope?: Sc;
 	readonly route: typeof routeVar;
 };
 
@@ -89,7 +142,14 @@ export function route<
 	const M extends RouteMethod,
 	const I extends readonly string[] = readonly [],
 	const S extends number = number,
->(options: RouteOptions<P, M, I, S>): RouteModule<P, M, I, S> {
+	const Sc extends RouteScope = "rpc",
+>(options: RouteOptions<P, M, I, S, Sc>): RouteModule<P, M, I, S, Sc> {
+	if (!isKnownScope(options.scope)) {
+		throw new ValidationError(
+			"route.scope",
+			`unknown endpoint scope ${JSON.stringify(options.scope)} - expected one of ${ROUTE_SCOPES.join(", ")}`,
+		);
+	}
 	const invalidate = (options.invalidate ?? []) as I;
 	const method = options.method.toUpperCase() as M;
 	const path = options.path;
@@ -100,6 +160,7 @@ export function route<
 		method,
 		invalidate,
 		...(options.status !== undefined ? { status: options.status } : {}),
+		...(options.scope !== undefined ? { scope: options.scope } : {}),
 		route: routeVar,
 		// Seed `c.route` before the handler (and any other interceptors).
 		$routeSeed: v.on("*", (c, next) => {
@@ -111,7 +172,7 @@ export function route<
 			};
 			return next();
 		}),
-	} as RouteModule<P, M, I, S>;
+	} as RouteModule<P, M, I, S, Sc>;
 }
 
 export const isRouteModule = (value: unknown): value is RouteModule =>
@@ -131,6 +192,7 @@ export function getRouteMeta(fn: unknown): RouteMeta | undefined {
 			method: stamped.method,
 			invalidate: stamped.invalidate ?? [],
 			...(stamped.status !== undefined ? { status: stamped.status } : {}),
+			...(stamped.scope !== undefined ? { scope: stamped.scope } : {}),
 		};
 	}
 	return undefined;
@@ -152,6 +214,7 @@ export function routeMetaFromModule(mod: RouteModule): RouteMeta {
 		method: String(mod.method).toUpperCase(),
 		invalidate: [...(mod.invalidate ?? [])],
 		...(mod.status !== undefined ? { status: mod.status } : {}),
+		...(mod.scope !== undefined ? { scope: mod.scope } : {}),
 	};
 }
 
@@ -164,6 +227,7 @@ export type HttpOptions = {
 	method?: RouteMethod;
 	invalidate?: readonly string[];
 	status?: number;
+	scope?: RouteScope;
 };
 
 /**
@@ -181,6 +245,7 @@ export const httpOptions = v.extend(fnOptions, {
 	}),
 	invalidate: v.array(v.string(), { optional: true }),
 	status: v.number({ optional: true }),
+	scope: v.string({ optional: true, enum: ROUTE_SCOPES }),
 });
 
 /**
@@ -212,6 +277,11 @@ export type HttpOptionsExtension = VarExtension<
 			number | null | undefined,
 			undefined
 		>;
+		readonly scope: TypeDefination<
+			RouteScope,
+			RouteScope | null | undefined,
+			undefined
+		>;
 	},
 	InferInput<typeof fnOptionsSchema>
 >;
@@ -226,5 +296,6 @@ export function createHttpOptions(): HttpOptionsExtension {
 		}),
 		invalidate: v.array(v.string(), { optional: true }),
 		status: v.number({ optional: true }),
+		scope: v.string({ optional: true, enum: ROUTE_SCOPES }),
 	}) as HttpOptionsExtension;
 }

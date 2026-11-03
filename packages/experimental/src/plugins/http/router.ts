@@ -7,7 +7,12 @@ import { isOpenAPIModule, type ToOpenAPIOptions, toOpenAPI } from "./openapi";
 import { buildServerApi, type InferServerAPI } from "./path-api";
 import { req } from "./request";
 import { res } from "./response";
-import { getRouteMeta, INVALIDATE_HEADER, type RouteMeta } from "./route";
+import {
+	getRouteMeta,
+	INVALIDATE_HEADER,
+	isRoutedScope,
+	type RouteMeta,
+} from "./route";
 
 export type CollectedRoute = RouteMeta & {
 	/** Dotted export path, e.g. `signIn.email`. */
@@ -19,7 +24,10 @@ export type CollectedRoute = RouteMeta & {
 	key: string;
 };
 
-/** Walk a module (and nested namespaces) for fns stamped with `$route`. */
+/**
+ * Walk a module (and nested namespaces) for fns stamped with `$route`.
+ * `scope: "internal"` fns are skipped - they are never served.
+ */
 export function collectRoutes(
 	module: Record<string, unknown>,
 	prefix = "",
@@ -29,7 +37,7 @@ export function collectRoutes(
 		const path = prefix ? `${prefix}.${name}` : name;
 		if (isFn(value)) {
 			const meta = getRouteMeta(value);
-			if (meta) {
+			if (meta && isRoutedScope(meta.scope)) {
 				out.push({
 					name: path,
 					fn: value as FnDefination<any, any, any, any, any, any>,

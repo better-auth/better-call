@@ -6,6 +6,7 @@ import type {
 	Prettify,
 	UnionToIntersection,
 } from "../path-api";
+import type { RouteScopeOf } from "../route";
 import type { Store, StoreSnapshot } from "./store";
 
 export type ClientResult<T> = {
@@ -94,13 +95,18 @@ type ClientEndpoint<F, DefaultThrow extends boolean> =
 				opts?: O & ClientFetchOptions,
 			) => Promise<ClientReturn<unknown, ResolveThrow<DefaultThrow, O>>>;
 
-/** One nested path tree per route leaf (export structure ignored). */
+/**
+ * One nested path tree per route leaf (export structure ignored). Only
+ * `scope: "rpc"` (the default) leaves reach the client.
+ */
 type ClientPathLeaves<M, DefaultThrow extends boolean> = {
 	[K in keyof M]: M[K] extends {
 		$fn: true;
 		$route: { path: infer P extends string };
 	}
-		? NestPathEndpoint<P, ClientEndpoint<M[K], DefaultThrow>>
+		? RouteScopeOf<M[K]> extends "rpc"
+			? NestPathEndpoint<P, ClientEndpoint<M[K], DefaultThrow>>
+			: never
 		: M[K] extends Record<string, unknown>
 			? ClientPathLeaves<M[K], DefaultThrow>
 			: never;
