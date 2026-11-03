@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getRequest } from "./adapters/node/request";
 import type { Endpoint } from "./endpoint";
@@ -1351,5 +1351,53 @@ describe("streaming response", () => {
 		}
 		combined += decoder.decode();
 		expect(combined).toBe(messages.join(""));
+	});
+});
+
+describe("routerContext", () => {
+	it("should not share middleware results across requests", async () => {
+		const routerContext = { db: "db" };
+		const auth = createMiddleware(async (c) => {
+			const user = c.headers?.get("x-user");
+			return user ? { user } : {};
+		});
+		const gates = new Map<string, () => void>();
+		const endpoint = createEndpoint(
+			"/me",
+			{
+				method: "GET",
+				use: [auth],
+			},
+			async (c) => {
+				const user = c.headers?.get("x-user");
+				if (user) {
+					await new Promise<void>((resolve) => gates.set(user, resolve));
+				}
+				const context = c.context as { db: string; user?: string };
+				return {
+					db: context.db,
+					user: context.user ?? null,
+				};
+			},
+		);
+		const router = createRouter({ endpoint }, { routerContext });
+		const request = (user?: string) =>
+			router.handler(
+				new Request("http://localhost/me", {
+					headers: user ? { "x-user": user } : {},
+				}),
+			);
+
+		const alice = request("alice");
+		await vi.waitFor(() => expect(gates.has("alice")).toBe(true));
+		const bob = request("bob");
+		await vi.waitFor(() => expect(gates.has("bob")).toBe(true));
+		gates.get("alice")!();
+		gates.get("bob")!();
+
+		expect(await (await alice).json()).toEqual({ db: "db", user: "alice" });
+		expect(await (await bob).json()).toEqual({ db: "db", user: "bob" });
+		expect(await (await request()).json()).toEqual({ db: "db", user: null });
+		expect(routerContext).toEqual({ db: "db" });
 	});
 });

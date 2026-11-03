@@ -241,7 +241,8 @@ export const createRouter = <
 				query,
 				_flag: "router" as const,
 				asResponse: true,
-				context: config?.routerContext,
+				// Middleware results merge into this object, so each request needs its own copy.
+				context: { ...config?.routerContext },
 			};
 			const middlewareRoutes = findAllRoutes(middlewareRouter, "*", path);
 			if (middlewareRoutes?.length) {
