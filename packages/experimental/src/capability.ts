@@ -235,10 +235,12 @@ export const grant = <F extends FnDefination<any, any, any, any, any, any>>(
 
 /**
  * Check a grant against the fn it names before storing it: the fn must
- * accept capabilities, and each locked value must pass the field's own
- * schema. Calls validate locked values again, as part of the fn's input;
- * this catches a bad grant when it is minted instead of when it is used.
- * Throws a `ValidationError`.
+ * accept capabilities, each locked or constrained field must be one of
+ * its input fields, no field may be both locked and constrained (the lock
+ * would leave the rule nothing to choose), and each locked value must
+ * pass the field's own schema. Calls validate locked values again, as
+ * part of the fn's input; this catches a bad grant when it is minted
+ * instead of when it is used. Throws a `ValidationError`.
  */
 export const checkGrant = async (
 	fn: FnDefination<any, any, any, any, any, any>,
@@ -259,15 +261,28 @@ export const checkGrant = async (
 		input === undefined
 			? undefined
 			: (asType(input) as { name?: string; shape?: Record<string, unknown> });
-	for (const [field, value] of Object.entries(grant.lock ?? {})) {
+	const fieldOf = (rule: "lock" | "constrain", field: string) => {
 		const fieldSchema =
 			shape?.name === "object" ? shape.shape?.[field] : undefined;
 		if (shape?.name === "object" && fieldSchema === undefined) {
 			throw new ValidationError(
-				`${path}.lock.${field}`,
+				`${path}.${rule}.${field}`,
 				`"${fn.key}" has no input field "${field}"`,
 			);
 		}
+		return fieldSchema;
+	};
+	for (const field of Object.keys(grant.constrain ?? {})) {
+		fieldOf("constrain", field);
+		if (grant.lock && Object.hasOwn(grant.lock, field)) {
+			throw new ValidationError(
+				`${path}.constrain.${field}`,
+				`"${field}" is locked; a field is locked or constrained, not both`,
+			);
+		}
+	}
+	for (const [field, value] of Object.entries(grant.lock ?? {})) {
+		const fieldSchema = fieldOf("lock", field);
 		if (fieldSchema !== undefined) {
 			await validate(asType(fieldSchema), value, `${path}.lock.${field}`);
 		}

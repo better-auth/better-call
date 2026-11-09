@@ -190,6 +190,37 @@ describe("grant / checkGrant", () => {
 		).rejects.toThrow(ValidationError);
 	});
 
+	it("refuses a constraint on an unknown field", async () => {
+		await expect(
+			checkGrant(invite, {
+				fn: "cap.invite",
+				constrain: { nope: { oneOf: ["x"] } },
+			}),
+		).rejects.toThrow(ValidationError);
+	});
+
+	it("refuses a field both locked and constrained", async () => {
+		await expect(
+			checkGrant(invite, {
+				fn: "cap.invite",
+				lock: { org: "a" },
+				constrain: { org: { oneOf: ["a", "b"] } },
+			}),
+		).rejects.toThrow(/locked or constrained, not both/);
+	});
+
+	it("accepts locks and constraints on different fields", async () => {
+		await expect(
+			checkGrant(
+				invite,
+				grant(invite, {
+					lock: { org: "acme" },
+					constrain: { email: { glob: "*@acme.com" } },
+				}),
+			),
+		).resolves.toBeUndefined();
+	});
+
 	it("refuses a grant naming another fn", async () => {
 		await expect(checkGrant(invite, { fn: "cap.other" })).rejects.toThrow(
 			ValidationError,

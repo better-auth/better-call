@@ -320,7 +320,7 @@ createRouter({ invite }, { use: [caps] });
 - The first fn below the boundary is the **entry**. A grant must allow it with its input; locked fields are applied to the raw input, so the fn's own schema validates them. Otherwise: a 403 `CAPABILITY_DENIED`.
 - Fns the entry calls run unchecked - it reaches them by reference, not by the token.
 - `c.capability` is the held capability and the grant the entry matched.
-- `grant(fn, { lock, constrain })` builds a grant typed against the fn's input; `checkGrant(fn, grant)` validates it before storing; `covers(parent, child)` / `coversAll` decide whether a holder may mint a narrower grant.
+- `grant(fn, { lock, constrain })` builds a grant typed against the fn's input; `checkGrant(fn, grant)` validates it before storing (fields must exist, locked values must pass their schema, and a field is locked or constrained, never both); `covers(parent, child)` / `coversAll` decide whether a holder may mint a narrower grant.
 
 The guard is a `{ raw: true }` hook: raw hooks run before a fn validates its input, and their `next({ input })` replaces what gets validated.
 
