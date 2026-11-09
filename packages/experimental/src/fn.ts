@@ -1917,11 +1917,12 @@ const defineFn = (
 						? { $schema: schemaMeta }
 						: {}),
 				});
-			const step = rawChain.reduceRight<() => unknown>(
+			const step = rawChain.reduceRight<() => any>(
 				(next, entry) => () =>
 					entry.handler(rawContext(), (override?: { input?: unknown }) => {
 						if (override && "input" in override) input = override.input;
-						return Promise.resolve().then(next);
+						// Continue as ordinary hooks do: a sync fn stays sync.
+						return next();
 					}),
 				runParsed,
 			);

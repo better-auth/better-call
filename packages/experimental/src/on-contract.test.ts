@@ -221,12 +221,21 @@ describe("{ raw: true } hooks run before input validation", () => {
 		expect(await app()).toBe(3);
 	});
 
+	it("a raw hook that passes through keeps a sync fn sync", () => {
+		const pass = v.on("raw.needs", (_c, next) => next(), { raw: true });
+		const app = v.fn("raw.app", { use: [{ pass }] }, (c) =>
+			needsN({ n: 4 }, c),
+		);
+		expect(app()).toBe(4);
+	});
+
 	it("the replaced input is still validated", async () => {
 		const bad = v.on("raw.needs", (_c, next) => next({ input: { n: "x" } }), {
 			raw: true,
 		});
 		const app = v.fn("raw.app", { use: [{ bad }] }, (c) => needsN({ n: 1 }, c));
-		await expect(app()).rejects.toThrow("expected number");
+		// A sync fn: the validation error is thrown, not rejected.
+		expect(() => app()).toThrow("expected number");
 	});
 
 	it("sees the raw input, before ordinary hooks, and can refuse the call", async () => {
