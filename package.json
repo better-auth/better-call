@@ -20,19 +20,19 @@
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.5",
 		"@biomejs/biome": "^2.5.5",
-		"@types/node": "^24.13.3",
-		"@vitest/coverage-v8": "4.1.10",
-		"bumpp": "^12.0.0",
-		"cspell": "^10.0.1",
-		"knip": "^6.29.0",
-		"lefthook": "^2.1.10",
+		"@types/node": "^24.19.2",
+		"@vitest/coverage-v8": "4.1.12",
+		"bumpp": "^12.3.0",
+		"cspell": "^10.4.1",
+		"knip": "^6.45.0",
+		"lefthook": "^2.2.1",
 		"pkg-pr-new": "0.0.88",
-		"publint": "^0.3.22",
+		"publint": "^0.3.25",
 		"tinyglobby": "^0.2.17",
 		"tsdown": "0.22.14",
 		"typescript": "^6.0.3",
 		"valibot": "1.4.2",
-		"vite": "^8.1.5",
-		"vitest": "^4.1.10"
+		"vite": "^8.3.8",
+		"vitest": "^4.1.12"
 	}
 }
