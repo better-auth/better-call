@@ -11,3 +11,8 @@ allowBuilds:
 trustPolicy: no-downgrade
 
 trustPolicyIgnoreAfter: 43200
+
+autoDedupe: true
+
+lockfile:
+  includeResolutionSettings: true
