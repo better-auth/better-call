@@ -137,7 +137,10 @@ function stripRequestOnlyHeaders(headers: Headers): void {
  * header per cookie) because RFC 9110 §5.3 notes it cannot be combined
  * into a single comma-separated value; other headers are set (replace).
  */
-function copyHeaders(target: Headers, source: HeadersInit | undefined): void {
+export function copyHeaders(
+	target: Headers,
+	source: HeadersInit | undefined,
+): void {
 	if (!source) return;
 	for (const [key, value] of new Headers(source).entries()) {
 		if (key.toLowerCase() === "set-cookie") {
