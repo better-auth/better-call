@@ -141,6 +141,56 @@ describe("runtime", () => {
 			test: 2,
 		});
 	});
+
+	it("should keep every cookie set by middlewares", async () => {
+		const first = createMiddleware(async (ctx) => {
+			ctx.setCookie("one", "1");
+			ctx.setCookie("two", "2");
+		});
+		const second = createMiddleware(async (ctx) => {
+			ctx.setCookie("three", "3");
+		});
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+				use: [first, second],
+			},
+			async (ctx) => {
+				ctx.setCookie("four", "4");
+			},
+		);
+		const response = await endpoint({
+			returnHeaders: true,
+		});
+		expect(response.headers.getSetCookie()).toEqual([
+			"one=1",
+			"two=2",
+			"three=3",
+			"four=4",
+		]);
+	});
+
+	it("should let a later middleware replace a header", async () => {
+		const first = createMiddleware(async (ctx) => {
+			ctx.setHeader("x-test", "first");
+		});
+		const second = createMiddleware(async (ctx) => {
+			ctx.setHeader("x-test", "second");
+		});
+		const endpoint = createEndpoint(
+			"/test",
+			{
+				method: "POST",
+				use: [first, second],
+			},
+			async () => {},
+		);
+		const response = await endpoint({
+			returnHeaders: true,
+		});
+		expect(response.headers.get("x-test")).toBe("second");
+	});
 });
 
 describe("creator", () => {
