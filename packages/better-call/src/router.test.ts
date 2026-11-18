@@ -1073,6 +1073,83 @@ describe("error handling", () => {
 			expect(response.status).toBe(200);
 		});
 
+		describe("request without Content-Type", () => {
+			const streamOf = (...chunks: Uint8Array[]) =>
+				new ReadableStream({
+					start(controller) {
+						for (const chunk of chunks) controller.enqueue(chunk);
+						controller.close();
+					},
+				});
+			const post = (body: ReadableStream, headers?: Record<string, string>) =>
+				new Request("http://localhost/post", {
+					method: "POST",
+					body,
+					headers,
+					// @ts-expect-error
+					duplex: "half",
+				});
+			const createPostRouter = () => {
+				const handler = vi.fn(async (c: { body: unknown }) => ({
+					hasBody: c.body !== undefined,
+				}));
+				const endpoint = createEndpoint("/post", { method: "POST" }, handler);
+				const router = createRouter(
+					{ endpoint },
+					{
+						allowedMediaTypes: ["application/json"],
+					},
+				);
+				return { router, handler };
+			};
+
+			it.each([
+				["an empty stream", () => post(streamOf())],
+				[
+					"an empty stream with Content-Length: 0",
+					() => post(streamOf(), { "Content-Length": "0" }),
+				],
+				[
+					"a stream of zero-length chunks",
+					() => post(streamOf(new Uint8Array(0))),
+				],
+			])("treats %s as no content", async (_, request) => {
+				const { router } = createPostRouter();
+				const response = await router.handler(request());
+				expect(response.status).toBe(200);
+				expect(await response.json()).toEqual({ hasBody: false });
+			});
+
+			it.each([
+				["content", () => post(streamOf(new TextEncoder().encode("{}")))],
+				[
+					"content after a zero-length chunk",
+					() =>
+						post(streamOf(new Uint8Array(0), new TextEncoder().encode("{}"))),
+				],
+			])("rejects %s", async (_, request) => {
+				const { router, handler } = createPostRouter();
+				const response = await router.handler(request());
+				expect(response.status).toBe(415);
+				expect(await response.json()).toMatchObject({
+					code: "UNSUPPORTED_MEDIA_TYPE",
+				});
+				expect(handler).not.toHaveBeenCalled();
+			});
+
+			it("rejects content that fails while it is read", async () => {
+				const { router, handler } = createPostRouter();
+				const body = new ReadableStream({
+					start(controller) {
+						controller.error(new Error("body exceeds the limit"));
+					},
+				});
+				const response = await router.handler(post(body));
+				expect(response.status).toBe(415);
+				expect(handler).not.toHaveBeenCalled();
+			});
+		});
+
 		it("should work without allowedMediaTypes configured", async () => {
 			const endpoint = createEndpoint(
 				"/post",

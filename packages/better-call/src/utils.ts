@@ -23,6 +23,11 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 
 		if (!isAllowed) {
 			if (!normalizedContentType) {
+				// Some runtimes give a request without content an empty stream instead of a null body.
+				const content = await request.arrayBuffer().catch(() => null);
+				if (content?.byteLength === 0) {
+					return undefined;
+				}
 				throw new APIError(415, {
 					message: `Content-Type is required. Allowed types: ${allowedMediaTypes.join(", ")}`,
 					code: "UNSUPPORTED_MEDIA_TYPE",
