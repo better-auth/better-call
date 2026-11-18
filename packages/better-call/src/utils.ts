@@ -24,8 +24,10 @@ export async function getBody(request: Request, allowedMediaTypes?: string[]) {
 		if (!isAllowed) {
 			if (!normalizedContentType) {
 				// Some runtimes give a request without content an empty stream instead of a null body.
-				const content = await request.arrayBuffer().catch(() => null);
-				if (content?.byteLength === 0) {
+				const reader = request.body.getReader();
+				const first = await reader.read().catch(() => null);
+				reader.releaseLock();
+				if (first?.done) {
 					return undefined;
 				}
 				throw new APIError(415, {

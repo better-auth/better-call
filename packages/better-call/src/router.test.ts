@@ -1109,10 +1109,6 @@ describe("error handling", () => {
 					"an empty stream with Content-Length: 0",
 					() => post(streamOf(), { "Content-Length": "0" }),
 				],
-				[
-					"a stream of zero-length chunks",
-					() => post(streamOf(new Uint8Array(0))),
-				],
 			])("treats %s as no content", async (_, request) => {
 				const { router } = createPostRouter();
 				const response = await router.handler(request());
@@ -1135,6 +1131,22 @@ describe("error handling", () => {
 					code: "UNSUPPORTED_MEDIA_TYPE",
 				});
 				expect(handler).not.toHaveBeenCalled();
+			});
+
+			it("leaves refused content to the server", async () => {
+				const { router } = createPostRouter();
+				const cancel = vi.fn();
+				const body = new ReadableStream({
+					pull(controller) {
+						controller.enqueue(new TextEncoder().encode("{}"));
+					},
+					cancel,
+				});
+				const request = post(body);
+				const response = await router.handler(request);
+				expect(response.status).toBe(415);
+				expect(cancel).not.toHaveBeenCalled();
+				expect(request.body?.locked).toBe(false);
 			});
 
 			it("rejects content that fails while it is read", async () => {
