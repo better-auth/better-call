@@ -17,7 +17,7 @@ import type { MiddlewareHandler } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
-import { isAPIError, tryCatch } from "./utils";
+import { isAPIError, isThenable } from "./utils";
 
 export interface EndpointBaseOptions {
 	/**
@@ -620,14 +620,14 @@ export function createEndpoint<
 				]
 	): Promise<ResultType<AsResponse, ReturnHeaders, ReturnStatus>> => {
 		const context = (inputCtx[0] || {}) as InputContext<any, any>;
-		const { data: internalContext, error: validationError } = await tryCatch(
-			createInternalContext(context, {
+		let internalContext: Awaited<ReturnType<typeof createInternalContext>>;
+		try {
+			const created = createInternalContext(context, {
 				options,
 				path,
-			}),
-		);
-
-		if (validationError) {
+			});
+			internalContext = isThenable(created) ? await created : created;
+		} catch (validationError) {
 			// If it's not a validation error, we throw it
 			if (!(validationError instanceof ValidationError)) throw validationError;
 
@@ -657,14 +657,20 @@ export function createEndpoint<
 			}
 			throw e;
 		});
-		const headers = internalContext.responseHeaders;
+		const headers = internalContext.responseHeaders ?? new Headers();
 		const status = internalContext.responseStatus;
 
 		return (
 			context.asResponse
 				? toResponse(
 						response,
-						status === undefined ? { headers } : { headers, status },
+						status === undefined
+							? internalContext.responseHeaders
+								? { headers }
+								: undefined
+							: internalContext.responseHeaders
+								? { headers, status }
+								: { status },
 					)
 				: context.returnHeaders
 					? context.returnStatus
