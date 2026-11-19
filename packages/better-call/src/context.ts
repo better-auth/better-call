@@ -206,18 +206,17 @@ class InternalContext {
 	query: any;
 	path = "virtual:";
 	context: Record<string, any> = {};
-	method = "GET";
+	method: any;
 	returned: any;
-	headers?: HeadersInit;
-	request?: Request;
-	params?: Record<string, string | undefined>;
-	asResponse?: boolean;
-	returnHeaders?: boolean;
-	returnStatus?: boolean;
-	_responseHeaders: Headers | undefined = undefined;
+	headers: HeadersInit | undefined;
+	request: Request | undefined;
+	params: Record<string, string | undefined> | undefined;
+	asResponse: boolean | undefined;
+	returnHeaders: boolean | undefined;
+	returnStatus: boolean | undefined;
+	_responseHeaders: Headers | undefined;
 	_requestHeaders: Headers | null = null;
-	_parsedCookies: Map<string, string> | undefined;
-	_cookiesParsed = false;
+	_parsedCookies: Map<string, string> | null | undefined;
 	_responseStatus: Status | undefined;
 
 	get responseStatus() {
@@ -231,38 +230,27 @@ class InternalContext {
 		return this._responseHeaders;
 	}
 
-	cookies() {
-		if (!this._cookiesParsed) {
-			this._cookiesParsed = true;
-			const header = this._requestHeaders?.get("cookie");
-			if (header) {
-				this._parsedCookies = parseCookies(header);
-			}
-		}
-		return this._parsedCookies;
+	setHeader(key: string, value: string) {
+		this.responseHeaders.set(key, value);
 	}
 
-	setHeader = (key: string, value: string) => {
-		this.responseHeaders.set(key, value);
-	};
-
-	getHeader = (key: string) => {
+	getHeader(key: string) {
 		return this._requestHeaders?.get(key) ?? null;
-	};
+	}
 
-	getCookie = (key: string, prefix?: CookiePrefixOptions) => {
+	getCookie(key: string, prefix?: CookiePrefixOptions) {
 		const finalKey = getCookieKey(key, prefix);
 		if (!finalKey) {
 			return null;
 		}
 		return this.cookies()?.get(finalKey) || null;
-	};
+	}
 
-	getSignedCookie = async (
+	async getSignedCookie(
 		key: string,
 		secret: string,
 		prefix?: CookiePrefixOptions,
-	) => {
+	) {
 		const finalKey = getCookieKey(key, prefix);
 		if (!finalKey) {
 			return null;
@@ -283,32 +271,32 @@ class InternalContext {
 		const secretKey = await getCryptoKey(secret);
 		const isVerified = await verifySignature(signature, signedValue, secretKey);
 		return isVerified ? signedValue : false;
-	};
+	}
 
-	setCookie = (key: string, value: string, options?: CookieOptions) => {
+	setCookie(key: string, value: string, options?: CookieOptions) {
 		const cookie = serializeCookie(key, value, options);
 		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
-	};
+	}
 
-	setSignedCookie = async (
+	async setSignedCookie(
 		key: string,
 		value: string,
 		secret: string,
 		options?: CookieOptions,
-	) => {
+	) {
 		const cookie = await serializeSignedCookie(key, value, secret, options);
 		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
-	};
+	}
 
-	redirect = (url: string) => {
+	redirect(url: string) {
 		const headers = this.responseHeaders;
 		headers.set("location", url);
 		return new APIError("FOUND", undefined, headers);
-	};
+	}
 
-	error = (
+	error(
 		status: keyof typeof statusCodes | Status,
 		body?:
 			| {
@@ -317,15 +305,15 @@ class InternalContext {
 			  }
 			| undefined,
 		headers?: HeadersInit,
-	) => {
+	) {
 		return new APIError(status, body, headers);
-	};
+	}
 
-	setStatus = (status: Status) => {
+	setStatus(status: Status) {
 		this._responseStatus = status;
-	};
+	}
 
-	json = (
+	json(
 		json: Record<string, any>,
 		routerResponse?:
 			| {
@@ -335,7 +323,7 @@ class InternalContext {
 					body?: Record<string, any>;
 			  }
 			| Response,
-	) => {
+	) {
 		if (!this.asResponse) {
 			return json;
 		}
@@ -344,35 +332,21 @@ class InternalContext {
 			routerResponse,
 			_flag: "json",
 		};
-	};
+	}
+
+	cookies() {
+		if (this._parsedCookies === undefined) {
+			const header = this._requestHeaders?.get("cookie");
+			this._parsedCookies = header ? parseCookies(header) : null;
+		}
+		return this._parsedCookies;
+	}
 }
 
-function resolveRequestHeaders(
-	context: InputContext<any, any>,
-): Headers | null {
-	if (context.headers !== undefined) {
-		return context.headers instanceof Headers
-			? context.headers
-			: new Headers(context.headers);
-	}
-	if ("request" in context && isRequest(context.request)) {
-		return context.request.headers;
-	}
-	return null;
-}
-
-function applyUse(
+async function applyMiddleware(
 	ctx: InternalContext,
-	options: EndpointOptions,
-): InternalContext | Promise<InternalContext> {
-	const hooks = options.use;
-	if (!hooks?.length) {
-		return ctx;
-	}
-	return applyUseAsync(ctx, hooks);
-}
-
-async function applyUseAsync(ctx: InternalContext, hooks: MiddlewareHandler[]) {
+	hooks: MiddlewareHandler[],
+) {
 	for (const middleware of hooks) {
 		const response = (await middleware({
 			...ctx,
@@ -392,44 +366,6 @@ async function applyUseAsync(ctx: InternalContext, hooks: MiddlewareHandler[]) {
 	return ctx;
 }
 
-function fillContext(
-	ctx: InternalContext,
-	context: InputContext<any, any>,
-	options: EndpointOptions,
-	path: string | undefined,
-) {
-	ctx.body = context.body;
-	ctx.query = context.query;
-	ctx.path = context.path || path || "virtual:";
-	ctx.context = "context" in context && context.context ? context.context : {};
-	if (context.headers !== undefined) {
-		ctx.headers = context.headers;
-	}
-	if (context.request !== undefined) {
-		ctx.request = context.request;
-	}
-	if ("params" in context) {
-		ctx.params = context.params;
-	}
-	ctx.method =
-		context.method ??
-		(Array.isArray(options.method)
-			? options.method[0]
-			: options.method === "*"
-				? "GET"
-				: options.method);
-	if (context.asResponse) {
-		ctx.asResponse = true;
-	}
-	if (context.returnHeaders) {
-		ctx.returnHeaders = true;
-	}
-	if (context.returnStatus) {
-		ctx.returnStatus = true;
-	}
-	ctx._requestHeaders = resolveRequestHeaders(context);
-}
-
 export const createInternalContext = (
 	context: InputContext<any, any>,
 	{
@@ -441,24 +377,50 @@ export const createInternalContext = (
 	},
 ): InternalContext | Promise<InternalContext> => {
 	const ctx = new InternalContext();
-	fillContext(ctx, context, options, path);
+	ctx.body = context.body;
+	ctx.query = context.query;
+	ctx.path = context.path || path || "virtual:";
+	ctx.context = context.context || {};
+	ctx.headers = context.headers;
+	ctx.request = context.request;
+	ctx.params = "params" in context ? context.params : undefined;
+	ctx.method =
+		context.method ??
+		(Array.isArray(options.method)
+			? options.method[0]
+			: options.method === "*"
+				? "GET"
+				: options.method);
+	ctx.asResponse = context.asResponse;
+	ctx.returnHeaders = context.returnHeaders;
+	ctx.returnStatus = context.returnStatus;
+	ctx._requestHeaders =
+		context.headers !== undefined
+			? context.headers instanceof Headers
+				? context.headers
+				: new Headers(context.headers)
+			: "request" in context && isRequest(context.request)
+				? context.request.headers
+				: null;
 
-	const needsValidation = Boolean(
+	const finish = () =>
+		options.use?.length ? applyMiddleware(ctx, options.use) : ctx;
+
+	if (
 		options.body ||
-			options.query ||
-			options.requireHeaders ||
-			options.requireRequest,
-	);
-	if (!needsValidation) {
-		return applyUse(ctx, options);
+		options.query ||
+		options.requireHeaders ||
+		options.requireRequest
+	) {
+		return runValidation(options, context).then(({ data, error }) => {
+			if (error) {
+				throw new ValidationError(error.message, error.issues);
+			}
+			ctx.body = data.body;
+			ctx.query = data.query;
+			return finish();
+		});
 	}
 
-	return runValidation(options, context).then(({ data, error }) => {
-		if (error) {
-			throw new ValidationError(error.message, error.issues);
-		}
-		ctx.body = data.body;
-		ctx.query = data.query;
-		return applyUse(ctx, options);
-	});
+	return finish();
 };

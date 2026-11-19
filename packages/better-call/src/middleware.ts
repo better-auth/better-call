@@ -14,7 +14,7 @@ import { createInternalContext } from "./context";
 import type { EndpointContext, EndpointOptions } from "./endpoint";
 import { kAPIErrorHeaderSymbol } from "./error";
 import type { Prettify } from "./helper";
-import { isAPIError, isThenable } from "./utils";
+import { isAPIError } from "./utils";
 
 export interface MiddlewareOptions extends Omit<EndpointOptions, "method"> {}
 
@@ -143,7 +143,8 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 			options,
 			path: "/",
 		});
-		const internalContext = isThenable(created) ? await created : created;
+		const internalContext =
+			created instanceof Promise ? await created : created;
 
 		if (!_handler) {
 			throw new Error("handler must be defined");

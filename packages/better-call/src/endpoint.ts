@@ -17,7 +17,7 @@ import type { MiddlewareHandler } from "./middleware";
 import type { OpenAPIParameter, OpenAPISchemaType } from "./openapi";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { toResponse } from "./to-response";
-import { isAPIError, isThenable } from "./utils";
+import { isAPIError } from "./utils";
 
 export interface EndpointBaseOptions {
 	/**
@@ -626,7 +626,7 @@ export function createEndpoint<
 				options,
 				path,
 			});
-			internalContext = isThenable(created) ? await created : created;
+			internalContext = created instanceof Promise ? await created : created;
 		} catch (validationError) {
 			// If it's not a validation error, we throw it
 			if (!(validationError instanceof ValidationError)) throw validationError;
@@ -657,21 +657,14 @@ export function createEndpoint<
 			}
 			throw e;
 		});
-		const responseHeaders = internalContext._responseHeaders;
-		const headers = responseHeaders ?? new Headers();
+		const headers = internalContext._responseHeaders ?? new Headers();
 		const status = internalContext.responseStatus;
 
 		return (
 			context.asResponse
 				? toResponse(
 						response,
-						status === undefined
-							? responseHeaders
-								? { headers }
-								: undefined
-							: responseHeaders
-								? { headers, status }
-								: { status },
+						status === undefined ? { headers } : { headers, status },
 					)
 				: context.returnHeaders
 					? context.returnStatus

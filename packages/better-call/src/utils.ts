@@ -125,15 +125,7 @@ type Failure<E> = {
 
 type Result<T, E = Error> = Success<T> | Failure<E>;
 
-export function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as Promise<T>).then === "function"
-	);
-}
-
-async function _tryCatch<T, E = Error>(
+export async function tryCatch<T, E = Error>(
 	promise: Promise<T>,
 ): Promise<Result<T, E>> {
 	try {

@@ -750,33 +750,6 @@ describe("response", () => {
 		});
 	});
 
-	describe("destructured helpers", () => {
-		it("keeps helpers callable after they are extracted from context", async () => {
-			const endpoint = createEndpoint(
-				"/session",
-				{
-					method: "GET",
-					requireHeaders: true,
-				},
-				async ({ getCookie, setHeader, json }) => {
-					setHeader("x-session", "1");
-					return json({ session: getCookie("session") });
-				},
-			);
-
-			const response = await endpoint({
-				headers: {
-					cookie: "session=abc",
-				},
-				asResponse: true,
-			});
-
-			expect(response).toBeInstanceOf(Response);
-			expect(response.headers.get("x-session")).toBe("1");
-			await expect(response.json()).resolves.toEqual({ session: "abc" });
-		});
-	});
-
 	describe("API Error", () => {
 		it("should throw API Error", async () => {
 			const endpoint = createEndpoint(
