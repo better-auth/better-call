@@ -398,6 +398,40 @@ describe("types", async () => {
 		expectTypeOf(objResponse1).toEqualTypeOf<Response>();
 	});
 
+	it("requires declared context inputs", async () => {
+		const withHeaders = createEndpoint(
+			"/headers",
+			{ method: "GET", requireHeaders: true },
+			async () => "ok",
+		);
+		const withRequest = createEndpoint(
+			"/request",
+			{ method: "GET", requireRequest: true },
+			async () => "ok",
+		);
+		const withBody = createEndpoint(
+			"/body",
+			{ method: "POST", body: z.object({ name: z.string() }) },
+			async (ctx) => ctx.body.name,
+		);
+
+		const invalidCalls = () => {
+			// @ts-expect-error headers are required for direct calls
+			void withHeaders();
+			// @ts-expect-error request is required for direct calls
+			void withRequest();
+			// @ts-expect-error body is required for direct calls
+			void withBody();
+		};
+		void invalidCalls;
+
+		await expect(withHeaders({ headers: new Headers() })).resolves.toBe("ok");
+		await expect(
+			withRequest({ request: new Request("http://localhost/request") }),
+		).resolves.toBe("ok");
+		await expect(withBody({ body: { name: "ok" } })).resolves.toBe("ok");
+	});
+
 	it("shouldn't allow GET or HEAD with body", async () => {
 		try {
 			createEndpoint(
