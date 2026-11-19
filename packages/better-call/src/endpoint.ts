@@ -657,7 +657,8 @@ export function createEndpoint<
 			}
 			throw e;
 		});
-		const headers = internalContext.responseHeaders ?? new Headers();
+		const responseHeaders = internalContext._responseHeaders;
+		const headers = responseHeaders ?? new Headers();
 		const status = internalContext.responseStatus;
 
 		return (
@@ -665,10 +666,10 @@ export function createEndpoint<
 				? toResponse(
 						response,
 						status === undefined
-							? internalContext.responseHeaders
+							? responseHeaders
 								? { headers }
 								: undefined
-							: internalContext.responseHeaders
+							: responseHeaders
 								? { headers, status }
 								: { status },
 					)

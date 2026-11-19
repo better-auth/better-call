@@ -150,7 +150,7 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 		}
 		try {
 			const response = await _handler(internalContext as any);
-			const headers = internalContext.responseHeaders ?? new Headers();
+			const headers = internalContext._responseHeaders ?? new Headers();
 			return context.returnHeaders
 				? {
 						headers,
@@ -164,7 +164,7 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 					enumerable: false,
 					configurable: true,
 					get() {
-						return internalContext.responseHeaders;
+						return internalContext._responseHeaders;
 					},
 				});
 			}

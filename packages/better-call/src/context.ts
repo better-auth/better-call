@@ -214,7 +214,7 @@ class InternalContext {
 	asResponse?: boolean;
 	returnHeaders?: boolean;
 	returnStatus?: boolean;
-	responseHeaders?: Headers;
+	_responseHeaders: Headers | undefined = undefined;
 	_requestHeaders: Headers | null = null;
 	_parsedCookies: Map<string, string> | undefined;
 	_cookiesParsed = false;
@@ -224,11 +224,11 @@ class InternalContext {
 		return this._responseStatus;
 	}
 
-	responseHeadersInstance() {
-		if (!this.responseHeaders) {
-			this.responseHeaders = new Headers();
+	get responseHeaders(): Headers {
+		if (!this._responseHeaders) {
+			this._responseHeaders = new Headers();
 		}
-		return this.responseHeaders;
+		return this._responseHeaders;
 	}
 
 	cookies() {
@@ -243,7 +243,7 @@ class InternalContext {
 	}
 
 	setHeader(key: string, value: string) {
-		this.responseHeadersInstance().set(key, value);
+		this.responseHeaders.set(key, value);
 	}
 
 	getHeader(key: string) {
@@ -287,7 +287,7 @@ class InternalContext {
 
 	setCookie(key: string, value: string, options?: CookieOptions) {
 		const cookie = serializeCookie(key, value, options);
-		this.responseHeadersInstance().append("set-cookie", cookie);
+		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
 	}
 
@@ -298,12 +298,12 @@ class InternalContext {
 		options?: CookieOptions,
 	) {
 		const cookie = await serializeSignedCookie(key, value, secret, options);
-		this.responseHeadersInstance().append("set-cookie", cookie);
+		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
 	}
 
 	redirect(url: string) {
-		const headers = this.responseHeadersInstance();
+		const headers = this.responseHeaders;
 		headers.set("location", url);
 		return new APIError("FOUND", undefined, headers);
 	}
@@ -386,7 +386,7 @@ async function applyUseAsync(ctx: InternalContext, hooks: MiddlewareHandler[]) {
 			Object.assign(ctx.context, response.response);
 		}
 		if (response.headers) {
-			copyHeaders(ctx.responseHeadersInstance(), response.headers);
+			copyHeaders(ctx.responseHeaders, response.headers);
 		}
 	}
 	return ctx;

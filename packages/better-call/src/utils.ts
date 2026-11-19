@@ -133,7 +133,7 @@ export function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
 	);
 }
 
-export async function tryCatch<T, E = Error>(
+async function _tryCatch<T, E = Error>(
 	promise: Promise<T>,
 ): Promise<Result<T, E>> {
 	try {
