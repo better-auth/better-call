@@ -1128,4 +1128,30 @@ describe("responseHeaders", () => {
 		const result = await endpoint();
 		expect(result.count).toBe(1);
 	});
+
+	it("is a Headers instance before anything is written", async () => {
+		const endpoint = createEndpoint("/test", { method: "GET" }, async (ctx) => {
+			expect(ctx.responseHeaders).toBeInstanceOf(Headers);
+			expect(ctx.responseHeaders.getSetCookie()).toEqual([]);
+			const alreadySet = ctx.responseHeaders
+				.getSetCookie()
+				.some((c) => c.startsWith("session="));
+			if (!alreadySet) {
+				ctx.setCookie("session", "abc");
+			}
+			return { count: ctx.responseHeaders.getSetCookie().length };
+		});
+		const result = await endpoint();
+		expect(result.count).toBe(1);
+	});
+
+	it("keeps asResponse working when the handler only inspects headers", async () => {
+		const endpoint = createEndpoint("/test", { method: "GET" }, async (ctx) => {
+			ctx.responseHeaders.get("x-custom");
+			return { ok: true };
+		});
+		const response = await endpoint({ asResponse: true });
+		expect(response).toBeInstanceOf(Response);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+	});
 });

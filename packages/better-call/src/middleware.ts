@@ -139,17 +139,19 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 			typeof optionsOrHandler === "function" ? optionsOrHandler : handler;
 		const options =
 			typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
-		const internalContext = await createInternalContext(context, {
+		const created = createInternalContext(context, {
 			options,
 			path: "/",
 		});
+		const internalContext =
+			created instanceof Promise ? await created : created;
 
 		if (!_handler) {
 			throw new Error("handler must be defined");
 		}
 		try {
 			const response = await _handler(internalContext as any);
-			const headers = internalContext.responseHeaders;
+			const headers = internalContext._responseHeaders ?? new Headers();
 			return context.returnHeaders
 				? {
 						headers,
@@ -163,7 +165,7 @@ export function createMiddleware(optionsOrHandler: any, handler?: any) {
 					enumerable: false,
 					configurable: true,
 					get() {
-						return internalContext.responseHeaders;
+						return internalContext._responseHeaders;
 					},
 				});
 			}
