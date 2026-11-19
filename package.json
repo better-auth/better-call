@@ -14,6 +14,7 @@
 		"typecheck": "tsc --build",
 		"bump": "bumpp",
 		"test": "pnpm -w --filter=./packages/* run test",
+		"bench": "pnpm -w --filter=better-call run build && pnpm -w --filter=@better-auth/benchmarks start",
 		"coverage": "pnpm -w --filter=./packages/* run coverage",
 		"serve": "bun --hot example/hello.ts"
 	},

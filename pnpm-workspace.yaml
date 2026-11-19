@@ -1,6 +1,7 @@
 packages:
   - packages/**
   - example
+  - benchmarks
 
 blockExoticSubdeps: true
 

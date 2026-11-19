@@ -219,6 +219,15 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@24.19.2)(@vitest/coverage-v8@4.1.12)(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
 
+  benchmarks:
+    dependencies:
+      better-call:
+        specifier: workspace:*
+        version: link:../packages/better-call
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   example:
     dependencies:
       better-call:
