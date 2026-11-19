@@ -25,36 +25,82 @@ type TimedResponse = {
 	ms: number;
 };
 
-function percentile(sorted: number[], p: number): number {
-	if (sorted.length === 0) {
-		return 0;
-	}
-	const rank = Math.ceil((p / 100) * sorted.length) - 1;
-	const index = Math.min(sorted.length - 1, Math.max(0, rank));
-	return sorted[index] ?? 0;
+const HIST_BUCKETS = 1024;
+const HIST_MIN_US = 1;
+const HIST_MAX_US = 60_000_000;
+const HIST_LOG_MIN = Math.log(HIST_MIN_US);
+const HIST_LOG_RANGE = Math.log(HIST_MAX_US) - HIST_LOG_MIN;
+
+type LoadStats = {
+	ok: number;
+	errors: number;
+	non2xx: number;
+	latencies: Uint32Array;
+};
+
+function createStats(): LoadStats {
+	return {
+		ok: 0,
+		errors: 0,
+		non2xx: 0,
+		latencies: new Uint32Array(HIST_BUCKETS),
+	};
 }
 
-function summarize(samples: TimedResponse[], elapsedMs: number): LoadResult {
-	const latencies: number[] = [];
-	let errors = 0;
-	let non2xx = 0;
-	for (const sample of samples) {
-		if (!sample.ok) {
-			errors += 1;
-			non2xx += 1;
-			continue;
-		}
-		latencies.push(sample.ms);
+function latencyBucket(ms: number): number {
+	const us = ms * 1000;
+	if (!Number.isFinite(us) || us <= HIST_MIN_US) {
+		return 0;
 	}
-	latencies.sort((a, b) => a - b);
-	const ok = latencies.length;
+	if (us >= HIST_MAX_US) {
+		return HIST_BUCKETS - 1;
+	}
+	return Math.min(
+		HIST_BUCKETS - 1,
+		Math.floor(((Math.log(us) - HIST_LOG_MIN) / HIST_LOG_RANGE) * HIST_BUCKETS),
+	);
+}
+
+function bucketToMs(index: number): number {
+	const logUs = HIST_LOG_MIN + ((index + 0.5) / HIST_BUCKETS) * HIST_LOG_RANGE;
+	return Math.exp(logUs) / 1000;
+}
+
+function recordSample(stats: LoadStats, sample: TimedResponse) {
+	if (!sample.ok) {
+		stats.errors += 1;
+		stats.non2xx += 1;
+		return;
+	}
+	stats.ok += 1;
+	const bucket = latencyBucket(sample.ms);
+	stats.latencies[bucket] = (stats.latencies[bucket] ?? 0) + 1;
+}
+
+function percentile(stats: LoadStats, p: number): number {
+	if (stats.ok === 0) {
+		return 0;
+	}
+	const rank = Math.ceil((p / 100) * stats.ok) - 1;
+	const target = Math.min(stats.ok - 1, Math.max(0, rank));
+	let seen = 0;
+	for (let index = 0; index < stats.latencies.length; index++) {
+		seen += stats.latencies[index] ?? 0;
+		if (seen > target) {
+			return bucketToMs(index);
+		}
+	}
+	return HIST_MAX_US / 1000;
+}
+
+function summarize(stats: LoadStats, elapsedMs: number): LoadResult {
 	return {
-		requestsPerSec: elapsedMs > 0 ? (ok / elapsedMs) * 1000 : 0,
-		latencyP50: percentile(latencies, 50),
-		latencyP99: percentile(latencies, 99),
-		errors,
-		non2xx,
-		samples: samples.length,
+		requestsPerSec: elapsedMs > 0 ? (stats.ok / elapsedMs) * 1000 : 0,
+		latencyP50: percentile(stats, 50),
+		latencyP99: percentile(stats, 99),
+		errors: stats.errors,
+		non2xx: stats.non2xx,
+		samples: stats.ok + stats.errors,
 	};
 }
 
@@ -62,24 +108,43 @@ async function runWorkers(
 	connections: number,
 	durationSeconds: number,
 	send: () => Promise<TimedResponse>,
-): Promise<{ samples: TimedResponse[]; elapsedMs: number }> {
-	const samples: TimedResponse[] = [];
+	stats?: LoadStats,
+): Promise<number> {
 	const end = performance.now() + durationSeconds * 1000;
 	const worker = async () => {
 		while (performance.now() < end) {
 			try {
-				samples.push(await send());
+				const sample = await send();
+				if (stats) {
+					recordSample(stats, sample);
+				}
 			} catch {
-				samples.push({ ok: false, ms: 0 });
+				if (stats) {
+					recordSample(stats, { ok: false, ms: 0 });
+				}
 			}
 		}
 	};
 	const started = performance.now();
 	await Promise.all(Array.from({ length: connections }, () => worker()));
-	return {
-		samples,
-		elapsedMs: performance.now() - started,
-	};
+	return performance.now() - started;
+}
+
+async function measure(
+	options: LoadOptions,
+	send: () => Promise<TimedResponse>,
+): Promise<LoadResult> {
+	if (options.warmup > 0) {
+		await runWorkers(options.connections, options.warmup, send);
+	}
+	const stats = createStats();
+	const elapsedMs = await runWorkers(
+		options.connections,
+		options.duration,
+		send,
+		stats,
+	);
+	return summarize(stats, elapsedMs);
 }
 
 function createRequestInit(request: BenchRequest): RequestInit {
@@ -167,6 +232,21 @@ function createHttpClient(
 		send(): Promise<TimedResponse> {
 			const started = performance.now();
 			return new Promise((resolve, reject) => {
+				let settled = false;
+				const finish = (sample: TimedResponse) => {
+					if (settled) {
+						return;
+					}
+					settled = true;
+					resolve(sample);
+				};
+				const fail = (error: Error) => {
+					if (settled) {
+						return;
+					}
+					settled = true;
+					reject(error);
+				};
 				const req = http.request(
 					{
 						agent,
@@ -178,17 +258,23 @@ function createHttpClient(
 						headers,
 					},
 					(res) => {
-						res.resume();
 						res.on("end", () => {
 							const status = res.statusCode ?? 0;
-							resolve({
+							finish({
 								ok: status >= 200 && status < 300,
 								ms: performance.now() - started,
 							});
 						});
+						res.on("error", fail);
+						res.on("close", () => {
+							if (!res.complete) {
+								fail(new Error("incomplete response"));
+							}
+						});
+						res.resume();
 					},
 				);
-				req.on("error", reject);
+				req.on("error", fail);
 				req.end(request.body);
 			});
 		},
@@ -210,15 +296,7 @@ export async function runHttpLoad(
 	);
 	try {
 		await assertHealthy(scenario, server.origin);
-		if (options.warmup > 0) {
-			await runWorkers(options.connections, options.warmup, client.send);
-		}
-		const { samples, elapsedMs } = await runWorkers(
-			options.connections,
-			options.duration,
-			client.send,
-		);
-		return summarize(samples, elapsedMs);
+		return await measure(options, client.send);
 	} finally {
 		client.close();
 		await server.close();
@@ -245,13 +323,5 @@ export async function runHandlerLoad(
 		};
 	};
 	await assertHealthy(scenario);
-	if (options.warmup > 0) {
-		await runWorkers(options.connections, options.warmup, send);
-	}
-	const { samples, elapsedMs } = await runWorkers(
-		options.connections,
-		options.duration,
-		send,
-	);
-	return summarize(samples, elapsedMs);
+	return measure(options, send);
 }

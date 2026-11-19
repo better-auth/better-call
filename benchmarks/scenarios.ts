@@ -10,7 +10,7 @@ export type BenchRequest = {
 	body?: string;
 };
 
-export type FetchHandler = (request: Request) => Promise<Response>;
+type FetchHandler = (request: Request) => Promise<Response>;
 
 export type Scenario = {
 	name: string;
