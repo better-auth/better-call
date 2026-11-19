@@ -242,27 +242,27 @@ class InternalContext {
 		return this._parsedCookies;
 	}
 
-	setHeader(key: string, value: string) {
+	setHeader = (key: string, value: string) => {
 		this.responseHeaders.set(key, value);
-	}
+	};
 
-	getHeader(key: string) {
+	getHeader = (key: string) => {
 		return this._requestHeaders?.get(key) ?? null;
-	}
+	};
 
-	getCookie(key: string, prefix?: CookiePrefixOptions) {
+	getCookie = (key: string, prefix?: CookiePrefixOptions) => {
 		const finalKey = getCookieKey(key, prefix);
 		if (!finalKey) {
 			return null;
 		}
 		return this.cookies()?.get(finalKey) || null;
-	}
+	};
 
-	async getSignedCookie(
+	getSignedCookie = async (
 		key: string,
 		secret: string,
 		prefix?: CookiePrefixOptions,
-	) {
+	) => {
 		const finalKey = getCookieKey(key, prefix);
 		if (!finalKey) {
 			return null;
@@ -283,32 +283,32 @@ class InternalContext {
 		const secretKey = await getCryptoKey(secret);
 		const isVerified = await verifySignature(signature, signedValue, secretKey);
 		return isVerified ? signedValue : false;
-	}
+	};
 
-	setCookie(key: string, value: string, options?: CookieOptions) {
+	setCookie = (key: string, value: string, options?: CookieOptions) => {
 		const cookie = serializeCookie(key, value, options);
 		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
-	}
+	};
 
-	async setSignedCookie(
+	setSignedCookie = async (
 		key: string,
 		value: string,
 		secret: string,
 		options?: CookieOptions,
-	) {
+	) => {
 		const cookie = await serializeSignedCookie(key, value, secret, options);
 		this.responseHeaders.append("set-cookie", cookie);
 		return cookie;
-	}
+	};
 
-	redirect(url: string) {
+	redirect = (url: string) => {
 		const headers = this.responseHeaders;
 		headers.set("location", url);
 		return new APIError("FOUND", undefined, headers);
-	}
+	};
 
-	error(
+	error = (
 		status: keyof typeof statusCodes | Status,
 		body?:
 			| {
@@ -317,15 +317,15 @@ class InternalContext {
 			  }
 			| undefined,
 		headers?: HeadersInit,
-	) {
+	) => {
 		return new APIError(status, body, headers);
-	}
+	};
 
-	setStatus(status: Status) {
+	setStatus = (status: Status) => {
 		this._responseStatus = status;
-	}
+	};
 
-	json(
+	json = (
 		json: Record<string, any>,
 		routerResponse?:
 			| {
@@ -335,7 +335,7 @@ class InternalContext {
 					body?: Record<string, any>;
 			  }
 			| Response,
-	) {
+	) => {
 		if (!this.asResponse) {
 			return json;
 		}
@@ -344,7 +344,7 @@ class InternalContext {
 			routerResponse,
 			_flag: "json",
 		};
-	}
+	};
 }
 
 function resolveRequestHeaders(
