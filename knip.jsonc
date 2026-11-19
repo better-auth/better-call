@@ -5,6 +5,10 @@
 			"project": ["example/**/*.ts!"],
 			"ignoreDependencies": ["better-call", "zod"]
 		},
+		"./benchmarks": {
+			"entry": ["run.ts!"],
+			"project": ["**/*.ts!"]
+		},
 		"./packages/*": {
 			"project": ["src/**/*.ts!"],
 			"ignoreDependencies": [

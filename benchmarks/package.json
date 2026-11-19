@@ -1,0 +1,12 @@
+{
+	"name": "@better-auth/benchmarks",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node --disable-warning=ExperimentalWarning --experimental-strip-types run.ts"
+	},
+	"dependencies": {
+		"better-call": "workspace:*",
+		"zod": "^4.6.7"
+	}
+}

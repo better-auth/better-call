@@ -1,0 +1,14 @@
+{
+	"extends": "../tsconfig.base.json",
+	"include": ["./**/*.ts"],
+	"compilerOptions": {
+		"lib": ["esnext", "dom", "dom.iterable"],
+		"types": ["node"],
+		"allowImportingTsExtensions": true
+	},
+	"references": [
+		{
+			"path": "../packages/better-call"
+		}
+	]
+}
