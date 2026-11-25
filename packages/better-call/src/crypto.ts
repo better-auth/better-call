@@ -2,16 +2,35 @@ import { getWebcryptoSubtle } from "@better-auth/utils";
 
 const algorithm = { name: "HMAC", hash: "SHA-256" };
 
+const importKey = (secret: BufferSource) =>
+	getWebcryptoSubtle().importKey("raw", secret, algorithm, false, [
+		"sign",
+		"verify",
+	]);
+
+/**
+ * Keys imported from string secrets. Signing or verifying a cookie used to
+ * import the same secret every time. The map is cleared when it fills up, so
+ * rotated secrets don't pile up. Buffer secrets are not cached because the
+ * caller can change their contents.
+ */
+const keyCache = new Map<string, CryptoKey>();
+const KEY_CACHE_LIMIT = 16;
+
 export const getCryptoKey = async (secret: string | BufferSource) => {
-	const secretBuf =
-		typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
-	return await getWebcryptoSubtle().importKey(
-		"raw",
-		secretBuf,
-		algorithm,
-		false,
-		["sign", "verify"],
-	);
+	if (typeof secret !== "string") {
+		return await importKey(secret);
+	}
+	const cached = keyCache.get(secret);
+	if (cached) {
+		return cached;
+	}
+	const key = await importKey(new TextEncoder().encode(secret));
+	if (keyCache.size >= KEY_CACHE_LIMIT) {
+		keyCache.clear();
+	}
+	keyCache.set(secret, key);
+	return key;
 };
 
 export const verifySignature = async (
