@@ -50,5 +50,19 @@ describe("getCryptoKey", () => {
 		expect(importKey).toHaveBeenCalledTimes(1);
 		const signature = decodeURIComponent(signed).split(".")[1]!;
 		expect(await verifySignature(signature, "value", key)).toBe(true);
+
+		// The early secrets were dropped when the cache filled up.
+		await getCryptoKey("rotated-secret-0");
+		expect(importKey).toHaveBeenCalledTimes(2);
+	});
+
+	it("reuses one key for concurrent imports of the same secret", async () => {
+		const secret = "secret-imported-concurrently";
+		const [a, b] = await Promise.all([
+			getCryptoKey(secret),
+			getCryptoKey(secret),
+		]);
+
+		expect(b).toBe(a);
 	});
 });

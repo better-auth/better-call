@@ -26,6 +26,11 @@ export const getCryptoKey = async (secret: string | BufferSource) => {
 		return cached;
 	}
 	const key = await importKey(new TextEncoder().encode(secret));
+	// A concurrent call may have stored the same secret while this one waited.
+	const stored = keyCache.get(secret);
+	if (stored) {
+		return stored;
+	}
 	if (keyCache.size >= KEY_CACHE_LIMIT) {
 		keyCache.clear();
 	}
