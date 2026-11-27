@@ -1,6 +1,6 @@
 {
 	"name": "@better-auth/root",
-	"packageManager": "pnpm@12.18.0",
+	"packageManager": "pnpm@12.23.0",
 	"private": true,
 	"scripts": {
 		"build": "pnpm -w --filter=./packages/* run build",
